@@ -153,7 +153,7 @@ function convertSql(sql: string) {
   // unmatched parenthesis before SQL clauses such as END.
   q = q.replace(
     /date\(\s*([^,]+?)\s*,\s*'\+'\s*\|\|\s*([^|,)]+?)\s*\|\|\s*' days'\s*\)/gi,
-    `(($1)::date + (($2)::numeric * INTERVAL '1 day'))::date::text`
+    `CAST((CAST($1 AS date) + (CAST($2 AS numeric) * INTERVAL '1 day')) AS text)`
   );
   return q;
 }

@@ -104,7 +104,25 @@ export async function GET(req: Request) {
       toParty = tp;
     }
 
-    const company = (await adminDb()).prepare("SELECT id,name,code,address,city,state,email,gstin,pan,financial_year FROM companies WHERE id=?").get(companyId) as any;
+    const company = (await adminDb())
+      .prepare(
+        `
+    SELECT
+      id,
+      TRIM(name) AS name,
+      TRIM(code) AS code,
+      address,
+      city,
+      state,
+      email,
+      gstin,
+      pan,
+      financial_year
+    FROM companies
+    WHERE id = ?
+  `,
+      )
+      .get(companyId) as any;
     if (!company) throw Error("Company not found");
     const companyBank = (await d.prepare("SELECT * FROM company_accounts WHERE active=1 ORDER BY id LIMIT 1").get()) as any;
     const raw = (await d.prepare("SELECT commercial_bill_settings FROM company_settings WHERE id=1").get()) as any;
@@ -143,7 +161,7 @@ export async function GET(req: Request) {
     let y = top + 7;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
-    text(doc, company.name, L + 3.5, y);
+    text(doc, clean(company.name) || clean(company.code) || "Company", L + 3.5, y);
     y += 5;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.8);
@@ -319,7 +337,7 @@ export async function GET(req: Request) {
     if (bool(s, "show_signature")) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7.5);
-      right(doc, `for ${clean(company.name)}`, R, bottomTop + 46);
+      right(doc, `for ${clean(company.name) || clean(company.code) || "Company"}`, R, bottomTop + 46);
       doc.line(151, bottomTop + 52, R, bottomTop + 52);
       doc.setFont("helvetica", "normal");
       right(doc, "Authorised Signatory", R, bottomTop + 57);

@@ -75,7 +75,12 @@ export async function GET(req: Request) {
     const u = new URL(req.url);
     const mode = (u.searchParams.get("mode") || "LIVE") as Mode;
     const id = Number(u.searchParams.get("id"));
-    const companyId = Number(req.headers.get("x-aksh-company-id") || u.searchParams.get("company_id") || 1);
+
+    const companyId = Number(req.headers.get("x-aksh-company-id") || u.searchParams.get("company_id") || 0);
+
+    if (!companyId) {
+      throw Error("Current company is required");
+    }
     const billType = u.searchParams.get("bill_type") || "purchase";
     const thirdPartyId = Number(u.searchParams.get("third_party_id") || 0);
     if (!id) throw Error("Purchase id is required");
@@ -314,7 +319,7 @@ export async function GET(req: Request) {
     if (bool(s, "show_signature")) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7.5);
-      right(doc, `for ${clean(company.name) || "SOLIVY"}`, R, bottomTop + 46);
+      right(doc, `for ${clean(company.name)}`, R, bottomTop + 46);
       doc.line(151, bottomTop + 52, R, bottomTop + 52);
       doc.setFont("helvetica", "normal");
       right(doc, "Authorised Signatory", R, bottomTop + 57);

@@ -108,13 +108,18 @@ async function ensurePgSchema(schema: string, kind: 'admin' | 'company') {
       // Run the DDL and seed in one transaction so a failed first request cannot leave
       // a half-initialized online database behind.
       await client.query('BEGIN');
+      // Serialize admin bootstrap across Vercel/Neon serverless instances.
+      // Without this, two cold-starts can race while creating/seeding admin data.
+      if (kind === 'admin') {
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext('solivy_admin_bootstrap'))`);
+      }
       await client.query(pgDdl(kind === 'admin' ? ADMIN_DDL : COMPANY_DDL));
       if (kind === 'company') {
         await client.query(`INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY') ON CONFLICT (id) DO NOTHING`);
       } else {
-        await client.query(`INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY') ON CONFLICT (code) DO NOTHING`);
-        await client.query(`INSERT INTO admin_users(username,name,role,password) VALUES('admin','Administrator','ADMIN','admin123') ON CONFLICT (username) DO NOTHING`);
-        await client.query(`INSERT INTO admin_users(username,name,role,password) VALUES('tester','Test User','TESTER','test123') ON CONFLICT (username) DO NOTHING`);
+        await client.query(`INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY') ON CONFLICT DO NOTHING`);
+        await client.query(`INSERT INTO admin_users(username,name,role,password) VALUES('admin','Administrator','ADMIN','admin123') ON CONFLICT DO NOTHING`);
+        await client.query(`INSERT INTO admin_users(username,name,role,password) VALUES('tester','Test User','TESTER','test123') ON CONFLICT DO NOTHING`);
         const company = await client.query(`SELECT id FROM companies WHERE code='SOLIVY' LIMIT 1`);
         const admin = await client.query(`SELECT id FROM admin_users WHERE username='admin' LIMIT 1`);
         const tester = await client.query(`SELECT id FROM admin_users WHERE username='tester' LIMIT 1`);

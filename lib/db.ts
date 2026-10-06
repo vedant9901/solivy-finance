@@ -148,9 +148,13 @@ function convertSql(sql: string) {
   } else if (/^INSERT\s+INTO/i.test(q) && /ON CONFLICT/i.test(q) === false && /payment_allocations/i.test(q)) {
     q += ' ON CONFLICT DO NOTHING';
   }
-  // SQLite's date('YYYY-MM-DD','+'||days||' days') -> PostgreSQL date arithmetic.
-  q = q.replace(/date\(([^,]+),\s*'\+'\s*\|\|\s*([^\)]+)\)\s*/gi, `((($1)::date + ($2)::text::interval)::date::text `);
-  q = q.replace(/date\(([^,]+),\s*'\+'\s*\|\|\s*([^\)]+)\)\)/gi, `((($1)::date + ($2)::text::interval)::date::text)`);
+  // SQLite date('date','+'||days||' days') -> PostgreSQL date arithmetic.
+  // Consume the complete date() expression in one pass so we never leave an
+  // unmatched parenthesis before SQL clauses such as END.
+  q = q.replace(
+    /date\(\s*([^,]+?)\s*,\s*'\+'\s*\|\|\s*([^|,)]+?)\s*\|\|\s*' days'\s*\)/gi,
+    `(($1)::date + (($2)::numeric * INTERVAL '1 day'))::date::text`
+  );
   return q;
 }
 

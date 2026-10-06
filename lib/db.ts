@@ -1,21 +1,24 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { Pool, types as pgTypes, type PoolClient, type QueryResult } from 'pg';
 
 export type Mode = 'LIVE' | 'TEST';
 
-const defaultRoot = process.platform === 'win32'
+const ONLINE = Boolean(process.env.DATABASE_URL) && process.env.DEPLOYMENT_MODE !== 'offline' && process.env.NODE_ENV === 'production';
+
+// Keep PostgreSQL numeric results compatible with SQLite's JavaScript numbers.
+try {
+  pgTypes.setTypeParser(20, (v) => Number(v));
+  pgTypes.setTypeParser(1700, (v) => Number(v));
+} catch {}
+
+const sqliteDefaultRoot = process.platform === 'win32'
   ? path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), 'AppData', 'Roaming'), 'SOLIVY-FINANCE')
   : path.join(process.env.HOME || process.cwd(), '.solivy-finance');
-// Financial data lives outside the application folder by default. Deleting/replacing the build therefore does not delete data.
-// Set FINANCE_DATA_DIR explicitly for a server with a persistent mounted volume.
-const dataDir = path.resolve(process.env.FINANCE_DATA_DIR || path.join(defaultRoot, 'data'));
-fs.mkdirSync(dataDir, { recursive: true });
-const dbCache = new Map<string, Database.Database>();
+const sqliteDataDir = path.resolve(process.env.FINANCE_DATA_DIR || path.join(sqliteDefaultRoot, 'data'));
 
-function ensureSchema(d: Database.Database) {
-  d.pragma('journal_mode = WAL'); d.pragma('synchronous = FULL'); d.pragma('foreign_keys = ON'); d.pragma('busy_timeout = 5000');
-  d.exec(`
+const COMPANY_DDL = `
 CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'DATA_ENTRY', password TEXT DEFAULT '', password_hash TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS company_settings (id INTEGER PRIMARY KEY CHECK(id=1), entity_name TEXT NOT NULL DEFAULT 'SOLIVY', tan TEXT DEFAULT '', deductor_type TEXT NOT NULL DEFAULT 'COMPANY', preceding_turnover REAL NOT NULL DEFAULT 0, tds_auto INTEGER NOT NULL DEFAULT 1, commercial_bill_settings TEXT NOT NULL DEFAULT '{}', payment_advice_settings TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS third_parties (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, address TEXT DEFAULT '', contact TEXT DEFAULT '', gst TEXT DEFAULT '', pan TEXT DEFAULT '', email TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -37,68 +40,242 @@ CREATE TABLE IF NOT EXISTS interest_payments (id INTEGER PRIMARY KEY AUTOINCREME
 CREATE TABLE IF NOT EXISTS funding_loans (id INTEGER PRIMARY KEY AUTOINCREMENT, loan_no TEXT UNIQUE NOT NULL, lender_party_id INTEGER REFERENCES parties(id), lender_name TEXT NOT NULL, loan_start_date TEXT NOT NULL, principal_amount REAL NOT NULL, interest_type TEXT NOT NULL DEFAULT 'PERCENT', interest_rate REAL NOT NULL DEFAULT 0, fixed_interest_amount REAL NOT NULL DEFAULT 0, frequency TEXT NOT NULL DEFAULT 'MONTHLY', first_payment_date TEXT DEFAULT '', bank_name TEXT DEFAULT '', account_number TEXT DEFAULT '', ifsc TEXT DEFAULT '', notes TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS funding_schedule (id INTEGER PRIMARY KEY AUTOINCREMENT, loan_id INTEGER NOT NULL REFERENCES funding_loans(id) ON DELETE CASCADE, due_date TEXT NOT NULL, interest_amount REAL NOT NULL, principal_due REAL NOT NULL DEFAULT 0, paid_amount REAL NOT NULL DEFAULT 0, paid_date TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'DUE');
 CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, file_name TEXT NOT NULL, imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, row_count INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'IMPORTED');
-  `);
-  const addColumn=(table:string,column:string,definition:string)=>{const cols=d.prepare(`PRAGMA table_info(${table})`).all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)};
-  addColumn('company_settings','commercial_bill_settings',"TEXT NOT NULL DEFAULT '{}'"); addColumn('company_settings','payment_advice_settings',"TEXT NOT NULL DEFAULT '{}'"); addColumn('parties','email',"TEXT DEFAULT ''"); addColumn('parties','tds_enabled','INTEGER NOT NULL DEFAULT 0'); addColumn('parties','tds_section',"TEXT DEFAULT ''"); addColumn('parties','tds_rate','REAL NOT NULL DEFAULT 0'); addColumn('parties','party_type',"TEXT NOT NULL DEFAULT 'GOODS_VENDOR'"); addColumn('parties','entity_type',"TEXT NOT NULL DEFAULT 'OTHER'"); addColumn('parties','resident_status',"TEXT NOT NULL DEFAULT 'RESIDENT'"); addColumn('parties','pan_status',"TEXT NOT NULL DEFAULT 'VALID'"); addColumn('parties','tds_exempt','INTEGER NOT NULL DEFAULT 0'); addColumn('parties','opening_balance','REAL NOT NULL DEFAULT 0'); addColumn('parties','opening_balance_type',"TEXT NOT NULL DEFAULT 'PAYABLE'");
-  addColumn('purchases','goods_description',"TEXT DEFAULT ''"); addColumn('purchases','bags_qty','REAL NOT NULL DEFAULT 0'); addColumn('purchases','invoice_no',"TEXT DEFAULT ''"); addColumn('purchases','hsn',"TEXT DEFAULT ''"); addColumn('purchases','gst_type',"TEXT DEFAULT 'NONE'"); addColumn('purchases','gst_rate','REAL NOT NULL DEFAULT 0'); addColumn('purchases','gst_taxable','REAL NOT NULL DEFAULT 0'); addColumn('purchases','gst_amount','REAL NOT NULL DEFAULT 0'); addColumn('purchases','payment_due_days','INTEGER NOT NULL DEFAULT 0'); addColumn('purchases','payment_due_date',"TEXT DEFAULT ''");
-  addColumn('payments','tds_rate','REAL NOT NULL DEFAULT 0'); addColumn('payments','tds_amount','REAL NOT NULL DEFAULT 0'); addColumn('payments','net_paid','REAL NOT NULL DEFAULT 0'); addColumn('payments','broker_name',"TEXT DEFAULT ''"); addColumn('payments','broker_email',"TEXT DEFAULT ''"); addColumn('payments','tds_base','REAL NOT NULL DEFAULT 0'); addColumn('payments','tds_rule',"TEXT DEFAULT ''"); addColumn('payments','company_account_id','INTEGER');
-  addColumn('sales','due_days','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','discount_pct','REAL NOT NULL DEFAULT 0'); addColumn('sales','discount_amount','REAL NOT NULL DEFAULT 0'); addColumn('sales','receivable_base','REAL NOT NULL DEFAULT 0'); addColumn('sales','due_date',"TEXT DEFAULT ''"); addColumn('sales','cost_amount','REAL NOT NULL DEFAULT 0'); addColumn('sales','received','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','received_date',"TEXT DEFAULT ''"); addColumn('sales','received_amount','REAL NOT NULL DEFAULT 0'); addColumn('sales','receipt_account_id','INTEGER');
-  addColumn('financing_receivables','notes',"TEXT DEFAULT ''"); addColumn('financing_receivables','other_charges_profit','REAL NOT NULL DEFAULT 0'); addColumn('financing_receivables','tds_rate','REAL NOT NULL DEFAULT 0'); addColumn('financing_receivables','tds_amount','REAL NOT NULL DEFAULT 0'); addColumn('financing_receivables','net_received','REAL NOT NULL DEFAULT 0'); addColumn('financing_receivables','tds_section',"TEXT DEFAULT ''"); addColumn('financing_receivables','tds_reference',"TEXT DEFAULT ''");
-  d.prepare("UPDATE sales SET receivable_base=taxable_value+COALESCE(discount_amount,0) WHERE COALESCE(receivable_base,0)=0").run();
-  d.prepare("UPDATE financing_receivables SET other_charges_profit=(SELECT COALESCE(other_charges,0) FROM purchases WHERE purchases.id=financing_receivables.purchase_id), receivable_amount=cost_amount+discount_amount+(SELECT COALESCE(other_charges,0) FROM purchases WHERE purchases.id=financing_receivables.purchase_id) WHERE COALESCE(other_charges_profit,0)=0 AND EXISTS(SELECT 1 FROM purchases WHERE purchases.id=financing_receivables.purchase_id AND COALESCE(purchases.other_charges,0)>0)").run();
-  // Money-in receipts are cash inflows and must be CREDIT transactions.
-  // Older builds incorrectly stored them as DEBIT, which made the payment API
-  // calculate a different available balance than the dashboard. Normalize only
-  // legacy MONEY_IN rows; reversals use reference_type=REVERSAL and are untouched.
-  d.prepare("UPDATE account_transactions SET transaction_type='CREDIT' WHERE reference_type='MONEY_IN' AND transaction_type='DEBIT'").run();
-  if((d.prepare('SELECT COUNT(*) c FROM company_settings').get() as any).c===0)d.prepare("INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY')").run();
+`;
+
+const ADMIN_DDL = `
+CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,code TEXT UNIQUE NOT NULL,address TEXT DEFAULT '',city TEXT DEFAULT '',state TEXT DEFAULT '',email TEXT DEFAULT '',gstin TEXT DEFAULT '',pan TEXT DEFAULT '',financial_year TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS admin_users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'DATA_ENTRY',password TEXT DEFAULT '',password_hash TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS user_companies(user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,can_live INTEGER NOT NULL DEFAULT 1,can_test INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,company_id));
+`;
+
+const ID_TABLES = new Set(['users','third_parties','parties','bank_accounts','company_accounts','account_transactions','account_movements','purchases','payments','payment_allocations','ledger','audit_logs','bank_matches','sales','financing_receivables','money_in','interest_payments','funding_loans','funding_schedule','import_batches','companies','admin_users']);
+
+function pgSchemaName(kind: 'admin' | 'company', companyId?: number, mode?: Mode) {
+  if (kind === 'admin') return 'solivy_admin';
+  return `solivy_c${Number(companyId || 1)}_${String(mode || 'LIVE').toLowerCase()}`;
 }
 
-function openDb(file:string){const key=path.resolve(file);if(!dbCache.has(key)){fs.mkdirSync(path.dirname(key),{recursive:true});const d=new Database(key);ensureSchema(d);dbCache.set(key,d);}return dbCache.get(key)!}
+function pgDdl(ddl: string) {
+  return ddl
+    .replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, 'SERIAL PRIMARY KEY')
+    .replace(/ REAL /g, ' DOUBLE PRECISION ')
+    .replace(/ REAL NOT NULL/g, ' DOUBLE PRECISION NOT NULL')
+    .replace(/ REAL DEFAULT/g, ' DOUBLE PRECISION DEFAULT')
+    .replace(/ REAL,/g, ' DOUBLE PRECISION,');
+}
 
-function legacyFile(mode:Mode){return path.join(dataDir,mode==='LIVE'?'live.db':'test.db')}
-export function db(mode:Mode='LIVE',companyId=1){
-  if(companyId===1){
-    const target=legacyFile(mode);
-    if(!fs.existsSync(target)){
-      const projectLegacy=path.join(process.cwd(),'data',mode==='LIVE'?'live.db':'test.db');
-      const oldExternal=path.join(path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), 'AppData', 'Roaming'), 'AKSH-ENTERPRISE-FINANCE'),'data',mode==='LIVE'?'live.db':'test.db');
-      const legacy=[projectLegacy,oldExternal].find(x=>path.resolve(x)!==path.resolve(target)&&fs.existsSync(x));
-      if(legacy){fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(legacy,target)}
-    }
-    return openDb(target)
+const pgPools = new Map<string, Pool>();
+const pgReady = new Map<string, Promise<void>>();
+
+function getPgPool(schema: string) {
+  let pool = pgPools.get(schema);
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 2,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 10000,
+      options: `-c search_path=${schema}`,
+    });
+    pgPools.set(schema, pool);
   }
-  return openDb(path.join(dataDir,'companies',String(companyId),mode==='LIVE'?'live.db':'test.db'));
+  return pool;
 }
 
-export function adminDb(){const d=openDb(path.join(dataDir,'admin.db'));d.exec(`CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,code TEXT UNIQUE NOT NULL,address TEXT DEFAULT '',city TEXT DEFAULT '',state TEXT DEFAULT '',email TEXT DEFAULT '',gstin TEXT DEFAULT '',pan TEXT DEFAULT '',financial_year TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS admin_users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'DATA_ENTRY',password TEXT DEFAULT '',password_hash TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS user_companies(user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,can_live INTEGER NOT NULL DEFAULT 1,can_test INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,company_id));`);const addAdminColumn=(column:string,definition:string)=>{const cols=d.prepare('PRAGMA table_info(companies)').all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`)};addAdminColumn('address',"TEXT DEFAULT ''");addAdminColumn('city',"TEXT DEFAULT ''");addAdminColumn('state',"TEXT DEFAULT ''");addAdminColumn('email',"TEXT DEFAULT ''");addAdminColumn('gstin',"TEXT DEFAULT ''");addAdminColumn('pan',"TEXT DEFAULT ''");addAdminColumn('financial_year',"TEXT DEFAULT ''");addAdminColumn('updated_at',"TEXT DEFAULT CURRENT_TIMESTAMP");const c=d.prepare('SELECT COUNT(*) c FROM companies').get() as any;if(!c.c)d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();let defaultCompanyRow=d.prepare('SELECT id FROM companies WHERE code=?').get('SOLIVY') as any;if(!defaultCompanyRow){const legacyCompany=d.prepare('SELECT id FROM companies WHERE code=? OR UPPER(name)=UPPER(?) ORDER BY id LIMIT 1').get('AKSH','AKSH ENTERPRISE') as any;if(legacyCompany){d.prepare("UPDATE companies SET name='SOLIVY',code='SOLIVY',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(legacyCompany.id);defaultCompanyRow={id:legacyCompany.id};}else{d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();defaultCompanyRow=d.prepare('SELECT id FROM companies WHERE code=?').get('SOLIVY') as any;}}const defaultCompany=defaultCompanyRow.id;const old=db('LIVE',1);const u=d.prepare('SELECT COUNT(*) c FROM admin_users').get() as any;if(!u.c){const oldUsers=old.prepare('SELECT username,name,role,active,password,password_hash FROM users').all() as any[];if(oldUsers.length){const ins=d.prepare('INSERT INTO admin_users(username,name,role,active,password,password_hash) VALUES(?,?,?,?,?,?)');for(const x of oldUsers)ins.run(x.username,x.name,x.role,x.active,x.password||'',x.password_hash||'')}else d.prepare("INSERT INTO admin_users(username,name,role,password) VALUES('admin','Administrator','ADMIN','admin123'),('tester','Test User','TESTER','test123')").run();}
-  const admin=(d.prepare("SELECT id FROM admin_users WHERE username='admin'").get() as any);const tester=(d.prepare("SELECT id FROM admin_users WHERE username='tester'").get() as any);if(admin)d.prepare('INSERT OR IGNORE INTO user_companies(user_id,company_id,can_live,can_test) VALUES(?,?,1,1)').run(admin.id,defaultCompany);if(tester)d.prepare('INSERT OR IGNORE INTO user_companies(user_id,company_id,can_live,can_test) VALUES(?,?,0,1)').run(tester.id,defaultCompany);return d;}
-
-export function resetMode(mode:Mode,companyId=1){
-  const d=db(mode,companyId);
-  const tables=['bank_matches','payment_allocations','account_movements','funding_schedule','payments','interest_payments','money_in','ledger','financing_receivables','purchases','sales','account_transactions','company_accounts','bank_accounts','funding_loans','parties','third_parties','import_batches','audit_logs'];
-  const tx=d.transaction(()=>{
-    for(const t of tables) d.prepare(`DELETE FROM ${t}`).run();
-    d.prepare("DELETE FROM sqlite_sequence WHERE name IN ("+tables.map(()=>'?').join(',')+")").run(...tables);
-  });
-  tx();
-  try{ d.pragma('wal_checkpoint(TRUNCATE)'); }catch{}
+async function ensurePgSchema(schema: string, kind: 'admin' | 'company') {
+  const existing = pgReady.get(schema);
+  if (existing) return existing;
+  const promise = (async () => {
+    // Schema name is generated internally and contains no user-controlled SQL.
+    const bootstrap = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, connectionTimeoutMillis: 10000 });
+    try {
+      await bootstrap.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+      await bootstrap.query(`SET search_path TO ${schema}`);
+      await bootstrap.query(pgDdl(kind === 'admin' ? ADMIN_DDL : COMPANY_DDL));
+      if (kind === 'company') {
+        await bootstrap.query(`INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY') ON CONFLICT (id) DO NOTHING`);
+      } else {
+        await bootstrap.query(`INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY') ON CONFLICT (code) DO NOTHING`);
+        await bootstrap.query(`INSERT INTO admin_users(username,name,role,password) VALUES('admin','Administrator','ADMIN','admin123') ON CONFLICT (username) DO NOTHING`);
+        await bootstrap.query(`INSERT INTO admin_users(username,name,role,password) VALUES('tester','Test User','TESTER','test123') ON CONFLICT (username) DO NOTHING`);
+        const company = await bootstrap.query(`SELECT id FROM companies WHERE code='SOLIVY' LIMIT 1`);
+        const admin = await bootstrap.query(`SELECT id FROM admin_users WHERE username='admin' LIMIT 1`);
+        const tester = await bootstrap.query(`SELECT id FROM admin_users WHERE username='tester' LIMIT 1`);
+        if (company.rows[0] && admin.rows[0]) await bootstrap.query(`INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,1,1) ON CONFLICT DO NOTHING`, [admin.rows[0].id, company.rows[0].id]);
+        if (company.rows[0] && tester.rows[0]) await bootstrap.query(`INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,0,1) ON CONFLICT DO NOTHING`, [tester.rows[0].id, company.rows[0].id]);
+      }
+    } finally {
+      await bootstrap.end();
+    }
+  })();
+  pgReady.set(schema, promise);
+  try { await promise; } catch (e) { pgReady.delete(schema); throw e; }
 }
-export function resetTest(companyId=1){resetMode('TEST',companyId)}
 
-// Clears only financial/transactional records while preserving master data,
-// users, parties, bank accounts, company accounts and document settings.
-// This is intentionally different from resetMode(), which is the destructive
-// database purge used by the Admin backup/purge screen.
-export function clearTransactionData(mode:Mode,companyId=1){
-  const d=db(mode,companyId);
-  const tables=['bank_matches','payment_allocations','account_movements','funding_schedule','payments','interest_payments','money_in','ledger','financing_receivables','purchases','sales','account_transactions'];
-  const tx=d.transaction(()=>{
-    for(const t of tables) d.prepare(`DELETE FROM ${t}`).run();
-    d.prepare("DELETE FROM sqlite_sequence WHERE name IN ("+tables.map(()=>'?').join(',')+")").run(...tables);
-  });
-  tx();
-  try{ d.pragma('wal_checkpoint(TRUNCATE)'); }catch{}
+function convertSql(sql: string) {
+  let q = sql.trim();
+  if (/^PRAGMA\s+table_info\(/i.test(q)) return q;
+  if (/^DELETE\s+FROM\s+sqlite_sequence/i.test(q)) return '';
+  q = q.replace(/INSERT\s+OR\s+IGNORE\s+INTO/i, 'INSERT INTO');
+  q = q.replace(/INSERT\s+OR\s+REPLACE\s+INTO\s+user_companies/i, 'INSERT INTO user_companies');
+  if (/^INSERT\s+INTO\s+user_companies/i.test(q) && /ON CONFLICT/i.test(q) === false) {
+    q += ' ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test';
+  } else if (/^INSERT\s+INTO/i.test(q) && /ON CONFLICT/i.test(q) === false && /payment_allocations/i.test(q)) {
+    q += ' ON CONFLICT DO NOTHING';
+  }
+  // SQLite's date('YYYY-MM-DD','+'||days||' days') -> PostgreSQL date arithmetic.
+  q = q.replace(/date\(([^,]+),\s*'\+'\s*\|\|\s*([^\)]+)\)\s*/gi, `((($1)::date + ($2)::text::interval)::date::text `);
+  q = q.replace(/date\(([^,]+),\s*'\+'\s*\|\|\s*([^\)]+)\)\)/gi, `((($1)::date + ($2)::text::interval)::date::text)`);
+  return q;
 }
-export function backup(mode:Mode,companyId=1){return db(mode,companyId).serialize()}
-export function databasePath(mode:Mode,companyId=1){return companyId===1?legacyFile(mode):path.join(dataDir,'companies',String(companyId),mode==='LIVE'?'live.db':'test.db')}
+
+function bindParams(sql: string, args: any[]) {
+  let i = 0;
+  const text = sql.replace(/\?/g, () => `$${++i}`);
+  return { text, values: args };
+}
+
+interface StatementLike {
+  get(...args: any[]): Promise<any>;
+  all(...args: any[]): Promise<any[]>;
+  run(...args: any[]): Promise<{ lastInsertRowid: number; changes: number }>;
+}
+
+class SqliteAsyncDb {
+  constructor(private readonly d: Database.Database) {}
+  prepare(sql: string): StatementLike {
+    const stmt = this.d.prepare(sql);
+    return {
+      get: async (...args) => stmt.get(...args),
+      all: async (...args) => stmt.all(...args) as any[],
+      run: async (...args) => { const r = stmt.run(...args); return { lastInsertRowid: Number(r.lastInsertRowid), changes: r.changes }; },
+    };
+  }
+  async exec(sql: string) { if (sql) this.d.exec(sql); }
+  transaction(fn: () => Promise<any> | any) {
+    return async () => {
+      this.d.exec('BEGIN');
+      try { const result = await fn(); this.d.exec('COMMIT'); return result; }
+      catch (e) { try { this.d.exec('ROLLBACK'); } catch {} throw e; }
+    };
+  }
+  serialize() { return this.d.serialize(); }
+  async close() {}
+}
+
+class PgAsyncDb {
+  private txClient: PoolClient | null = null;
+  constructor(private readonly pool: Pool, private readonly schema: string) {}
+  private async query(text: string, values: any[] = []): Promise<QueryResult<any>> {
+    if (this.txClient) return this.txClient.query(text, values);
+    return this.pool.query(text, values);
+  }
+  private async pragmaInfo(table: string) {
+    const r = await this.query(`SELECT column_name name, ordinal_position cid, data_type type, is_nullable notnull, column_default dflt_value FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position`, [this.schema, table]);
+    return r.rows;
+  }
+  prepare(rawSql: string): StatementLike {
+    const sql = convertSql(rawSql);
+    const isPragma = /^PRAGMA\s+table_info\(([^)]+)\)/i.exec(sql);
+    const tableName = isPragma ? isPragma[1].trim() : '';
+    return {
+      get: async (...args) => {
+        if (isPragma) return (await this.pragmaInfo(tableName))[0];
+        if (!sql) return undefined;
+        const q = bindParams(sql, args);
+        const r = await this.query(q.text, q.values);
+        return r.rows[0];
+      },
+      all: async (...args) => {
+        if (isPragma) return this.pragmaInfo(tableName);
+        if (!sql) return [];
+        const q = bindParams(sql, args);
+        const r = await this.query(q.text, q.values);
+        return r.rows;
+      },
+      run: async (...args) => {
+        if (!sql) return { lastInsertRowid: 0, changes: 0 };
+        let text = sql;
+        const insert = /^INSERT\s+INTO\s+([a-zA-Z_][\w]*)/i.exec(text);
+        const target = insert?.[1]?.toLowerCase();
+        const shouldReturnId = !!target && ID_TABLES.has(target) && !/\bRETURNING\b/i.test(text);
+        if (shouldReturnId) text += ' RETURNING id';
+        const q = bindParams(text, args);
+        const r = await this.query(q.text, q.values);
+        return { lastInsertRowid: Number(r.rows[0]?.id || 0), changes: r.rowCount || 0 };
+      },
+    };
+  }
+  async exec(sql: string) {
+    if (!sql) return;
+    const normalized = sql.replace(/PRAGMA[^;]+;?/gi, '').replace(/DELETE\s+FROM\s+sqlite_sequence[^;]+;?/gi, '');
+    if (normalized.trim()) await this.query(normalized);
+  }
+  transaction(fn: () => Promise<any> | any) {
+    return async () => {
+      const client = await this.pool.connect();
+      this.txClient = client;
+      try {
+        await client.query('BEGIN');
+        const result = await fn();
+        await client.query('COMMIT');
+        return result;
+      } catch (e) {
+        try { await client.query('ROLLBACK'); } catch {}
+        throw e;
+      } finally {
+        this.txClient = null;
+        client.release();
+      }
+    };
+  }
+  async serialize() {
+    const tables = [...ID_TABLES].filter((x) => x !== 'users');
+    const out: Record<string, any[]> = {};
+    for (const table of tables) {
+      try { out[table] = await this.prepare(`SELECT * FROM ${table}`).all(); } catch { out[table] = []; }
+    }
+    return Buffer.from(JSON.stringify({ schema: this.schema, exportedAt: new Date().toISOString(), tables: out }), 'utf8');
+  }
+  async close() {}
+}
+
+async function onlineDb(mode: Mode, companyId: number) {
+  const schema = pgSchemaName('company', companyId, mode);
+  await ensurePgSchema(schema, 'company');
+  return new PgAsyncDb(getPgPool(schema), schema);
+}
+
+export async function db(mode: Mode = 'LIVE', companyId = 1): Promise<SqliteAsyncDb | PgAsyncDb> {
+  if (ONLINE) return onlineDb(mode, companyId);
+  const mod = await import('./db-sqlite');
+  return new SqliteAsyncDb(mod.db(mode, companyId));
+}
+
+export async function adminDb(): Promise<SqliteAsyncDb | PgAsyncDb> {
+  if (ONLINE) {
+    const schema = pgSchemaName('admin');
+    await ensurePgSchema(schema, 'admin');
+    return new PgAsyncDb(getPgPool(schema), schema);
+  }
+  const mod = await import('./db-sqlite');
+  return new SqliteAsyncDb(mod.adminDb());
+}
+
+export async function resetMode(mode: Mode, companyId = 1) {
+  const d = await db(mode, companyId);
+  const tables = ['bank_matches','payment_allocations','account_movements','funding_schedule','payments','interest_payments','money_in','ledger','financing_receivables','purchases','sales','account_transactions','company_accounts','bank_accounts','funding_loans','parties','third_parties','import_batches','audit_logs'];
+  await d.transaction(async () => { for (const t of tables) await d.prepare(`DELETE FROM ${t}`).run(); })();
+}
+export async function resetTest(companyId = 1) { return resetMode('TEST', companyId); }
+export async function clearTransactionData(mode: Mode, companyId = 1) {
+  const d = await db(mode, companyId);
+  const tables = ['bank_matches','payment_allocations','account_movements','funding_schedule','payments','interest_payments','money_in','ledger','financing_receivables','purchases','sales','account_transactions'];
+  await d.transaction(async () => { for (const t of tables) await d.prepare(`DELETE FROM ${t}`).run(); })();
+}
+export async function backup(mode: Mode, companyId = 1) { const d = await db(mode, companyId); return d.serialize(); }
+export async function databasePath(mode: Mode, companyId = 1) {
+  if (ONLINE) return `postgres://${pgSchemaName('company', companyId, mode)}`;
+  const mod = await import('./db-sqlite');
+  return mod.databasePath(mode, companyId);
+}

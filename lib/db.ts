@@ -1,8 +1,8 @@
-import { Pool, types as pgTypes, type PoolClient, type QueryResult } from "pg";
+import { Pool, types as pgTypes, type PoolClient, type QueryResult } from 'pg';
 
-export type Mode = "LIVE" | "TEST";
+export type Mode = 'LIVE' | 'TEST';
 
-const ONLINE = Boolean(process.env.DATABASE_URL) && process.env.DEPLOYMENT_MODE !== "offline" && process.env.NODE_ENV === "production";
+const ONLINE = Boolean(process.env.DATABASE_URL) && process.env.DEPLOYMENT_MODE !== 'offline' && process.env.NODE_ENV === 'production';
 
 // Keep PostgreSQL numeric results compatible with SQLite's JavaScript numbers.
 try {
@@ -40,63 +40,40 @@ CREATE TABLE IF NOT EXISTS admin_users(id INTEGER PRIMARY KEY AUTOINCREMENT,user
 CREATE TABLE IF NOT EXISTS user_companies(user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,can_live INTEGER NOT NULL DEFAULT 1,can_test INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,company_id));
 `;
 
-const ID_TABLES = new Set([
-  "users",
-  "third_parties",
-  "parties",
-  "bank_accounts",
-  "company_accounts",
-  "account_transactions",
-  "account_movements",
-  "purchases",
-  "payments",
-  "payment_allocations",
-  "ledger",
-  "audit_logs",
-  "bank_matches",
-  "sales",
-  "financing_receivables",
-  "money_in",
-  "interest_payments",
-  "funding_loans",
-  "funding_schedule",
-  "import_batches",
-  "companies",
-  "admin_users",
-]);
+const ID_TABLES = new Set(['users','third_parties','parties','bank_accounts','company_accounts','account_transactions','account_movements','purchases','payments','payment_allocations','ledger','audit_logs','bank_matches','sales','financing_receivables','money_in','interest_payments','funding_loans','funding_schedule','import_batches','companies','admin_users']);
 
-function pgSchemaName(kind: "admin" | "company", companyId?: number, mode?: Mode) {
-  if (kind === "admin") return "solivy_admin";
-  return `solivy_c${Number(companyId || 1)}_${String(mode || "LIVE").toLowerCase()}`;
+function pgSchemaName(kind: 'admin' | 'company', companyId?: number, mode?: Mode) {
+  if (kind === 'admin') return 'solivy_admin';
+  return `solivy_c${Number(companyId || 1)}_${String(mode || 'LIVE').toLowerCase()}`;
 }
 
 function pgDdl(ddl: string) {
   return ddl
-    .replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, "SERIAL PRIMARY KEY")
-    .replace(/ REAL /g, " DOUBLE PRECISION ")
-    .replace(/ REAL NOT NULL/g, " DOUBLE PRECISION NOT NULL")
-    .replace(/ REAL DEFAULT/g, " DOUBLE PRECISION DEFAULT")
-    .replace(/ REAL,/g, " DOUBLE PRECISION,");
+    .replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, 'SERIAL PRIMARY KEY')
+    .replace(/ REAL /g, ' DOUBLE PRECISION ')
+    .replace(/ REAL NOT NULL/g, ' DOUBLE PRECISION NOT NULL')
+    .replace(/ REAL DEFAULT/g, ' DOUBLE PRECISION DEFAULT')
+    .replace(/ REAL,/g, ' DOUBLE PRECISION,');
 }
 
 const pgPools = new Map<string, Pool>();
 const pgReady = new Map<string, Promise<void>>();
 
 function getDatabaseConnectionString() {
-  const raw = String(process.env.DATABASE_URL || "").trim();
+  const raw = String(process.env.DATABASE_URL || '').trim();
   if (!raw) return raw;
   // Neon rejects search_path when it is supplied as a startup parameter.
   // Keep any other Neon options (for example project routing) but remove only search_path.
   try {
     const u = new URL(raw);
-    const options = u.searchParams.get("options");
+    const options = u.searchParams.get('options');
     if (options && /search_path/i.test(options)) {
       const cleaned = options
-        .replace(/(?:^|[\s,;])(?:-c\s+)?search_path\s*=\s*[^\s,;]+/gi, " ")
-        .replace(/\s{2,}/g, " ")
+        .replace(/(?:^|[\s,;])(?:-c\s+)?search_path\s*=\s*[^\s,;]+/ig, ' ')
+        .replace(/\s{2,}/g, ' ')
         .trim();
-      if (cleaned) u.searchParams.set("options", cleaned);
-      else u.searchParams.delete("options");
+      if (cleaned) u.searchParams.set('options', cleaned);
+      else u.searchParams.delete('options');
     }
     return u.toString();
   } catch {
@@ -118,7 +95,7 @@ function getPgPool(schema: string) {
   return pool;
 }
 
-async function ensurePgSchema(schema: string, kind: "admin" | "company") {
+async function ensurePgSchema(schema: string, kind: 'admin' | 'company') {
   const existing = pgReady.get(schema);
   if (existing) return existing;
   const promise = (async () => {
@@ -130,9 +107,9 @@ async function ensurePgSchema(schema: string, kind: "admin" | "company") {
       await client.query(`SET search_path TO ${schema}`);
       // Run the DDL and seed in one transaction so a failed first request cannot leave
       // a half-initialized online database behind.
-      await client.query("BEGIN");
-      await client.query(pgDdl(kind === "admin" ? ADMIN_DDL : COMPANY_DDL));
-      if (kind === "company") {
+      await client.query('BEGIN');
+      await client.query(pgDdl(kind === 'admin' ? ADMIN_DDL : COMPANY_DDL));
+      if (kind === 'company') {
         await client.query(`INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY') ON CONFLICT (id) DO NOTHING`);
       } else {
         await client.query(`INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY') ON CONFLICT (code) DO NOTHING`);
@@ -141,23 +118,14 @@ async function ensurePgSchema(schema: string, kind: "admin" | "company") {
         const company = await client.query(`SELECT id FROM companies WHERE code='SOLIVY' LIMIT 1`);
         const admin = await client.query(`SELECT id FROM admin_users WHERE username='admin' LIMIT 1`);
         const tester = await client.query(`SELECT id FROM admin_users WHERE username='tester' LIMIT 1`);
-        if (!company.rows[0]) throw new Error("Unable to initialize default SOLIVY company");
-        if (!admin.rows[0]) throw new Error("Unable to initialize default admin user");
-        await client.query(
-          `INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,1,1) ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test`,
-          [admin.rows[0].id, company.rows[0].id],
-        );
-        if (tester.rows[0])
-          await client.query(
-            `INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,0,1) ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test`,
-            [tester.rows[0].id, company.rows[0].id],
-          );
+        if (!company.rows[0]) throw new Error('Unable to initialize default SOLIVY company');
+        if (!admin.rows[0]) throw new Error('Unable to initialize default admin user');
+        await client.query(`INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,1,1) ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test`, [admin.rows[0].id, company.rows[0].id]);
+        if (tester.rows[0]) await client.query(`INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,0,1) ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test`, [tester.rows[0].id, company.rows[0].id]);
       }
-      await client.query("COMMIT");
+      await client.query('COMMIT');
     } catch (e) {
-      try {
-        await client.query("ROLLBACK");
-      } catch {}
+      try { await client.query('ROLLBACK'); } catch {}
       throw e;
     } finally {
       client.release();
@@ -165,28 +133,24 @@ async function ensurePgSchema(schema: string, kind: "admin" | "company") {
     }
   })();
   pgReady.set(schema, promise);
-  try {
-    await promise;
-  } catch (e) {
-    pgReady.delete(schema);
-    throw e;
-  }
+  try { await promise; } catch (e) { pgReady.delete(schema); throw e; }
 }
 
 function convertSql(sql: string) {
   let q = sql.trim();
   if (/^PRAGMA\s+table_info\(/i.test(q)) return q;
-  if (/^DELETE\s+FROM\s+sqlite_sequence/i.test(q)) return "";
-  q = q.replace(/INSERT\s+OR\s+IGNORE\s+INTO/i, "INSERT INTO");
+  if (/^DELETE\s+FROM\s+sqlite_sequence/i.test(q)) return '';
+  q = q.replace(/INSERT\s+OR\s+IGNORE\s+INTO/i, 'INSERT INTO');
   q = q.replace(/GROUP_CONCAT\(([^)]+)\)/gi, `STRING_AGG(CAST($1 AS TEXT), ',')`);
-  q = q.replace(/INSERT\s+OR\s+REPLACE\s+INTO\s+user_companies/i, "INSERT INTO user_companies");
+  q = q.replace(/INSERT\s+OR\s+REPLACE\s+INTO\s+user_companies/i, 'INSERT INTO user_companies');
   if (/^INSERT\s+INTO\s+user_companies/i.test(q) && /ON CONFLICT/i.test(q) === false) {
-    q += " ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test";
+    q += ' ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test';
   } else if (/^INSERT\s+INTO/i.test(q) && /ON CONFLICT/i.test(q) === false && /payment_allocations/i.test(q)) {
-    q += " ON CONFLICT DO NOTHING";
+    q += ' ON CONFLICT DO NOTHING';
   }
-  // SQLite date('date','+'||days||' days') -> PostgreSQL date arithmetic.
-  q = q.replace(/date\(([^,]+),\s*'\+'\s*\|\|\s*([^|,)]+)\s*\|\|\s*' days'\)/gi, `(($1)::date + (($2)::numeric * INTERVAL '1 day'))::date::text`);
+  // SQLite's date('YYYY-MM-DD','+'||days||' days') -> PostgreSQL date arithmetic.
+  q = q.replace(/date\(([^,]+),\s*'\+'\s*\|\|\s*([^\)]+)\)\s*/gi, `((($1)::date + ($2)::text::interval)::date::text `);
+  q = q.replace(/date\(([^,]+),\s*'\+'\s*\|\|\s*([^\)]+)\)\)/gi, `((($1)::date + ($2)::text::interval)::date::text)`);
   return q;
 }
 
@@ -209,42 +173,24 @@ class SqliteAsyncDb {
     return {
       get: async (...args) => stmt.get(...args),
       all: async (...args) => stmt.all(...args) as any[],
-      run: async (...args) => {
-        const r = stmt.run(...args);
-        return { lastInsertRowid: Number(r.lastInsertRowid), changes: r.changes };
-      },
+      run: async (...args) => { const r = stmt.run(...args); return { lastInsertRowid: Number(r.lastInsertRowid), changes: r.changes }; },
     };
   }
-  async exec(sql: string) {
-    if (sql) this.d.exec(sql);
-  }
+  async exec(sql: string) { if (sql) this.d.exec(sql); }
   transaction(fn: () => Promise<any> | any) {
     return async () => {
-      this.d.exec("BEGIN");
-      try {
-        const result = await fn();
-        this.d.exec("COMMIT");
-        return result;
-      } catch (e) {
-        try {
-          this.d.exec("ROLLBACK");
-        } catch {}
-        throw e;
-      }
+      this.d.exec('BEGIN');
+      try { const result = await fn(); this.d.exec('COMMIT'); return result; }
+      catch (e) { try { this.d.exec('ROLLBACK'); } catch {} throw e; }
     };
   }
-  serialize() {
-    return this.d.serialize();
-  }
+  serialize() { return this.d.serialize(); }
   async close() {}
 }
 
 class PgAsyncDb {
   private txClient: PoolClient | null = null;
-  constructor(
-    private readonly pool: Pool,
-    private readonly schema: string,
-  ) {}
+  constructor(private readonly pool: Pool, private readonly schema: string) {}
   private async query(text: string, values: any[] = []): Promise<QueryResult<any>> {
     if (this.txClient) return this.txClient.query(text, values);
     const client = await this.pool.connect();
@@ -258,16 +204,13 @@ class PgAsyncDb {
     }
   }
   private async pragmaInfo(table: string) {
-    const r = await this.query(
-      `SELECT column_name name, ordinal_position cid, data_type type, is_nullable notnull, column_default dflt_value FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position`,
-      [this.schema, table],
-    );
+    const r = await this.query(`SELECT column_name name, ordinal_position cid, data_type type, is_nullable notnull, column_default dflt_value FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position`, [this.schema, table]);
     return r.rows;
   }
   prepare(rawSql: string): StatementLike {
     const sql = convertSql(rawSql);
     const isPragma = /^PRAGMA\s+table_info\(([^)]+)\)/i.exec(sql);
-    const tableName = isPragma ? isPragma[1].trim() : "";
+    const tableName = isPragma ? isPragma[1].trim() : '';
     return {
       get: async (...args) => {
         if (isPragma) return (await this.pragmaInfo(tableName))[0];
@@ -289,7 +232,7 @@ class PgAsyncDb {
         const insert = /^INSERT\s+INTO\s+([a-zA-Z_][\w]*)/i.exec(text);
         const target = insert?.[1]?.toLowerCase();
         const shouldReturnId = !!target && ID_TABLES.has(target) && !/\bRETURNING\b/i.test(text);
-        if (shouldReturnId) text += " RETURNING id";
+        if (shouldReturnId) text += ' RETURNING id';
         const q = bindParams(text, args);
         const r = await this.query(q.text, q.values);
         return { lastInsertRowid: Number(r.rows[0]?.id || 0), changes: r.rowCount || 0 };
@@ -298,7 +241,7 @@ class PgAsyncDb {
   }
   async exec(sql: string) {
     if (!sql) return;
-    const normalized = sql.replace(/PRAGMA[^;]+;?/gi, "").replace(/DELETE\s+FROM\s+sqlite_sequence[^;]+;?/gi, "");
+    const normalized = sql.replace(/PRAGMA[^;]+;?/gi, '').replace(/DELETE\s+FROM\s+sqlite_sequence[^;]+;?/gi, '');
     if (normalized.trim()) await this.query(normalized);
   }
   transaction(fn: () => Promise<any> | any) {
@@ -306,15 +249,13 @@ class PgAsyncDb {
       const client = await this.pool.connect();
       this.txClient = client;
       try {
-        await client.query("BEGIN");
+        await client.query('BEGIN');
         await client.query(`SET search_path TO ${this.schema}`);
         const result = await fn();
-        await client.query("COMMIT");
+        await client.query('COMMIT');
         return result;
       } catch (e) {
-        try {
-          await client.query("ROLLBACK");
-        } catch {}
+        try { await client.query('ROLLBACK'); } catch {}
         throw e;
       } finally {
         this.txClient = null;
@@ -323,98 +264,52 @@ class PgAsyncDb {
     };
   }
   async serialize() {
-    const tables = [...ID_TABLES].filter((x) => x !== "users");
+    const tables = [...ID_TABLES].filter((x) => x !== 'users');
     const out: Record<string, any[]> = {};
     for (const table of tables) {
-      try {
-        out[table] = await this.prepare(`SELECT * FROM ${table}`).all();
-      } catch {
-        out[table] = [];
-      }
+      try { out[table] = await this.prepare(`SELECT * FROM ${table}`).all(); } catch { out[table] = []; }
     }
-    return Buffer.from(JSON.stringify({ schema: this.schema, exportedAt: new Date().toISOString(), tables: out }), "utf8");
+    return Buffer.from(JSON.stringify({ schema: this.schema, exportedAt: new Date().toISOString(), tables: out }), 'utf8');
   }
   async close() {}
 }
 
 async function onlineDb(mode: Mode, companyId: number) {
-  const schema = pgSchemaName("company", companyId, mode);
-  await ensurePgSchema(schema, "company");
+  const schema = pgSchemaName('company', companyId, mode);
+  await ensurePgSchema(schema, 'company');
   return new PgAsyncDb(getPgPool(schema), schema);
 }
 
-export async function db(mode: Mode = "LIVE", companyId = 1): Promise<SqliteAsyncDb | PgAsyncDb> {
+export async function db(mode: Mode = 'LIVE', companyId = 1): Promise<SqliteAsyncDb | PgAsyncDb> {
   if (ONLINE) return onlineDb(mode, companyId);
-  const mod = await import("./db-sqlite");
+  const mod = await import('./db-sqlite');
   return new SqliteAsyncDb(mod.db(mode, companyId));
 }
 
 export async function adminDb(): Promise<SqliteAsyncDb | PgAsyncDb> {
   if (ONLINE) {
-    const schema = pgSchemaName("admin");
-    await ensurePgSchema(schema, "admin");
+    const schema = pgSchemaName('admin');
+    await ensurePgSchema(schema, 'admin');
     return new PgAsyncDb(getPgPool(schema), schema);
   }
-  const mod = await import("./db-sqlite");
+  const mod = await import('./db-sqlite');
   return new SqliteAsyncDb(mod.adminDb());
 }
 
 export async function resetMode(mode: Mode, companyId = 1) {
   const d = await db(mode, companyId);
-  const tables = [
-    "bank_matches",
-    "payment_allocations",
-    "account_movements",
-    "funding_schedule",
-    "payments",
-    "interest_payments",
-    "money_in",
-    "ledger",
-    "financing_receivables",
-    "purchases",
-    "sales",
-    "account_transactions",
-    "company_accounts",
-    "bank_accounts",
-    "funding_loans",
-    "parties",
-    "third_parties",
-    "import_batches",
-    "audit_logs",
-  ];
-  await d.transaction(async () => {
-    for (const t of tables) await d.prepare(`DELETE FROM ${t}`).run();
-  })();
+  const tables = ['bank_matches','payment_allocations','account_movements','funding_schedule','payments','interest_payments','money_in','ledger','financing_receivables','purchases','sales','account_transactions','company_accounts','bank_accounts','funding_loans','parties','third_parties','import_batches','audit_logs'];
+  await d.transaction(async () => { for (const t of tables) await d.prepare(`DELETE FROM ${t}`).run(); })();
 }
-export async function resetTest(companyId = 1) {
-  return resetMode("TEST", companyId);
-}
+export async function resetTest(companyId = 1) { return resetMode('TEST', companyId); }
 export async function clearTransactionData(mode: Mode, companyId = 1) {
   const d = await db(mode, companyId);
-  const tables = [
-    "bank_matches",
-    "payment_allocations",
-    "account_movements",
-    "funding_schedule",
-    "payments",
-    "interest_payments",
-    "money_in",
-    "ledger",
-    "financing_receivables",
-    "purchases",
-    "sales",
-    "account_transactions",
-  ];
-  await d.transaction(async () => {
-    for (const t of tables) await d.prepare(`DELETE FROM ${t}`).run();
-  })();
+  const tables = ['bank_matches','payment_allocations','account_movements','funding_schedule','payments','interest_payments','money_in','ledger','financing_receivables','purchases','sales','account_transactions'];
+  await d.transaction(async () => { for (const t of tables) await d.prepare(`DELETE FROM ${t}`).run(); })();
 }
-export async function backup(mode: Mode, companyId = 1) {
-  const d = await db(mode, companyId);
-  return d.serialize();
-}
+export async function backup(mode: Mode, companyId = 1) { const d = await db(mode, companyId); return d.serialize(); }
 export async function databasePath(mode: Mode, companyId = 1) {
-  if (ONLINE) return `postgres://${pgSchemaName("company", companyId, mode)}`;
-  const mod = await import("./db-sqlite");
+  if (ONLINE) return `postgres://${pgSchemaName('company', companyId, mode)}`;
+  const mod = await import('./db-sqlite');
   return mod.databasePath(mode, companyId);
 }

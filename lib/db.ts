@@ -1,6 +1,3 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
 import { Pool, types as pgTypes, type PoolClient, type QueryResult } from 'pg';
 
 export type Mode = 'LIVE' | 'TEST';
@@ -12,11 +9,6 @@ try {
   pgTypes.setTypeParser(20, (v) => Number(v));
   pgTypes.setTypeParser(1700, (v) => Number(v));
 } catch {}
-
-const sqliteDefaultRoot = process.platform === 'win32'
-  ? path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), 'AppData', 'Roaming'), 'SOLIVY-FINANCE')
-  : path.join(process.env.HOME || process.cwd(), '.solivy-finance');
-const sqliteDataDir = path.resolve(process.env.FINANCE_DATA_DIR || path.join(sqliteDefaultRoot, 'data'));
 
 const COMPANY_DDL = `
 CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'DATA_ENTRY', password TEXT DEFAULT '', password_hash TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -86,25 +78,36 @@ async function ensurePgSchema(schema: string, kind: 'admin' | 'company') {
   const existing = pgReady.get(schema);
   if (existing) return existing;
   const promise = (async () => {
-    // Schema name is generated internally and contains no user-controlled SQL.
-    const bootstrap = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, connectionTimeoutMillis: 10000 });
+    // Schema names are generated internally and never contain user-controlled SQL.
+    const bootstrap = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, connectionTimeoutMillis: 15000 });
+    const client = await bootstrap.connect();
     try {
-      await bootstrap.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
-      await bootstrap.query(`SET search_path TO ${schema}`);
-      await bootstrap.query(pgDdl(kind === 'admin' ? ADMIN_DDL : COMPANY_DDL));
+      await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+      await client.query(`SET search_path TO ${schema}`);
+      // Run the DDL and seed in one transaction so a failed first request cannot leave
+      // a half-initialized online database behind.
+      await client.query('BEGIN');
+      await client.query(pgDdl(kind === 'admin' ? ADMIN_DDL : COMPANY_DDL));
       if (kind === 'company') {
-        await bootstrap.query(`INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY') ON CONFLICT (id) DO NOTHING`);
+        await client.query(`INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY') ON CONFLICT (id) DO NOTHING`);
       } else {
-        await bootstrap.query(`INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY') ON CONFLICT (code) DO NOTHING`);
-        await bootstrap.query(`INSERT INTO admin_users(username,name,role,password) VALUES('admin','Administrator','ADMIN','admin123') ON CONFLICT (username) DO NOTHING`);
-        await bootstrap.query(`INSERT INTO admin_users(username,name,role,password) VALUES('tester','Test User','TESTER','test123') ON CONFLICT (username) DO NOTHING`);
-        const company = await bootstrap.query(`SELECT id FROM companies WHERE code='SOLIVY' LIMIT 1`);
-        const admin = await bootstrap.query(`SELECT id FROM admin_users WHERE username='admin' LIMIT 1`);
-        const tester = await bootstrap.query(`SELECT id FROM admin_users WHERE username='tester' LIMIT 1`);
-        if (company.rows[0] && admin.rows[0]) await bootstrap.query(`INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,1,1) ON CONFLICT DO NOTHING`, [admin.rows[0].id, company.rows[0].id]);
-        if (company.rows[0] && tester.rows[0]) await bootstrap.query(`INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,0,1) ON CONFLICT DO NOTHING`, [tester.rows[0].id, company.rows[0].id]);
+        await client.query(`INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY') ON CONFLICT (code) DO NOTHING`);
+        await client.query(`INSERT INTO admin_users(username,name,role,password) VALUES('admin','Administrator','ADMIN','admin123') ON CONFLICT (username) DO NOTHING`);
+        await client.query(`INSERT INTO admin_users(username,name,role,password) VALUES('tester','Test User','TESTER','test123') ON CONFLICT (username) DO NOTHING`);
+        const company = await client.query(`SELECT id FROM companies WHERE code='SOLIVY' LIMIT 1`);
+        const admin = await client.query(`SELECT id FROM admin_users WHERE username='admin' LIMIT 1`);
+        const tester = await client.query(`SELECT id FROM admin_users WHERE username='tester' LIMIT 1`);
+        if (!company.rows[0]) throw new Error('Unable to initialize default SOLIVY company');
+        if (!admin.rows[0]) throw new Error('Unable to initialize default admin user');
+        await client.query(`INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,1,1) ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test`, [admin.rows[0].id, company.rows[0].id]);
+        if (tester.rows[0]) await client.query(`INSERT INTO user_companies(user_id,company_id,can_live,can_test) VALUES($1,$2,0,1) ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test`, [tester.rows[0].id, company.rows[0].id]);
       }
+      await client.query('COMMIT');
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw e;
     } finally {
+      client.release();
       await bootstrap.end();
     }
   })();
@@ -142,7 +145,7 @@ interface StatementLike {
 }
 
 class SqliteAsyncDb {
-  constructor(private readonly d: Database.Database) {}
+  constructor(private readonly d: any) {}
   prepare(sql: string): StatementLike {
     const stmt = this.d.prepare(sql);
     return {

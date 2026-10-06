@@ -9,7 +9,7 @@ const defaultRoot = process.platform === 'win32'
   : path.join(process.env.HOME || process.cwd(), '.solivy-finance');
 // Financial data lives outside the application folder by default. Deleting/replacing the build therefore does not delete data.
 // Set FINANCE_DATA_DIR explicitly for a server with a persistent mounted volume.
-const dataDir = path.resolve(process.env.FINANCE_DATA_DIR || path.join(defaultRoot, 'data'));
+const dataDir = path.resolve(/* turbopackIgnore: true */ process.env.FINANCE_DATA_DIR || path.join(defaultRoot, 'data'));
 fs.mkdirSync(dataDir, { recursive: true });
 const dbCache = new Map<string, Database.Database>();
 

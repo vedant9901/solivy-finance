@@ -59,15 +59,36 @@ function pgDdl(ddl: string) {
 const pgPools = new Map<string, Pool>();
 const pgReady = new Map<string, Promise<void>>();
 
+function getDatabaseConnectionString() {
+  const raw = String(process.env.DATABASE_URL || '').trim();
+  if (!raw) return raw;
+  // Neon rejects search_path when it is supplied as a startup parameter.
+  // Keep any other Neon options (for example project routing) but remove only search_path.
+  try {
+    const u = new URL(raw);
+    const options = u.searchParams.get('options');
+    if (options && /search_path/i.test(options)) {
+      const cleaned = options
+        .replace(/(?:^|[\s,;])(?:-c\s+)?search_path\s*=\s*[^\s,;]+/ig, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      if (cleaned) u.searchParams.set('options', cleaned);
+      else u.searchParams.delete('options');
+    }
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
 function getPgPool(schema: string) {
   let pool = pgPools.get(schema);
   if (!pool) {
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: getDatabaseConnectionString(),
       max: 2,
       idleTimeoutMillis: 10000,
       connectionTimeoutMillis: 10000,
-      options: `-c search_path=${schema}`,
     });
     pgPools.set(schema, pool);
   }
@@ -79,7 +100,7 @@ async function ensurePgSchema(schema: string, kind: 'admin' | 'company') {
   if (existing) return existing;
   const promise = (async () => {
     // Schema names are generated internally and never contain user-controlled SQL.
-    const bootstrap = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, connectionTimeoutMillis: 15000 });
+    const bootstrap = new Pool({ connectionString: getDatabaseConnectionString(), max: 1, connectionTimeoutMillis: 15000 });
     const client = await bootstrap.connect();
     try {
       await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
@@ -120,6 +141,7 @@ function convertSql(sql: string) {
   if (/^PRAGMA\s+table_info\(/i.test(q)) return q;
   if (/^DELETE\s+FROM\s+sqlite_sequence/i.test(q)) return '';
   q = q.replace(/INSERT\s+OR\s+IGNORE\s+INTO/i, 'INSERT INTO');
+  q = q.replace(/GROUP_CONCAT\(([^)]+)\)/gi, `STRING_AGG(CAST($1 AS TEXT), ',')`);
   q = q.replace(/INSERT\s+OR\s+REPLACE\s+INTO\s+user_companies/i, 'INSERT INTO user_companies');
   if (/^INSERT\s+INTO\s+user_companies/i.test(q) && /ON CONFLICT/i.test(q) === false) {
     q += ' ON CONFLICT (user_id,company_id) DO UPDATE SET can_live=EXCLUDED.can_live, can_test=EXCLUDED.can_test';
@@ -171,7 +193,15 @@ class PgAsyncDb {
   constructor(private readonly pool: Pool, private readonly schema: string) {}
   private async query(text: string, values: any[] = []): Promise<QueryResult<any>> {
     if (this.txClient) return this.txClient.query(text, values);
-    return this.pool.query(text, values);
+    const client = await this.pool.connect();
+    try {
+      // Set schema per connection instead of using PostgreSQL startup options.
+      // Neon rejects search_path as a startup parameter on pooled connections.
+      await client.query(`SET search_path TO ${this.schema}`);
+      return await client.query(text, values);
+    } finally {
+      client.release();
+    }
   }
   private async pragmaInfo(table: string) {
     const r = await this.query(`SELECT column_name name, ordinal_position cid, data_type type, is_nullable notnull, column_default dflt_value FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position`, [this.schema, table]);
@@ -220,6 +250,7 @@ class PgAsyncDb {
       this.txClient = client;
       try {
         await client.query('BEGIN');
+        await client.query(`SET search_path TO ${this.schema}`);
         const result = await fn();
         await client.query('COMMIT');
         return result;

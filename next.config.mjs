@@ -8,6 +8,7 @@ const nextConfig = {
     resolveAlias: isOnlineBuild
       ? {
           './db-sqlite': './db-sqlite-online-stub.ts',
+          './db-sqlite.ts': './db-sqlite-online-stub.ts',
         }
       : {},
   },

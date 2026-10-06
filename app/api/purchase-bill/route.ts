@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, adminDb, Mode } from "../../../lib/db";
 import jsPDF from "jspdf";
+import { verifySession } from "../../../lib/session";
 
 const clean = (v: any) => String(v ?? "").trim();
 const money = (v: any) => `₹${Math.round(Number(v || 0)).toLocaleString("en-IN")}`;
@@ -76,8 +77,13 @@ export async function GET(req: Request) {
     const mode = (u.searchParams.get("mode") || "LIVE") as Mode;
     const id = Number(u.searchParams.get("id"));
 
-    const companyId = Number(req.headers.get("x-aksh-company-id") || u.searchParams.get("company_id") || 0);
+    const session = verifySession(req.headers.get("cookie")?.match(/aksh_session=([^;]+)/)?.[1] || "");
 
+    const companyId = Number(session?.companyId || req.headers.get("x-aksh-company-id") || u.searchParams.get("company_id") || 0);
+
+    if (!companyId) {
+      throw new Error("Current company is required");
+    }
     if (!companyId) {
       throw Error("Current company is required");
     }

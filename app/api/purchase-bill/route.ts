@@ -147,8 +147,11 @@ export async function GET(req:Request){
     doc.setFont('helvetica','bold');doc.setFontSize(7.8);doc.text(label,xs[3]-2,ly,{align:'right'});
     doc.setFont('helvetica','normal');right(doc,`(-)${Math.round(val).toLocaleString('en-IN')}`,xs[7]-2,ly);ly+=5;
   }
-  const included=less.filter(([,v,k])=>v!==0&&bool(s,k,true)).reduce((a,[,v])=>a+v,0);
-  const displayedTotal=Math.max(0,Math.round(Number(row.gross_amount||0)-included));
+  const included=less.filter(([,v])=>v!==0).reduce((a,[,v])=>a+v,0);
+  // The commercial bill total must always reflect the accounting net payable.
+  // Document settings control visibility of deduction lines, not the financial calculation.
+  const calculatedNet=Math.max(0,Math.round(Number(row.gross_amount||0)-included));
+  const displayedTotal=Math.max(0,Math.round(Number(row.net_payable ?? calculatedNet)));
   doc.line(xs[2],tableBottom-8,R,tableBottom-8);
   doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.text('Total',xs[2]-2,tableBottom-3,{align:'right'});
   if(bool(s,'show_quantity'))text(doc,`${kg(row.net_weight)} Kg`,xs[3]+2,tableBottom-3);

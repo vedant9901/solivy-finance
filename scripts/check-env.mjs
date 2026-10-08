@@ -1,8 +1,9 @@
-const mode = process.env.DEPLOYMENT_MODE || (process.env.DATABASE_URL ? 'online' : 'offline');
-if (mode === 'online') {
-  if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is required for online mode.'); process.exit(1); }
-  if (!process.env.SESSION_SECRET) { console.error('SESSION_SECRET is required for online mode.'); process.exit(1); }
-  console.log('Online environment OK.');
-} else {
-  console.log('Offline mode. FINANCE_DATA_DIR is optional; the application uses the persistent SOLIVY default when it is not set.');
-}
+import fs from 'node:fs';
+import path from 'node:path';
+const env=fs.existsSync('.env.local')?fs.readFileSync('.env.local','utf8'):'';
+const m=env.match(/^FINANCE_DATA_DIR=(.*)$/m);
+if(!m?.[1]?.trim()){console.error('FINANCE_DATA_DIR is not configured. Run INSTALL-SOLIVY-LOCAL.bat first.');process.exit(1)}
+const dir=m[1].trim().replace(/^\"|\"$/g,'');
+fs.mkdirSync(path.resolve(dir),{recursive:true});
+console.log('FINANCE_DATA_DIR:',path.resolve(dir));
+console.log('Environment OK');

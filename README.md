@@ -92,7 +92,3 @@ Default fresh company: **SOLIVY**. Default administrator: `admin / admin123` (ch
 
 ## Purge
 Only an authenticated **ADMIN** can purge LIVE or TEST. The confirmation phrase must exactly match `PURGE LIVE` or `PURGE TEST`. Purge now clears financial/master transaction tables, including money-in, interest payments, funding loans/schedules, imports, payments, allocations, purchases, receivables, accounts and ledgers, and resets their SQLite sequences. It does not delete the application or the database file itself.
-
-## v2.6.0 Dual Mode
-
-See `V2.6.0-DUAL-MODE.md`. The `VERCEL-FRONTEND/` folder is a frontend-only Vercel deployment package. Keep the existing root application on a persistent server for the API/database when using online mode.

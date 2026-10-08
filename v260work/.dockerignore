@@ -1,7 +1,0 @@
-node_modules
-.next
-data
-*.db
-*.db-wal
-*.db-shm
-npm-debug.log

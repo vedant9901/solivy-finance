@@ -42,7 +42,6 @@ New-Item -ItemType Directory -Force -Path $dataInput | Out-Null
 $envPath = Join-Path $AppDir '.env.local'
 @"
 FINANCE_DATA_DIR="$dataInput"
-DEPLOYMENT_MODE=offline
 NODE_ENV=production
 SESSION_SECRET=$( [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 } | ForEach-Object {[byte]$_})) )
 "@ | Set-Content -Path $envPath -Encoding UTF8

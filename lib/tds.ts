@@ -32,25 +32,25 @@ function actInfo(date: string) {
  * Compliance assistant for common resident-payee TDS cases.
  * It deliberately returns REVIEW for facts that cannot safely be inferred from a party name alone.
  */
-export async function decideTds(d: any, party: any, paymentDate: string, amount: number): Promise<TdsDecision> {
+export function decideTds(d: any, party: any, paymentDate: string, amount: number): TdsDecision {
   const amt = Math.max(0, Math.round(n(amount)));
   if (!party) return noTds('Select a party first.');
   if (party.tds_exempt) return noTds('Party is marked exempt / lower or nil deduction certificate.', true);
   if (party.resident_status !== 'RESIDENT') return noTds('Non-resident payment requires separate withholding / remittance review.', true);
-  const settings = await d.prepare('SELECT * FROM company_settings WHERE id=1').get() as any || {};
+  const settings = d.prepare('SELECT * FROM company_settings WHERE id=1').get() as any || {};
   const info = actInfo(paymentDate);
   const noPan = !party.pan || party.pan_status !== 'VALID';
   const higherRate = (normal: number) => noPan ? 20 : normal;
   const start = fyStart(paymentDate);
   const qualifiedGeneral = ['COMPANY','FIRM','LLP','GOVERNMENT'].includes(String(settings.deductor_type || '').toUpperCase());
   const turnover = n(settings.preceding_turnover);
-  const priorPayments = n((await d.prepare("SELECT COALESCE(SUM(amount),0) total FROM payments WHERE party_id=? AND payment_date>=? AND payment_date<? AND status='POSTED'").get(party.id, start, paymentDate) as any)?.total);
+  const priorPayments = n((d.prepare("SELECT COALESCE(SUM(amount),0) total FROM payments WHERE party_id=? AND payment_date>=? AND payment_date<? AND status='POSTED'").get(party.id, start, paymentDate) as any)?.total);
 
   if (party.party_type === 'GOODS_VENDOR') {
     // 194Q / corresponding 2025 Act provision: buyer turnover > ₹10 crore and aggregate purchases > ₹50 lakh.
     if (turnover <= 100000000) return noTds('Goods-purchase TDS is not triggered because preceding-year buyer turnover is not above ₹10 crore.');
-    const purchased = n((await d.prepare("SELECT COALESCE(SUM(net_payable),0) total FROM purchases WHERE party_id=? AND status='POSTED' AND purchase_date>=? AND purchase_date<=?").get(party.id, start, paymentDate) as any)?.total);
-    const priorTdsBase = n((await d.prepare("SELECT COALESCE(SUM(tds_base),0) base FROM payments WHERE party_id=? AND payment_date>=? AND payment_date<? AND status='POSTED'").get(party.id, start, paymentDate) as any)?.base);
+    const purchased = n((d.prepare("SELECT COALESCE(SUM(net_payable),0) total FROM purchases WHERE party_id=? AND status='POSTED' AND purchase_date>=? AND purchase_date<=?").get(party.id, start, paymentDate) as any)?.total);
+    const priorTdsBase = n((d.prepare("SELECT COALESCE(SUM(tds_base),0) base FROM payments WHERE party_id=? AND payment_date>=? AND payment_date<? AND status='POSTED'").get(party.id, start, paymentDate) as any)?.base);
     const thresholdExcess = Math.max(0, purchased - 5000000 - priorTdsBase);
     const base = Math.min(amt, thresholdExcess);
     if (base <= 0) return noTds(`Goods purchases have not crossed ₹50 lakh for this party (aggregate recorded purchases ₹${purchased.toLocaleString('en-IN')}).`);

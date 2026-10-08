@@ -1,30 +1,43 @@
-# SOLIVY Finance v2.6.0 Deployment
+# Production deployment
 
-## Offline Windows
+## Recommended online architecture
 
-Use the existing local installer/start scripts. Data remains under the persistent SOLIVY data directory and uses SQLite.
+For a small/medium team, run one Next.js process on a VPS with persistent disk and SQLite WAL. Keep exactly one application replica because SQLite is file based.
 
-## Vercel + Neon (frontend + backend in one project)
+For horizontal scaling, managed backups, and many concurrent users, migrate the database layer to PostgreSQL before adding multiple application replicas.
 
-1. Create a Neon PostgreSQL project.
-2. Copy the complete Neon connection string.
-3. Push the root SOLIVY Finance project to GitHub.
-4. Import that repository into Vercel as a Next.js project.
-5. In Vercel → Settings → Environment Variables add:
-   - `DATABASE_URL` = complete Neon connection string
-   - `SESSION_SECRET` = strong random value
-   - `DEPLOYMENT_MODE` = `online`
-6. Enable the variables for Production (Preview is recommended too).
-7. Deploy.
-8. Open the generated `*.vercel.app/login` URL.
-9. On first request, the application initializes the PostgreSQL schemas and SOLIVY company/admin records.
-10. Test login, accounts, vendor, purchase, payment, vendor outstanding, withdrawal and transfer before importing real data.
+Do not deploy the SQLite data directory to a serverless ephemeral filesystem such as a typical Vercel deployment. The database must live on durable storage.
 
-### Do not add
-- `NEXT_PUBLIC_DATABASE_URL`
-- `NEXT_PUBLIC_SESSION_SECRET`
-- `FINANCE_DATA_DIR` on Vercel
-- SQLite `.db` files to GitHub
+## Required environment variables
 
-### Security
-Server-side secrets stay in Vercel Environment Variables. The browser receives only the frontend bundle; Next.js API/business logic runs server-side.
+```env
+NODE_ENV=production
+SESSION_SECRET=<long-random-secret>
+FINANCE_DATA_DIR=/data
+```
+
+Generate a secret with a password manager or a cryptographically secure random generator. Never commit it.
+
+## Docker
+
+```bash
+cp .env.example .env
+# edit .env and set SESSION_SECRET
+
+docker compose up -d --build
+```
+
+The SQLite databases and admin database are stored in the persistent `finance_data` volume.
+
+## Backups
+
+Use the Admin -> Backup / Restore screen and download the **all companies** backup regularly. Keep a copy outside the server. Test restoration procedures before relying on the backup operationally.
+
+## Security
+
+- Use HTTPS at the reverse proxy.
+- Set a unique `SESSION_SECRET`.
+- Do not expose SQLite files over HTTP.
+- Restrict the server firewall to the reverse proxy/required ports.
+- Use strong unique passwords and deactivate users when they leave.
+- Keep exactly one Node application replica with SQLite.

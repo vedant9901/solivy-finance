@@ -30,8 +30,8 @@ export async function GET(req:Request){
   const thirdPartyId=Number(u.searchParams.get('third_party_id')||0);
   if(!id)throw Error('Purchase id is required');
 
-  const d=await db(mode,companyId);
-  const row=await d.prepare(`SELECT p.*,x.name party_name,x.address,x.contact,x.gst,x.pan,b.bank_name,b.account_holder,b.account_number,b.ifsc,b.branch
+  const d=db(mode,companyId);
+  const row=d.prepare(`SELECT p.*,x.name party_name,x.address,x.contact,x.gst,x.pan,b.bank_name,b.account_holder,b.account_number,b.ifsc,b.branch
     FROM purchases p JOIN parties x ON x.id=p.party_id
     LEFT JOIN bank_accounts b ON b.id=(SELECT id FROM bank_accounts WHERE party_id=x.id ORDER BY is_primary DESC,id LIMIT 1)
     WHERE p.id=?`).get(id) as any;
@@ -40,22 +40,16 @@ export async function GET(req:Request){
   let toParty={name:row.party_name,address:row.address,contact:row.contact,gst:row.gst,pan:row.pan};
   if(billType==='third-party'){
     if(!thirdPartyId)throw Error('Third party is required');
-    const tp=await d.prepare('SELECT name,address,contact,gst,pan FROM third_parties WHERE id=? AND active=1').get(thirdPartyId) as any;
+    const tp=d.prepare('SELECT name,address,contact,gst,pan FROM third_parties WHERE id=? AND active=1').get(thirdPartyId) as any;
     if(!tp)throw Error('Third party not found');
     toParty=tp;
   }
 
-  const company=(await adminDb()).prepare('SELECT id,name,code,address,city,state,email,gstin,pan,financial_year FROM companies WHERE id=?').get(companyId) as any;
+  const company=adminDb().prepare('SELECT id,name,code,address,city,state,email,gstin,pan,financial_year FROM companies WHERE id=?').get(companyId) as any;
   if(!company)throw Error('Company not found');
-  const companySettings=await d.prepare('SELECT entity_name,commercial_bill_settings FROM company_settings WHERE id=1').get() as any;
-  // Company name must follow the currently selected company. Some older/local databases
-  // may have an empty admin-company name, while company_settings still contains the
-  // company master name. Use that as the authoritative fallback for the bill.
-  const requestedCompanyName=clean(u.searchParams.get('company_name'));
-  const displayCompanyName=clean(company.name)||clean(companySettings?.entity_name)||requestedCompanyName||clean(company.code)||'Company';
-  const companyBank=await d.prepare('SELECT * FROM company_accounts WHERE active=1 ORDER BY id LIMIT 1').get() as any;
-  const raw=companySettings as any;
-  let s:any={};try{s=JSON.parse(raw?.commercial_bill_settings||'{}')}catch{}
+  const companyBank=d.prepare('SELECT * FROM company_accounts WHERE active=1 ORDER BY id LIMIT 1').get() as any;
+  const raw=d.prepare('SELECT commercial_bill_settings,third_party_bill_settings FROM company_settings WHERE id=1').get() as any;
+  let s:any={};try{s=JSON.parse((billType==='third-party'?raw?.third_party_bill_settings:raw?.commercial_bill_settings)||'{}')}catch{}
 
   const doc=new jsPDF({unit:'mm',format:'a4'});
   const pageW=210,pageH=297,L=11.5,R=198.5,W=R-L;
@@ -73,7 +67,7 @@ export async function GET(req:Request){
 
   // Company block — no red/green colouring: those colours in the supplied image are annotation, not document styling.
   let y=top+7;
-  doc.setFont('helvetica','bold');doc.setFontSize(11);text(doc,displayCompanyName,L+3.5,y);y+=5;
+  doc.setFont('helvetica','bold');doc.setFontSize(11);text(doc,company.name||'SOLIVY',L+3.5,y);y+=5;
   doc.setFont('helvetica','normal');doc.setFontSize(7.8);
   for(const line of [company.address,company.city,company.state].map(clean).filter(Boolean)){text(doc,line,L+3.5,y,118);y+=4;}
   if(bool(s,'show_company_gst')&&clean(company.gstin)){text(doc,`GSTIN : ${company.gstin}`,L+3.5,y);y+=4;}
@@ -147,11 +141,8 @@ export async function GET(req:Request){
     doc.setFont('helvetica','bold');doc.setFontSize(7.8);doc.text(label,xs[3]-2,ly,{align:'right'});
     doc.setFont('helvetica','normal');right(doc,`(-)${Math.round(val).toLocaleString('en-IN')}`,xs[7]-2,ly);ly+=5;
   }
-  const included=less.filter(([,v])=>v!==0).reduce((a,[,v])=>a+v,0);
-  // The commercial bill total must always reflect the accounting net payable.
-  // Document settings control visibility of deduction lines, not the financial calculation.
-  const calculatedNet=Math.max(0,Math.round(Number(row.gross_amount||0)-included));
-  const displayedTotal=Math.max(0,Math.round(Number(row.net_payable ?? calculatedNet)));
+  const included=less.filter(([,v,k])=>v!==0&&bool(s,k,true)).reduce((a,[,v])=>a+v,0);
+  const displayedTotal=Math.max(0,Math.round(Number(row.gross_amount||0)-included));
   doc.line(xs[2],tableBottom-8,R,tableBottom-8);
   doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.text('Total',xs[2]-2,tableBottom-3,{align:'right'});
   if(bool(s,'show_quantity'))text(doc,`${kg(row.net_weight)} Kg`,xs[3]+2,tableBottom-3);
@@ -181,7 +172,7 @@ export async function GET(req:Request){
     for(const line of bankLines){text(doc,line,bankX,bY,84);bY+=4.2;}
   }
   if(bool(s,'show_signature')){
-    doc.setFont('helvetica','bold');doc.setFontSize(7.5);right(doc,`for ${displayCompanyName}`,R,bottomTop+46);
+    doc.setFont('helvetica','bold');doc.setFontSize(7.5);right(doc,`for ${clean(company.name)||'SOLIVY'}`,R,bottomTop+46);
     doc.line(151,bottomTop+52,R,bottomTop+52);
     doc.setFont('helvetica','normal');right(doc,'Authorised Signatory',R,bottomTop+57);
   }

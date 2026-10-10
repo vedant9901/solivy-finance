@@ -39,7 +39,7 @@ for (const file of files) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const required = ['next', 'react', 'react-dom', 'better-sqlite3', 'jspdf', 'xlsx', 'tailwindcss', '@tailwindcss/postcss'];
+const required = ['next', 'react', 'react-dom', 'better-sqlite3', 'jspdf', 'xlsx', 'tailwindcss', '@tailwindcss/postcss', 'react-icons'];
 for (const dep of required) {
   if (!pkg.dependencies?.[dep]) { console.error(`FAIL missing dependency: ${dep}`); failed++; }
 }

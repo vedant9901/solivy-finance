@@ -38,12 +38,27 @@ $dataInput = [Environment]::ExpandEnvironmentVariables($dataInput.Trim())
 if (-not [System.IO.Path]::IsPathRooted($dataInput)) { $dataInput = Join-Path $AppDir $dataInput }
 New-Item -ItemType Directory -Force -Path $dataInput | Out-Null
 
+# Generate per-install secrets using the OS cryptographic RNG. Keep these out of Git and client release ZIPs.
+$sessionBytes = New-Object byte[] 48
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($sessionBytes)
+$sessionSecret = [Convert]::ToBase64String($sessionBytes).TrimEnd('=').Replace('+','-').Replace('/','_')
+$setupBytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($setupBytes)
+$setupSecret = [Convert]::ToBase64String($setupBytes).TrimEnd('=').Replace('+','-').Replace('/','_')
+Write-Host ''
+Write-Host 'Unique one-time administrator setup key (save this):' -ForegroundColor Yellow
+Write-Host $setupSecret -ForegroundColor White
+$licenseToken = Read-Host 'Paste the customer-specific SOLIVY license token (required)'
+if ([string]::IsNullOrWhiteSpace($licenseToken)) { throw 'A license token is required. Ask SOLIVY Team to issue one.' }
 # Keep user configuration in .env.local, never in source defaults.
 $envPath = Join-Path $AppDir '.env.local'
 @"
 FINANCE_DATA_DIR="$dataInput"
 NODE_ENV=production
-SESSION_SECRET=$( [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 } | ForEach-Object {[byte]$_})) )
+SESSION_SECRET=$sessionSecret
+SOLIVY_SETUP_SECRET=$setupSecret
+SOLIVY_LICENSE_ENFORCEMENT=required
+SOLIVY_LICENSE_TOKEN=$($licenseToken.Trim())
 "@ | Set-Content -Path $envPath -Encoding UTF8
 
 Write-Host ''
@@ -63,6 +78,8 @@ $sc = $ws.CreateShortcut($shortcutPath)
 $sc.TargetPath = $launcher
 $sc.WorkingDirectory = $AppDir
 $sc.Description = 'SOLIVY Finance - Local'
+$iconPath = Join-Path $AppDir 'public\solivy.ico'
+if (Test-Path $iconPath) { $sc.IconLocation = $iconPath }
 $sc.Save()
 
 Write-Host ''
@@ -71,8 +88,8 @@ Write-Host ('Database: ' + $dataInput) -ForegroundColor Green
 Write-Host ('Desktop shortcut: ' + $shortcutPath) -ForegroundColor Green
 Write-Host ''
 Write-Host 'Default company: SOLIVY' -ForegroundColor Cyan
-Write-Host 'Default administrator: admin / admin123' -ForegroundColor Yellow
-Write-Host 'Change the administrator password immediately after first login.' -ForegroundColor Yellow
+Write-Host 'First run: open /setup and enter the one-time setup key shown above.' -ForegroundColor Yellow
+Write-Host 'Create a unique administrator account. No default password is shipped.' -ForegroundColor Yellow
 Write-Host ''
 $run = Read-Host 'Start SOLIVY Finance now? (Y/N)'
 if ($run -match '^[Yy]$') { Start-Process -FilePath $launcher }

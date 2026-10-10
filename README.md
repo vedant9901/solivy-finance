@@ -92,3 +92,8 @@ Default fresh company: **SOLIVY**. Default administrator: `admin / admin123` (ch
 
 ## Purge
 Only an authenticated **ADMIN** can purge LIVE or TEST. The confirmation phrase must exactly match `PURGE LIVE` or `PURGE TEST`. Purge now clears financial/master transaction tables, including money-in, interest payments, funding loans/schedules, imports, payments, allocations, purchases, receivables, accounts and ledgers, and resets their SQLite sequences. It does not delete the application or the database file itself.
+
+
+## v2.5.21 licensing and security
+
+Read [README-OWNER-v2.5.21.md](./README-OWNER-v2.5.21.md) before issuing licenses or deploying. Keep the vendor private key outside client packages. This release is a hardening candidate and requires clean Windows/Vercel verification before production use.

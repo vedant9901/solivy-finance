@@ -26,9 +26,62 @@ function base64(s: string) {
   return out;
 }
 
+
+const SOLIVY_LICENSE_PUBLIC_KEY = 'MCowBQYDK2VwAyEAInUktjI0jjuAmYTDfkOjKCiVopMVI3Gaa4cmxnwV1PQ=';
+async function validateLicenseToken(token: string, companyId: number): Promise<{ok: boolean; reason?: string; payload?: any}> {
+  try {
+    const parts = token.trim().split('.');
+    if (parts.length !== 2) return { ok: false, reason: 'License token format is invalid.' };
+    const payloadBytes = base64(parts[0]);
+    const signature = base64(parts[1]);
+    const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
+    if (payload.product !== 'SOLIVY_FINANCE' || !payload.licenseId || !payload.customer) return { ok: false, reason: 'License is not for SOLIVY Finance.' };
+    const issued = Date.parse(payload.issuedAt), perpetual = payload.perpetual === true && payload.expiresAt === null, expires = perpetual ? Number.POSITIVE_INFINITY : Date.parse(payload.expiresAt);
+    if (!Number.isFinite(issued) || issued > Date.now() + 5 * 60 * 1000) return { ok: false, reason: 'License issue date is invalid.' };
+    if (!perpetual && !Number.isFinite(expires)) return { ok: false, reason: 'License expiry date is invalid.' };
+    const key = await crypto.subtle.importKey('spki', base64(SOLIVY_LICENSE_PUBLIC_KEY), { name: 'Ed25519' } as AlgorithmIdentifier, false, ['verify']);
+    const valid = await crypto.subtle.verify({ name: 'Ed25519' } as AlgorithmIdentifier, key, signature, new TextEncoder().encode(parts[0]));
+    if (!valid) return { ok: false, reason: 'License signature is invalid.' };
+    if (!perpetual && expires <= Date.now()) return { ok: false, reason: 'License has expired. Contact the SOLIVY Team to renew it.' };
+    if (!Array.isArray(payload.companyIds) || !(payload.companyIds.includes('*') || payload.companyIds.map(Number).includes(Number(companyId)))) return { ok: false, reason: 'This license is not assigned to the selected organization.' };
+    return { ok: true, payload };
+  } catch { return { ok: false, reason: 'License could not be validated.' }; }
+}
+function requiredFeatureForPath(path: string): string {
+  const rules: Array<[string, string]> = [
+    ['/api/accounts','accounts'], ['/api/account-movements','account-movements'],
+    ['/api/parties','parties'], ['/api/third-parties','parties'], ['/api/parties-delete','parties'],
+    ['/api/purchases','purchase'], ['/api/purchase-bill','purchase'],
+    ['/api/payments','payments'], ['/api/payment-advice','payments'], ['/api/reverse','payments'],
+    ['/api/money-in','money-in'], ['/api/receipts','money-in'], ['/api/sales','receivables'],
+    ['/api/interest-payments','interest'], ['/api/funding','funding'], ['/api/import-finance','import'],
+    ['/api/export/ledger','ledger'], ['/api/receivables','receivables'], ['/api/bank','bank'],
+    ['/api/backup','backup'], ['/api/admin-backup-all','backup'], ['/api/export/gst','gst'],
+    ['/api/export/payments','reports'], ['/api/export/purchases','reports'], ['/api/document-settings','document-settings'],
+    ['/api/settings','settings'], ['/api/tds-check','payments'], ['/api/test-to-live','backup'],
+    ['/api/data','dashboard'],
+  ];
+  const match = rules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
+  return match?.[1] || 'core';
+}
+function licenseFeatureAllowed(payload: any, feature: string): boolean {
+  const features = Array.isArray(payload?.features) ? payload.features.map((x: unknown) => String(x)) : [];
+  return features.includes('*') || features.includes(feature);
+}
+
+async function checkLicense(companyId: number): Promise<{ok: boolean; reason?: string; payload?: any; disabled?: boolean}> {
+  const mode = (process.env.SOLIVY_LICENSE_ENFORCEMENT || 'off').toLowerCase();
+  if (mode !== 'required') return { ok: true, disabled: true };
+  let token = process.env.SOLIVY_LICENSE_TOKEN?.trim() || '';
+  const mapText = process.env.SOLIVY_LICENSES_JSON?.trim();
+  if (mapText) { try { const map = JSON.parse(mapText); token = String(map[String(companyId)] || map['*'] || token || ''); } catch { return { ok: false, reason: 'SOLIVY_LICENSES_JSON is not valid JSON.' }; } }
+  if (!token) return { ok: false, reason: 'No license is configured for this organization. Contact the SOLIVY Team.' };
+  return validateLicenseToken(token, companyId);
+}
+
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
-  const publicPath = path === '/login' || path === '/api/login' || path === '/api/login-companies' || path === '/api/logout' || path.startsWith('/_next/') || path === '/favicon.ico';
+  const publicPath = path === '/login' || path === '/setup' || path === '/api/setup' || path === '/api/login' || path === '/api/login-companies' || path === '/forgot-password' || path === '/reset-password' || path === '/license' || path === '/api/license/status' || path === '/api/forgot-password' || path === '/api/reset-password' || path === '/api/logout' || path.startsWith('/_next/') || path === '/favicon.ico';
   if (publicPath) {
     const res = NextResponse.next();
     return securityHeaders(res, req);
@@ -42,7 +95,26 @@ export async function middleware(req: NextRequest) {
     return securityHeaders(res, req);
   }
 
-  const denied = authorizeRequest(req, String(session.r || ''));
+  const license = await checkLicense(Number(session.c));
+  if (!license.ok) {
+    // Keep the administrator able to sign in and reach License Management for renewal.
+    // Financial APIs remain blocked below; this exception only opens the app shell.
+    const adminLicenseRecovery = session.r === 'ADMIN' && path === '/';
+    if (!adminLicenseRecovery) {
+      if (path.startsWith('/api/')) return securityHeaders(NextResponse.json({ error: license.reason, code: 'LICENSE_REQUIRED' }, { status: 402 }), req);
+      const target = new URL('/license', req.url);
+      target.searchParams.set('reason', String(license.reason || 'License required'));
+      return securityHeaders(NextResponse.redirect(target), req);
+    }
+  }
+  if (!(session.r === 'ADMIN' && path === '/') && license.ok && !license.disabled && !licenseFeatureAllowed(license.payload, requiredFeatureForPath(path))) {
+    const message = 'This module is not included in your SOLIVY license. Contact the SOLIVY Team to upgrade.';
+    if (path.startsWith('/api/')) return securityHeaders(NextResponse.json({ error: message, code: 'LICENSE_FEATURE_LOCKED' }, { status: 403 }), req);
+    const target = new URL('/license', req.url); target.searchParams.set('reason', message);
+    return securityHeaders(NextResponse.redirect(target), req);
+  }
+
+  const denied = authorizeRequest(req, String(session.r || ''), session);
   if (denied) return securityHeaders(denied, req);
 
   if (path.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method.toUpperCase())) {

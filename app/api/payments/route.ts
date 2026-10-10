@@ -1,10 +1,10 @@
+import { sessionMode } from '../../../lib/db';
 import {NextResponse} from 'next/server';
 import {db,Mode} from '../../../lib/db';
 import {n} from '../../../lib/utils';
 import {decideTds} from '../../../lib/tds';
 
 function companyId(req:Request,x:any){return Number(req.headers.get('x-aksh-company-id')||x.company_id||1)}
-function modeOf(x:any):Mode{return (x.db_mode||x.environment_mode||x.mode||'LIVE') as Mode}
 function normalizeAllocations(d:any,partyId:number,raw:any[],paymentId:number|null,gross:number){
   const requested=Array.isArray(raw)?raw:[];
   if(!requested.length)return [];
@@ -42,7 +42,7 @@ function paymentPayload(x:any,old:any){return {payment_no:String(x.payment_no||o
 
 export async function POST(req:Request){
  try{
-  const x=await req.json(); const d=db(modeOf(x),companyId(req,x)); const v=paymentPayload(x,null);
+  const x=await req.json(); const d=db(sessionMode(req),companyId(req,x)); const v=paymentPayload(x,null);
   if(!v.party_id||!v.payment_date||v.amount<=0)throw Error('Party, payment date and amount are required');
   const party=d.prepare('SELECT * FROM parties WHERE id=? AND active=1').get(v.party_id) as any;if(!party)throw Error('Party not found or inactive');
   if(['BANK','CASH'].includes(v.mode)&&!Number(v.company_account_id))throw Error('Select your bank/cash account before posting the payment');
@@ -55,7 +55,7 @@ export async function POST(req:Request){
 
 export async function PUT(req:Request){
  try{
-  const x=await req.json(); const d=db(modeOf(x),companyId(req,x)); const id=Number(x.id);if(!id)throw Error('Payment id is required');
+  const x=await req.json(); const d=db(sessionMode(req),companyId(req,x)); const id=Number(x.id);if(!id)throw Error('Payment id is required');
   const old=d.prepare('SELECT * FROM payments WHERE id=?').get(id) as any;if(!old)throw Error('Payment not found');if(old.status!=='POSTED')throw Error('Only posted payments can be edited');
   const v=paymentPayload(x,old); if(!v.payment_no)throw Error('Payment number is required'); if(!v.party_id||!v.payment_date||v.amount<=0)throw Error('Party, payment date and amount are required');
   const party=d.prepare('SELECT * FROM parties WHERE id=? AND active=1').get(v.party_id) as any;if(!party)throw Error('Party not found or inactive');

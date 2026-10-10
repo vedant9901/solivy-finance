@@ -18,9 +18,12 @@ export async function POST(req: Request) {
     if (!username || username.length > 80) throw Error('Invalid username or password');
     const supplied = String(body.password || '');
     if (!supplied || supplied.length > 256) throw Error('Invalid username or password');
+    if ((username.toLowerCase() === 'admin' && supplied === 'admin123') || (username.toLowerCase() === 'tester' && supplied === 'test123')) {
+      throw Error('The legacy default password is disabled. Use account recovery or ask your SOLIVY administrator to reset this account.');
+    }
 
     const d = adminDb();
-    const u = d.prepare('SELECT id,username,name,role,active,password,password_hash FROM admin_users WHERE username=?').get(username) as any;
+    const u = d.prepare('SELECT id,username,name,role,active,password,password_hash,menu_access FROM admin_users WHERE username=?').get(username) as any;
     if (!u || !u.active) throw Error('Invalid username or password');
     if (u.role === 'TESTER' && mode !== 'TEST') throw Error('Invalid username or password');
     const allowed = d.prepare('SELECT can_live,can_test FROM user_companies WHERE user_id=? AND company_id=?').get(u.id, companyId) as any;
@@ -36,8 +39,8 @@ export async function POST(req: Request) {
     const company = d.prepare('SELECT id,name,code,active FROM companies WHERE id=? AND active=1').get(companyId) as any;
     if (!company) throw Error('Invalid username or password');
     clearLoginFailures(key);
-    const res = NextResponse.json({ ok: true, name: u.name, role: u.role, mode, company });
-    res.cookies.set(COOKIE, signSession(u.username, u.role, companyId, mode), cookieOptions(req));
+    const defaultMenuIds=['dashboard','accounts','account-movements','parties','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','gst','commercial-bills','document-settings','settings'];let menuAccess:string[]=u.role==='ADMIN'?defaultMenuIds:['dashboard'];try{const parsed=JSON.parse(String(u.menu_access||''));if(Array.isArray(parsed))menuAccess=parsed.filter((m:any)=>defaultMenuIds.includes(String(m)))}catch{}const res = NextResponse.json({ ok: true, name: u.name, role: u.role, mode, company, menu_access: menuAccess });
+    res.cookies.set(COOKIE, signSession(u.username, u.role, companyId, mode, menuAccess), cookieOptions(req));
     return res;
   } catch (e: any) {
     recordLoginFailure(key);

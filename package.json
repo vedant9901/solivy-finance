@@ -1,16 +1,19 @@
 {
-  "name": "local-finance-manager",
-  "version": "2.5.13",
+  "name": "solivy-finance",
+  "version": "2.5.23",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/ensure-local-secret.cjs && next start",
     "lint": "next lint",
     "check:env": "node scripts/check-env.mjs",
     "check:import": "node scripts/check-import-schema.mjs",
     "check:source": "node scripts/check-source.cjs",
-    "check:security": "node scripts/check-security.cjs"
+    "check:security": "node scripts/check-security.cjs",
+    "license:issue": "node scripts/license-tool.cjs issue",
+    "license:keygen": "node scripts/license-tool.cjs keygen",
+    "check:license": "node scripts/license-tool.cjs self-test"
   },
   "dependencies": {
     "better-sqlite3": "12.4.1",
@@ -20,7 +23,8 @@
     "react-dom": "19.1.1",
     "xlsx": "0.18.5",
     "tailwindcss": "4.1.13",
-    "@tailwindcss/postcss": "4.1.13"
+    "@tailwindcss/postcss": "4.1.13",
+    "react-icons": "^5.5.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

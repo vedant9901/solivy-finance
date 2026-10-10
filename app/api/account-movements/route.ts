@@ -1,3 +1,4 @@
+import { sessionMode } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 import { db, Mode } from '../../../lib/db';
 import { n } from '../../../lib/utils';
@@ -10,7 +11,7 @@ function balance(d:any, id:number){
 export async function GET(req:Request){
   try{
     const u=new URL(req.url);
-    const mode=(u.searchParams.get('mode')||'LIVE') as Mode;
+    const mode = sessionMode(req);
     const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1);
     const d=db(mode,companyId);
     const rows=d.prepare(`
@@ -27,7 +28,7 @@ export async function GET(req:Request){
 export async function POST(req:Request){
   try{
     const x=await req.json();
-    const mode=x.mode as Mode;
+    const mode = sessionMode(req);
     const companyId=Number(req.headers.get('x-aksh-company-id')||x.company_id||1);
     const d=db(mode,companyId);
     const type=String(x.movement_type||'').toUpperCase();

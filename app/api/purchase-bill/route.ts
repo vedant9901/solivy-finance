@@ -1,3 +1,4 @@
+import { sessionMode } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 import { db, adminDb, Mode } from '../../../lib/db';
 import jsPDF from 'jspdf';
@@ -23,7 +24,7 @@ function right(doc:any,value:any,x:number,y:number){const v=clean(value);if(!v)r
 export async function GET(req:Request){
  try{
   const u=new URL(req.url);
-  const mode=(u.searchParams.get('mode')||'LIVE') as Mode;
+  const mode = sessionMode(req);
   const id=Number(u.searchParams.get('id'));
   const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1);
   const billType=u.searchParams.get('bill_type')||'purchase';
@@ -31,8 +32,8 @@ export async function GET(req:Request){
   if(!id)throw Error('Purchase id is required');
 
   const d=db(mode,companyId);
-  const row=d.prepare(`SELECT p.*,x.name party_name,x.address,x.contact,x.gst,x.pan,b.bank_name,b.account_holder,b.account_number,b.ifsc,b.branch
-    FROM purchases p JOIN parties x ON x.id=p.party_id
+  const row=d.prepare(`SELECT p.*,x.name party_name,x.address,x.contact,x.gst,x.pan,br.name broker_party_name,br.contact broker_contact,br.email broker_email,b.bank_name,b.account_holder,b.account_number,b.ifsc,b.branch
+    FROM purchases p JOIN parties x ON x.id=p.party_id LEFT JOIN parties br ON br.id=p.broker_party_id
     LEFT JOIN bank_accounts b ON b.id=(SELECT id FROM bank_accounts WHERE party_id=x.id ORDER BY is_primary DESC,id LIMIT 1)
     WHERE p.id=?`).get(id) as any;
   if(!row)throw Error('Purchase not found');
@@ -101,6 +102,7 @@ export async function GET(req:Request){
   doc.setFont('helvetica','normal');doc.setFontSize(7.8);
   let by=buyerTop+16;
   for(const line of [toParty.address,toParty.contact?`Contact : ${toParty.contact}`:'',bool(s,'show_party_gst')&&toParty.gst?`GSTIN : ${toParty.gst}`:'',bool(s,'show_party_pan')&&toParty.pan?`PAN : ${toParty.pan}`:''].map(clean).filter(Boolean)){text(doc,line,L+3.5,by,118);by+=4;}
+  if(row.broker_party_name){doc.setFont('helvetica','bold');text(doc,`Broker: ${row.broker_party_name}`,L+3.5,by,118);by+=4;doc.setFont('helvetica','normal');if(row.broker_contact){text(doc,`Broker Contact: ${row.broker_contact}`,L+3.5,by,118);by+=4;}if(row.broker_email){text(doc,`Broker Email: ${row.broker_email}`,L+3.5,by,118);by+=4;}}
 
   const tableTop=88,tableBottom=232;
   const xs=[L,21.5,93.5,119,139,157,178,R];

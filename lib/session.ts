@@ -30,13 +30,14 @@ export function verifyPassword(password: string, stored: string) {
   }
 }
 
-export function signSession(username: string, role: string, companyId: number, mode: 'LIVE' | 'TEST' = 'LIVE') {
+export function signSession(username: string, role: string, companyId: number, mode: 'LIVE' | 'TEST' = 'LIVE', menuAccess: string[] = []) {
   const now = Date.now();
   const payload = Buffer.from(JSON.stringify({
     u: username,
     r: role,
     c: companyId,
     m: mode,
+    a: Array.isArray(menuAccess) ? menuAccess.filter((v) => typeof v === 'string').slice(0, 100) : [],
     i: now,
     e: now + SESSION_TTL_MS,
   })).toString('base64url');

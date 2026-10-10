@@ -105,7 +105,7 @@ const ADMIN_WRITE_PREFIXES = ['/api/users'];
 const ADMIN_WRITE_ROUTES = new Set(['/api/companies', '/api/settings']);
 const ADMIN_DELETE_ROUTES = new Set(['/api/accounts']);
 
-export function authorizeRequest(req: NextRequest, role: string) {
+export function authorizeRequest(req: NextRequest, role: string, session?: any) {
   const path = req.nextUrl.pathname;
   const method = req.method.toUpperCase();
   if (!path.startsWith('/api/')) return null;
@@ -121,6 +121,30 @@ export function authorizeRequest(req: NextRequest, role: string) {
 
   if (ADMIN_ONLY.has(path) && role !== 'ADMIN') {
     return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
+  }
+  // Server-side menu entitlement checks. UI locks are only presentation; APIs enforce the same module IDs.
+  if (role !== 'ADMIN') {
+    const moduleRules: Array<[string, string[]]> = [
+      ['/api/accounts', ['accounts']], ['/api/account-movements', ['account-movements']],
+      ['/api/parties', ['parties']], ['/api/third-parties', ['parties']], ['/api/parties-delete', ['parties']],
+      ['/api/purchases', ['purchase']], ['/api/purchase-bill', ['purchase']],
+      ['/api/payments', ['payments']], ['/api/payment-advice', ['payments']],
+      ['/api/money-in', ['money-in']], ['/api/receipts', ['money-in']], ['/api/sales', ['receivables']],
+      ['/api/interest-payments', ['interest']], ['/api/funding', ['funding']],
+      ['/api/import-finance', ['import']], ['/api/export/ledger', ['ledger']],
+      ['/api/receivables', ['receivables']], ['/api/bank', ['bank']],
+      ['/api/backup', ['backup']], ['/api/admin-backup-all', ['backup']],
+      ['/api/export/gst', ['gst']], ['/api/export/payments', ['reports']], ['/api/export/purchases', ['reports']],
+      ['/api/document-settings', ['document-settings']], ['/api/settings', ['settings']],
+      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']],
+    ];
+    const rule = moduleRules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
+    if (rule) {
+      const allowed = Array.isArray(session?.a) ? session.a : [];
+      if (!rule[1].some((id) => allowed.includes(id))) {
+        return NextResponse.json({ error: 'This module is not included in your user access. Contact your SOLIVY administrator.' }, { status: 403 });
+      }
+    }
   }
   if (ADMIN_WRITE_ROUTES.has(path) && method !== 'GET' && role !== 'ADMIN') {
     return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });

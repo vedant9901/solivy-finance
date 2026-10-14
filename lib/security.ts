@@ -6,9 +6,14 @@ const WINDOW_MS = 15 * 60 * 1000;
 const BLOCK_MS = 15 * 60 * 1000;
 
 export function clientIp(req: Request) {
-  const forwarded = req.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0].trim().slice(0, 64);
-  return req.headers.get('x-real-ip')?.trim().slice(0, 64) || 'unknown';
+  // Forwarding headers are client-spoofable unless the deployment explicitly
+  // guarantees a trusted reverse proxy. Do not let callers reset their own throttle.
+  if (process.env.TRUST_PROXY_HEADERS === 'true') {
+    const forwarded = req.headers.get('x-forwarded-for');
+    if (forwarded) return forwarded.split(',').at(-1)?.trim().slice(0, 64) || 'unknown';
+    return req.headers.get('x-real-ip')?.trim().slice(0, 64) || 'unknown';
+  }
+  return 'single-host';
 }
 
 export function loginRateLimitKey(req: Request, username: string) {
@@ -133,10 +138,10 @@ export function authorizeRequest(req: NextRequest, role: string, session?: any) 
       ['/api/interest-payments', ['interest']], ['/api/funding', ['funding']],
       ['/api/import-finance', ['import']], ['/api/export/ledger', ['ledger']],
       ['/api/receivables', ['receivables']], ['/api/bank', ['bank']],
-      ['/api/backup', ['backup']], ['/api/admin-backup-all', ['backup']],
+      ['/api/backup', ['backup']], ['/api/admin-backup-all', ['backup']], ['/api/tally-export', ['tally-export']], ['/api/tally-mapping', ['tally-export']], ['/api/bank-statement-import', ['bank-statement-import']],
       ['/api/export/gst', ['gst']], ['/api/export/payments', ['reports']], ['/api/export/purchases', ['reports']],
       ['/api/document-settings', ['document-settings']], ['/api/settings', ['settings']],
-      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']],
+      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']], ['/api/data', ['dashboard']],
     ];
     const rule = moduleRules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
     if (rule) {

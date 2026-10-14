@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     }
 
     const d = adminDb();
-    const u = d.prepare('SELECT id,username,name,role,active,password,password_hash,menu_access FROM admin_users WHERE username=?').get(username) as any;
+    const u = d.prepare('SELECT id,username,name,role,active,password,password_hash,menu_access,card_access FROM admin_users WHERE username=?').get(username) as any;
     if (!u || !u.active) throw Error('Invalid username or password');
     if (u.role === 'TESTER' && mode !== 'TEST') throw Error('Invalid username or password');
     const allowed = d.prepare('SELECT can_live,can_test FROM user_companies WHERE user_id=? AND company_id=?').get(u.id, companyId) as any;
@@ -39,8 +39,8 @@ export async function POST(req: Request) {
     const company = d.prepare('SELECT id,name,code,active FROM companies WHERE id=? AND active=1').get(companyId) as any;
     if (!company) throw Error('Invalid username or password');
     clearLoginFailures(key);
-    const defaultMenuIds=['dashboard','accounts','account-movements','parties','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','gst','commercial-bills','document-settings','settings'];let menuAccess:string[]=u.role==='ADMIN'?defaultMenuIds:['dashboard'];try{const parsed=JSON.parse(String(u.menu_access||''));if(Array.isArray(parsed))menuAccess=parsed.filter((m:any)=>defaultMenuIds.includes(String(m)))}catch{}const res = NextResponse.json({ ok: true, name: u.name, role: u.role, mode, company, menu_access: menuAccess });
-    res.cookies.set(COOKIE, signSession(u.username, u.role, companyId, mode, menuAccess), cookieOptions(req));
+    const defaultMenuIds=['dashboard','accounts','account-movements','parties','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','secondary-backup','tally-export','bank-statement-import','gst','commercial-bills','document-settings','settings'];let menuAccess:string[]=u.role==='ADMIN'?defaultMenuIds:['dashboard'];try{const parsed=JSON.parse(String(u.menu_access||''));if(Array.isArray(parsed))menuAccess=parsed.filter((m:any)=>defaultMenuIds.includes(String(m)))}catch{}let cardAccess:string[]=u.role==='ADMIN'?['kpi-parties','kpi-purchase-cost','kpi-paid','kpi-vendor-outstanding','kpi-finance-profit','kpi-average-earning','business-pulse','due-pay-today','due-pay-tomorrow','due-receive-today','due-receive-tomorrow','due-interest-today','due-interest-tomorrow','due-this-week','overdue-receivables','bank-cash','realised-profit','charts']:[];try{const ca=JSON.parse(String(u.card_access||''));if(Array.isArray(ca))cardAccess=ca.filter((v:any)=>typeof v==='string')}catch{};const res = NextResponse.json({ ok: true, name: u.name, role: u.role, mode, company, menu_access: menuAccess, card_access:cardAccess });
+    res.cookies.set(COOKIE, signSession(u.username, u.role, companyId, mode, menuAccess, cardAccess), cookieOptions(req));
     return res;
   } catch (e: any) {
     recordLoginFailure(key);

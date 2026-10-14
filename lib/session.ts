@@ -30,7 +30,7 @@ export function verifyPassword(password: string, stored: string) {
   }
 }
 
-export function signSession(username: string, role: string, companyId: number, mode: 'LIVE' | 'TEST' = 'LIVE', menuAccess: string[] = []) {
+export function signSession(username: string, role: string, companyId: number, mode: 'LIVE' | 'TEST' = 'LIVE', menuAccess: string[] = [], cardAccess: string[] = []) {
   const now = Date.now();
   const payload = Buffer.from(JSON.stringify({
     u: username,
@@ -38,6 +38,7 @@ export function signSession(username: string, role: string, companyId: number, m
     c: companyId,
     m: mode,
     a: Array.isArray(menuAccess) ? menuAccess.filter((v) => typeof v === 'string').slice(0, 100) : [],
+    ca: Array.isArray(cardAccess) ? cardAccess.filter((v) => typeof v === 'string').slice(0, 100) : [],
     i: now,
     e: now + SESSION_TTL_MS,
   })).toString('base64url');

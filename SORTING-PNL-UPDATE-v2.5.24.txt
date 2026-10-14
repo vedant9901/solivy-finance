@@ -1,0 +1,16 @@
+SOLIVY Finance v2.5.24 — Sorting and Purchase MIS P&L update
+
+Changes limited to app/page.tsx:
+- Detailed MIS module tables now provide sortable headers for every displayed column.
+- Existing shared Table component already supports sorting every column for modules that use it, on desktop and mobile.
+- MIS Excel exports are sorted oldest-to-newest by the detected date/month field regardless of the on-screen sort direction.
+- Purchase & Rate Analysis now shows a management P&L summary strip (purchase net payable, trading gross profit, estimated financing income, estimated net profit/loss).
+- No purchase-level profit allocation is fabricated; purchase lots are not linked to sales lots in the current data model. The P&L strip is a filtered-period management estimate, not statutory accounts.
+
+Checks executed successfully:
+- npm run check:source
+- npm run check:import
+- npm run check:security
+- npm run check:license
+
+Full `npx tsc --noEmit` and `npm run build` were not run because dependencies are not installed in this environment. Run both locally before promoting to LIVE.

@@ -55,7 +55,7 @@ function requiredFeatureForPath(path: string): string {
     ['/api/payments','payments'], ['/api/payment-advice','payments'], ['/api/reverse','payments'],
     ['/api/money-in','money-in'], ['/api/receipts','money-in'], ['/api/sales','receivables'],
     ['/api/interest-payments','interest'], ['/api/funding','funding'], ['/api/import-finance','import'],
-    ['/api/export/ledger','ledger'], ['/api/receivables','receivables'], ['/api/bank','bank'],
+    ['/api/tally-export','tally-export'], ['/api/tally-mapping','tally-export'], ['/api/bank-statement-import','bank-statement-import'], ['/api/secondary-backup','secondary-backup'], ['/api/export/ledger','ledger'], ['/api/receivables','receivables'], ['/api/bank','bank'],
     ['/api/backup','backup'], ['/api/admin-backup-all','backup'], ['/api/export/gst','gst'],
     ['/api/export/payments','reports'], ['/api/export/purchases','reports'], ['/api/document-settings','document-settings'],
     ['/api/settings','settings'], ['/api/tds-check','payments'], ['/api/test-to-live','backup'],
@@ -135,6 +135,8 @@ export async function middleware(req: NextRequest) {
   h.set('x-aksh-role', String(session.r));
   h.set('x-aksh-user', String(session.u));
   h.set('x-aksh-mode', String(session.m));
+  h.set('x-aksh-menu', JSON.stringify(Array.isArray(session.a) ? session.a : []));
+  h.set('x-aksh-card', JSON.stringify(Array.isArray(session.ca) ? session.ca : []));
   const res = NextResponse.next({ request: { headers: h } });
   return securityHeaders(res, req);
 }

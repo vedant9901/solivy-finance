@@ -29,7 +29,7 @@ foreach ($name in $forbidden) {
   }
 }
 
-Write-Host '[1/5] Installing locked dependencies...' -ForegroundColor Cyan
+Write-Host '[1/6] Installing dependencies...' -ForegroundColor Cyan
 if (Test-Path (Join-Path $AppDir 'package-lock.json')) {
   npm ci
 } else {
@@ -37,13 +37,19 @@ if (Test-Path (Join-Path $AppDir 'package-lock.json')) {
 }
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
 
-Write-Host '[2/5] Running source and security checks...' -ForegroundColor Cyan
+Write-Host '[2/6] Running source, security, import and license checks...' -ForegroundColor Cyan
 npm run check:source
 if ($LASTEXITCODE -ne 0) { throw 'Source check failed.' }
 npm run check:security
 if ($LASTEXITCODE -ne 0) { throw 'Security check failed.' }
+node scripts/check-import-schema.mjs
+if ($LASTEXITCODE -ne 0) { throw 'Import schema check failed.' }
+node scripts/license-tool.cjs self-test
+if ($LASTEXITCODE -ne 0) { throw 'License signing/verification self-test failed.' }
+npx tsc --noEmit
+if ($LASTEXITCODE -ne 0) { throw 'TypeScript check failed.' }
 
-Write-Host '[3/5] Building standalone production app...' -ForegroundColor Cyan
+Write-Host '[3/6] Building standalone production app...' -ForegroundColor Cyan
 $env:NODE_ENV = 'production'
 $NextConfigPath = Join-Path $AppDir 'next.config.mjs'
 $OriginalNextConfig = Get-Content $NextConfigPath -Raw
@@ -62,7 +68,7 @@ export default nextConfig;
 $Standalone = Join-Path $AppDir '.next\standalone'
 if (-not (Test-Path (Join-Path $Standalone 'server.js'))) { throw 'Next.js standalone server.js was not generated. Check the build output.' }
 
-Write-Host '[4/5] Staging client package...' -ForegroundColor Cyan
+Write-Host '[4/6] Staging client package...' -ForegroundColor Cyan
 if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $AppBundle | Out-Null
 Copy-Item (Join-Path $Standalone '*') $AppBundle -Recurse -Force
@@ -81,12 +87,17 @@ Copy-Item (Join-Path $AppDir 'CLIENT-STOP.bat') $Stage
 Copy-Item (Join-Path $AppDir 'CLIENT-README.txt') $Stage
 # Owner/developer licensing instructions must not be included in the client package.
 
+# Validate the standalone runtime before packaging it.
+if (-not (Test-Path (Join-Path $AppBundle 'server.js'))) { throw 'Staged app server.js is missing.' }
+if (-not (Test-Path (Join-Path $AppBundle 'node_modules\better-sqlite3'))) { throw 'better-sqlite3 native runtime is missing from the staged app.' }
+if (-not (Test-Path (Join-Path $AppBundle '.next\static'))) { throw 'Next.js static assets are missing from the staged app.' }
+
 # Never package environment files, source trees, node_modules from the developer checkout, or Git metadata.
 Get-ChildItem $Stage -Force -Recurse -File | Where-Object {
   $_.Name -in @('.env', '.env.local', '.env.production', '.env.production.local') -or $_.FullName -match '[\\/]\.git[\\/]'
 } | Remove-Item -Force
 
-Write-Host '[5/5] Creating shareable release ZIP...' -ForegroundColor Cyan
+Write-Host '[6/6] Creating shareable release ZIP...' -ForegroundColor Cyan
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Compress-Archive -Path (Join-Path $Stage '*') -DestinationPath $ZipPath -CompressionLevel Optimal
 $sizeMB = [math]::Round((Get-Item $ZipPath).Length / 1MB, 1)

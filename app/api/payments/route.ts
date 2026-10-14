@@ -12,7 +12,7 @@ function normalizeAllocations(d:any,partyId:number,raw:any[],paymentId:number|nu
   for(const item of requested){
     const purchaseId=Number(item.purchase_id); const amount=Math.round(n(item.amount));
     if(!purchaseId||amount<=0||seen.has(purchaseId))continue;
-    const p=d.prepare(`SELECT id,party_id,net_payable,status,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=purchases.id AND pay.status='POSTED' AND (? IS NULL OR pay.id<>?),0) outstanding_paid FROM purchases WHERE id=?`).get(paymentId,paymentId,purchaseId) as any;
+    const p=d.prepare(`SELECT id,party_id,net_payable,status,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=purchases.id AND pay.status='POSTED' AND (? IS NULL OR pay.id<>?)),0) outstanding_paid FROM purchases WHERE id=?`).get(paymentId,paymentId,purchaseId) as any;
     if(!p)throw Error('Selected purchase bill was not found');
     if(Number(p.party_id)!==partyId)throw Error('Every selected bill must belong to the selected party');
     if(String(p.status)!=='POSTED')throw Error('Only posted purchase bills can be allocated');
@@ -24,7 +24,7 @@ function normalizeAllocations(d:any,partyId:number,raw:any[],paymentId:number|nu
   return out;
 }
 function autoAllocations(d:any,partyId:number,gross:number,paymentId:number|null){
-  const rows=d.prepare(`SELECT p.id,p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED' AND (? IS NULL OR pay.id<>?),0) due FROM purchases p WHERE p.party_id=? AND p.status='POSTED' AND p.net_payable>COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED' AND (? IS NULL OR pay.id<>?),0) ORDER BY p.purchase_date,p.id`).all(paymentId,paymentId,partyId,paymentId) as any[];
+  const rows=d.prepare(`SELECT p.id,p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED' AND (? IS NULL OR pay.id<>?)),0) due FROM purchases p WHERE p.party_id=? AND p.status='POSTED' AND p.net_payable>COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED' AND (? IS NULL OR pay.id<>?)),0) ORDER BY p.purchase_date,p.id`).all(paymentId,paymentId,partyId,paymentId,paymentId) as any[];
   let remain=Math.max(0,Math.round(gross)); const out:any[]=[]; for(const p of rows){if(remain<=0)break;const a=Math.min(remain,Math.max(0,Math.round(p.due)));if(a>0){out.push({purchase_id:Number(p.id),amount:a});remain-=a}} return out;
 }
 function replaceAllocations(d:any,paymentId:number,partyId:number,gross:number,raw:any,automatic=true){

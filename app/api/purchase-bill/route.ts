@@ -4,7 +4,7 @@ import { db, adminDb, Mode } from '../../../lib/db';
 import jsPDF from 'jspdf';
 
 const clean=(v:any)=>String(v??'').trim();
-const money=(v:any)=>`₹${Math.round(Number(v||0)).toLocaleString('en-IN')}`;
+const money=(v:any)=>Number(v||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 const num=(v:any)=>Math.round(Number(v||0));
 const kg=(v:any)=>num(v).toLocaleString('en-IN');
 const dateText=(v:any)=>{const s=clean(v);if(!s)return '';const d=new Date(s+'T00:00:00');if(Number.isNaN(d.getTime()))return s;return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}).replace(/ /g,'-')};
@@ -62,7 +62,6 @@ export async function GET(req:Request){
   const top=14.5, metaX=137, buyerTop=58, buyerBottom=88, metaBottom=58;
   const leftRight=metaX;
   doc.rect(L,top,leftRight-L,metaBottom-top);
-  doc.rect(metaX,top,R-metaX,metaBottom-top);
   doc.rect(L,buyerTop,leftRight-L,buyerBottom-buyerTop);
   doc.rect(metaX,buyerTop,R-metaX,buyerBottom-buyerTop);
 
@@ -70,64 +69,106 @@ export async function GET(req:Request){
   let y=top+7;
   doc.setFont('helvetica','bold');doc.setFontSize(11);text(doc,company.name||'SOLIVY',L+3.5,y);y+=5;
   doc.setFont('helvetica','normal');doc.setFontSize(7.8);
-  for(const line of [company.address,company.city,company.state].map(clean).filter(Boolean)){text(doc,line,L+3.5,y,118);y+=4;}
+  if(bool(s,'show_company_address')){for(const line of [company.address,company.city,company.state].map(clean).filter(Boolean)){text(doc,line,L+3.5,y,118);y+=4;}}
   if(bool(s,'show_company_gst')&&clean(company.gstin)){text(doc,`GSTIN : ${company.gstin}`,L+3.5,y);y+=4;}
   if(bool(s,'show_company_pan')&&clean(company.pan)){text(doc,`PAN : ${company.pan}`,L+3.5,y);y+=4;}
   if(bool(s,'show_company_email')&&clean(company.email)){text(doc,`E-Mail : ${company.email}`,L+3.5,y);}
 
   // Right metadata grid: retain the source layout but omit empty values.
-  const metaRows=[
-    ['Invoice No.',row.invoice_no||row.sample_no,'Dated',dateText(row.purchase_date)],
-    ['Mode/Terms of Payment',row.payment_due_days?`Due after ${row.payment_due_days} days`:'','',''],
-    ['Reference No. & Date.',row.invoice_no?`${row.invoice_no} dt. ${dateText(row.purchase_date)}`:'','Other References',billType==='third-party'?'3rd Party Bill':''],
-    ["Buyer's Order No.",row.invoice_no||'','Dated',dateText(row.purchase_date)],
-    ['Sample No.',bool(s,'show_sample_no')?row.sample_no:'','Dated',dateText(row.purchase_date)],
-    ['Terms of Delivery','','','']
-  ];
-  const rh=(metaBottom-top)/6;
-  for(let i=1;i<6;i++)doc.line(metaX,top+i*rh,R,top+i*rh);
-  doc.line(metaX+31,top,metaX+31,metaBottom);doc.line(metaX+72,top,metaX+72,metaBottom);doc.line(metaX+102,top,metaX+102,metaBottom);
-  doc.setFontSize(7.2);
-  metaRows.forEach((r,i)=>{
-    const yy=top+i*rh+4.1;
-    if(clean(r[0])){doc.setFont('helvetica','bold');text(doc,r[0],metaX+2,yy,28);}
-    if(clean(r[1])){doc.setFont('helvetica','normal');text(doc,r[1],metaX+33,yy,37);}
-    if(clean(r[2])){doc.setFont('helvetica','bold');text(doc,r[2],metaX+74,yy,27);}
-    if(clean(r[3])){doc.setFont('helvetica','normal');text(doc,r[3],metaX+104,yy,30);}
-  });
+  // For a 3rd Party Bill, use the invoice number entered in Purchase Entry exactly;
+  // do not silently substitute the internal sample number as an invoice number.
+  const purchaseInvoiceNo=clean(row.invoice_no);
+  const billInvoiceNo=purchaseInvoiceNo;
+  const purchaseDate=dateText(row.purchase_date);
+  const sampleNo=bool(s,'show_sample_no')?clean(row.sample_no):'';
+  // Build only meaningful metadata. Put the purchase date in the first metadata row
+  // beside Invoice No when the combined Sample No./Date option is off. When enabled,
+  // print Sample No. / Date together, without duplicating the date elsewhere.
+  type MetaPair=[string,string];
+  const pairs:MetaPair[]=[];
+  if(billType==='third-party'&&bool(s,'show_bill_number',true)&&Number(row.bill_number||row.id)>0)pairs.push(['Bill No.',String(row.bill_number||row.id)]);
+  if(bool(s,'show_invoice_no')&&billInvoiceNo)pairs.push(['Invoice No.',billInvoiceNo]);
+  if(bool(s,'show_sample_date_together',false)){
+    const sampleAndDate=[sampleNo,purchaseDate].filter(Boolean).join(' / ');
+    if(sampleAndDate)pairs.push(['Sample No. / Date',sampleAndDate]);
+  } else {
+    if(purchaseDate)pairs.push(['Dated',purchaseDate]);
+    if(sampleNo)pairs.push(['Sample No.',sampleNo]);
+  }
+  if(bool(s,'show_payment_terms')&&Number(row.payment_due_days)>0)pairs.push(['Mode/Terms of Payment',`Due after ${Number(row.payment_due_days)} days`]);
+  // Purchase Entry has no separate reference/order/delivery-term values; never invent them.
+  const metaRows:MetaPair[][]=[];
+  for(let i=0;i<pairs.length;i+=2)metaRows.push(pairs.slice(i,i+2));
+  const rh=metaRows.length?Math.min(8.7,(metaBottom-top)/metaRows.length):0;
+  const metaActualBottom=top+metaRows.length*rh;
+  if(metaRows.length){
+    doc.rect(metaX,top,R-metaX,metaActualBottom-top);
+    metaRows.forEach((r,i)=>{
+      const rowY=top+i*rh;
+      if(i>0)doc.line(metaX,rowY,R,rowY);
+      // One remaining pair uses the full row width; two pairs use a four-cell grid.
+      const two=r.length>1;
+      const split1=two?metaX+31:metaX+25;
+      const split2=two?metaX+72:R-45;
+      const split3=two?metaX+102:R;
+      doc.line(split1,rowY,split1,rowY+rh);
+      if(two){doc.line(split2,rowY,split2,rowY+rh);doc.line(split3,rowY,split3,rowY+rh);}
+      const yy=rowY+Math.min(4.7,rh-1.2);
+      doc.setFontSize(7.2);
+      doc.setFont('helvetica','bold');text(doc,r[0][0],metaX+2,yy,two?28:21);
+      doc.setFont('helvetica','normal');text(doc,r[0][1],split1+2,yy,(two?split2: R)-split1-4);
+      if(two){doc.setFont('helvetica','bold');text(doc,r[1][0],split2+2,yy,28);doc.setFont('helvetica','normal');text(doc,r[1][1],split3+2,yy,R-split3-2);}
+    });
+  }
 
   // Buyer block.
   doc.setFont('helvetica','bold');doc.setFontSize(7.2);text(doc,'Buyer (Bill to)',L+3.5,buyerTop+5);
   doc.setFontSize(9);text(doc,toParty.name,L+3.5,buyerTop+11,115);
   doc.setFont('helvetica','normal');doc.setFontSize(7.8);
   let by=buyerTop+16;
-  for(const line of [toParty.address,toParty.contact?`Contact : ${toParty.contact}`:'',bool(s,'show_party_gst')&&toParty.gst?`GSTIN : ${toParty.gst}`:'',bool(s,'show_party_pan')&&toParty.pan?`PAN : ${toParty.pan}`:''].map(clean).filter(Boolean)){text(doc,line,L+3.5,by,118);by+=4;}
+  for(const line of [toParty.address,bool(s,'show_party_contact')&&toParty.contact?`Contact : ${toParty.contact}`:'',bool(s,'show_party_gst')&&toParty.gst?`GSTIN : ${toParty.gst}`:'',bool(s,'show_party_pan')&&toParty.pan?`PAN : ${toParty.pan}`:''].map(clean).filter(Boolean)){text(doc,line,L+3.5,by,118);by+=4;}
   if(row.broker_party_name){doc.setFont('helvetica','bold');text(doc,`Broker: ${row.broker_party_name}`,L+3.5,by,118);by+=4;doc.setFont('helvetica','normal');if(row.broker_contact){text(doc,`Broker Contact: ${row.broker_contact}`,L+3.5,by,118);by+=4;}if(row.broker_email){text(doc,`Broker Email: ${row.broker_email}`,L+3.5,by,118);by+=4;}}
 
-  const tableTop=88,tableBottom=232;
-  const xs=[L,21.5,93.5,119,139,157,178,R];
-  doc.rect(L,tableTop,W,tableBottom-tableTop);
-  for(let i=1;i<xs.length-1;i++)doc.line(xs[i],tableTop,xs[i],tableBottom);
-  doc.line(L,tableTop+11,R,tableTop+11);
-  const heads=['Sl\nNo.','Description of Goods','HSN/SAC','Quantity','Rate','per','Amount'];
+  const tableTop=88;
+  // Build columns only for enabled fields that have meaningful data. This avoids
+  // empty HSN/weight/rate/amount columns when those fields are disabled or absent.
+  type BillColumn={key:string;label:string;value:string;weight:number;align?:'left'|'right'};
+  const columns:BillColumn[]=[{key:'sl',label:'Sl No.',value:'1',weight:8}];
+  columns.push({key:'description',label:'Description of Goods',value:clean(row.goods_description)||clean(row.notes),weight:36});
+  if(bool(s,'show_hsn')&&clean(row.hsn))columns.push({key:'hsn',label:'HSN/SAC',value:clean(row.hsn),weight:12});
+  const netWeight=Number(row.net_weight||0),grossWeight=Number(row.gross_weight||0);
+  // Each checkbox controls its own column. Quantity and Net Weight are separate
+  // options; when both are enabled, show both instead of silently dropping one.
+  if(bool(s,'show_quantity')&&netWeight>0)columns.push({key:'quantity',label:'Quantity',value:`${kg(netWeight)} Kg`,weight:15});
+  if(bool(s,'show_net_weight')&&netWeight>0)columns.push({key:'net',label:'Net Weight',value:`${kg(netWeight)} Kg`,weight:14});
+  if(bool(s,'show_gross_weight')&&grossWeight>0)columns.push({key:'gross',label:'Gross Weight',value:`${kg(grossWeight)} Kg`,weight:14});
+  if(bool(s,'show_rate')&&Number(row.rate)>0)columns.push({key:'rate',label:'Rate',value:Number(row.rate).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}),weight:12});
+  if(bool(s,'show_amount')&&row.gross_amount!==null&&row.gross_amount!==undefined)columns.push({key:'amount',label:'Amount',value:Number(row.gross_amount||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}),weight:16,align:'right'});
+  const totalWeight=columns.reduce((a,c)=>a+c.weight,0);
+  const widths=columns.map(c=>W*c.weight/totalWeight);
+  const xs=[L];for(const width of widths)xs.push(xs[xs.length-1]+width);
   doc.setFont('helvetica','bold');doc.setFontSize(7);
-  heads.forEach((h,i)=>h.split('\n').forEach((v,j)=>text(doc,v,xs[i]+2,tableTop+4.8+j*3.2)));
-
+  columns.forEach((c,i)=>{
+    const parts=doc.splitTextToSize(c.label,Math.max(8,widths[i]-4));
+    parts.slice(0,2).forEach((v:string,j:number)=>text(doc,v,xs[i]+2,tableTop+4.3+j*3.1,Math.max(8,widths[i]-4)));
+  });
+  const descIndex=columns.findIndex(c=>c.key==='description');
+  const amountIndex=columns.findIndex(c=>c.key==='amount');
+  const qtyIndex=columns.findIndex(c=>c.key==='quantity');
   let yy=tableTop+17;
-  const description=clean(row.goods_description)||clean(row.notes);
-  doc.setFont('helvetica','normal');doc.setFontSize(8);text(doc,'1',xs[0]+2,yy);
-  doc.setFont('helvetica','bold');
-  if(description)text(doc,description,xs[1]+2,yy,69);
-  doc.setFont('helvetica','normal');
-  if(num(row.bags_qty)>0)text(doc,`${kg(row.bags_qty)} Bags`,xs[1]+2,yy+5,69);
-  if(bool(s,'show_hsn')&&clean(row.hsn))text(doc,row.hsn,xs[2]+2,yy,24);
-  if(bool(s,'show_quantity'))text(doc,`${kg(row.net_weight)} Kg`,xs[3]+2,yy);
-  if(bool(s,'show_rate'))text(doc,Number(row.rate||0).toFixed(2),xs[4]+2,yy);
-  text(doc,'Kg',xs[5]+2,yy);
-  if(bool(s,'show_amount'))right(doc,Number(row.gross_amount||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}),xs[7]-2,yy);
+  columns.forEach((c,i)=>{
+    if(c.key==='description'){
+      doc.setFont('helvetica','bold');doc.setFontSize(8);if(c.value)text(doc,c.value,xs[i]+2,yy,Math.max(8,widths[i]-4));
+      if(Number(row.bags_qty)>0) {doc.setFont('helvetica','normal');doc.setFontSize(7.5);text(doc,`${kg(row.bags_qty)} Bags`,xs[i]+2,yy+5,Math.max(8,widths[i]-4));}
+    } else {
+      doc.setFont('helvetica','normal');doc.setFontSize(7.5);
+      if(c.key==='amount')right(doc,c.value,xs[i+1]-2,yy);else text(doc,c.value,xs[i]+2,yy,Math.max(8,widths[i]-4));
+    }
+  });
+  // Quantity value already includes its unit (for example, '42,540 Kg'); do not duplicate 'Kg'.
 
-  // Deductions are printed in the same large description area as the supplied invoice.
-  let ly=yy+17;
+  // Deductions only appear when enabled and non-zero. Their sum is the same
+  // sum removed from the printed total; the source purchase record is untouched.
   const less:[string,number,string][]=[
     ['Unload Charges',Number(row.unload_charge||0),'include_unload'],
     ['Driver Rokdi',Number(row.driver_rokdi||0),'include_driver_rokdi'],
@@ -137,48 +178,66 @@ export async function GET(req:Request){
     ['Quality Deduct',Number(row.quality_deduct_amount||0),'include_quality_deduct'],
     ['Other Charges',Number(row.other_charges||0),'include_other_charges']
   ];
-  for(const [label,val,key] of less){
-    if(val===0||!bool(s,key,true))continue;
-    doc.setFont('helvetica','normal');text(doc,'Less :',xs[1]+2,ly);
-    doc.setFont('helvetica','bold');doc.setFontSize(7.8);doc.text(label,xs[3]-2,ly,{align:'right'});
-    doc.setFont('helvetica','normal');right(doc,`(-)${Math.round(val).toLocaleString('en-IN')}`,xs[7]-2,ly);ly+=5;
+  const showDeductions=billType!=='third-party'||bool(s,'show_deductions',true);
+  const visibleDeductions=showDeductions&&descIndex>=0?less.filter(([,v,k])=>v!==0&&bool(s,k,true)):[];
+  let ly=yy+17;
+  for(const [label,val] of visibleDeductions){
+    doc.setFont('helvetica','normal');doc.setFontSize(7.5);text(doc,'Less :',xs[descIndex]+2,ly);
+    doc.setFont('helvetica','bold');doc.setFontSize(7.5);text(doc,label,xs[descIndex]+19,ly,Math.max(8,widths[descIndex]-21));
+    if(amountIndex>=0){doc.setFont('helvetica','normal');right(doc,`(-) ${Math.round(val).toLocaleString('en-IN',{maximumFractionDigits:0})}`,xs[amountIndex+1]-2,ly);}
+    ly+=5;
   }
-  const included=less.filter(([,v,k])=>v!==0&&bool(s,k,true)).reduce((a,[,v])=>a+v,0);
+  const included=visibleDeductions.reduce((a,[,v])=>a+v,0);
   const displayedTotal=Math.max(0,Math.round(Number(row.gross_amount||0)-included));
-  doc.line(xs[2],tableBottom-8,R,tableBottom-8);
-  doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.text('Total',xs[2]-2,tableBottom-3,{align:'right'});
-  if(bool(s,'show_quantity'))text(doc,`${kg(row.net_weight)} Kg`,xs[3]+2,tableBottom-3);
-  right(doc,money(displayedTotal),xs[7]-2,tableBottom-3);
+  // Fit the item area to the actual content instead of leaving a huge blank table.
+  // Reserve 13 mm between the last deduction and the total row for clean spacing.
+  // Use the reference invoice's full-height item grid so totals align near the bottom,
+  // while keeping the footer directly below the totals rather than leaving a blank page.
+  const tableBottom=Math.max(tableTop+38,218,ly+8);
+  doc.rect(L,tableTop,W,tableBottom-tableTop);
+  for(let i=1;i<xs.length-1;i++)doc.line(xs[i],tableTop,xs[i],tableBottom);
+  doc.line(L,tableTop+11,R,tableTop+11);
+  doc.line(L,tableBottom-8,R,tableBottom-8);
+  doc.setFont('helvetica','bold');doc.setFontSize(7.5);text(doc,'Total',L+2,tableBottom-3);
+  if(qtyIndex>=0)right(doc,`${kg(netWeight)} Kg`,xs[qtyIndex+1]-2,tableBottom-3);
+  else { const netIndex=columns.findIndex(c=>c.key==='net'); if(netIndex>=0)right(doc,`${kg(netWeight)} Kg`,xs[netIndex+1]-2,tableBottom-3); }
+  if(amountIndex>=0)right(doc,money(displayedTotal),xs[amountIndex+1]-2,tableBottom-3);
 
   // Bottom block exactly follows the reference's three-column visual balance.
-  const bottomTop=232;
+  const bottomTop=tableBottom;
   doc.line(L,bottomTop,R,bottomTop);
   doc.setFont('helvetica','bold');doc.setFontSize(7.3);text(doc,'Amount Chargeable (in words)',L,bottomTop+5);
   doc.setFontSize(8);text(doc,`INR ${words(displayedTotal)} Only`,L,bottomTop+11,82);
   doc.setFont('helvetica','bold');doc.setFontSize(7);right(doc,'E. & O.E',R,bottomTop+11);
 
-  doc.setFont('helvetica','bold');doc.setFontSize(7.5);text(doc,'Declaration',L,bottomTop+25);
-  doc.setFont('helvetica','normal');doc.setFontSize(7.3);text(doc,'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',L,bottomTop+31,86);
+  if(bool(s,'show_declaration')){
+    doc.setFont('helvetica','bold');doc.setFontSize(7.5);text(doc,'Declaration',L,bottomTop+25);
+    doc.setFont('helvetica','normal');doc.setFontSize(7.3);text(doc,'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',L,bottomTop+31,86);
+  }
 
   const bankX=111;
   if(bool(s,'show_bank_details')){
-    doc.setFont('helvetica','bold');doc.setFontSize(7.5);text(doc,"Company's Bank Details",bankX,bottomTop+25);
-    doc.setFont('helvetica','normal');doc.setFontSize(7.2);
-    let bY=bottomTop+31;
     const bankLines=[
       companyBank?.account_holder?`A/c Holder's Name : ${companyBank.account_holder}`:'',
       companyBank?.bank_name?`Bank Name : ${companyBank.bank_name}`:'',
       companyBank?.account_number?`A/c No. : ${companyBank.account_number}`:'',
       companyBank?.branch||companyBank?.ifsc?`Branch & IFS Code : ${[companyBank?.branch,companyBank?.ifsc].filter(Boolean).join(' & ')}`:''
     ].map(clean).filter(Boolean);
-    for(const line of bankLines){text(doc,line,bankX,bY,84);bY+=4.2;}
+    if(bankLines.length){
+      doc.setFont('helvetica','bold');doc.setFontSize(7.5);text(doc,"Company's Bank Details",bankX,bottomTop+25);
+      doc.setFont('helvetica','normal');doc.setFontSize(7.2);
+      let bY=bottomTop+31;
+      for(const line of bankLines){text(doc,line,bankX,bY,84);bY+=4.2;}
+    }
   }
   if(bool(s,'show_signature')){
     doc.setFont('helvetica','bold');doc.setFontSize(7.5);right(doc,`for ${clean(company.name)||'SOLIVY'}`,R,bottomTop+46);
     doc.line(151,bottomTop+52,R,bottomTop+52);
     doc.setFont('helvetica','normal');right(doc,'Authorised Signatory',R,bottomTop+57);
   }
-  doc.setFont('helvetica','normal');doc.setFontSize(7);doc.text('This is a Computer Generated Invoice',105,294,{align:'center'});
+  doc.setFont('helvetica','normal');doc.setFontSize(7);
+  const footerY=Math.min(289,bottomTop+63);
+  doc.text('This is a Computer Generated Invoice',105,footerY,{align:'center'});
 
   const bytes=new Uint8Array(doc.output('arraybuffer'));
   const safe=(clean(row.invoice_no)||clean(row.sample_no)||`purchase-${id}`).replace(/[^A-Za-z0-9_-]/g,'_');

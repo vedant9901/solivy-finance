@@ -15,7 +15,7 @@ function calc(x:any){
   const total=receivableBase+cgst+sgst+igst;
   return {discount,receivableBase,cgst,sgst,igst,total};
 }
-function dueDate(date:string,days:any){const d=Math.max(0,Math.floor(n(days)));if(!d)return '';const x=new Date(date+'T00:00:00');x.setDate(x.getDate()+d);return x.toISOString().slice(0,10)}
+function dueDate(date:string,days:any){const d=Math.max(0,Math.floor(n(days)));if(!d)return '';const [y,m,day]=date.slice(0,10).split('-').map(Number);const x=new Date(Date.UTC(y,m-1,day+d));return `${x.getUTCFullYear()}-${String(x.getUTCMonth()+1).padStart(2,'0')}-${String(x.getUTCDate()).padStart(2,'0')}`}
 export async function POST(req:Request){try{
  const x=await req.json();const d=db(sessionMode(req), Number(req.headers.get('x-aksh-company-id')||x.company_id||1));if(!x.invoice_no||!x.invoice_date||!x.customer_name||n(x.taxable_value)<=0)throw Error('Invoice number, date, customer and taxable value are required');const gstin=String(x.customer_gstin||'').trim().toUpperCase();if(gstin&&!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin))throw Error('Customer GSTIN format is invalid');
  const c=calc(x);const days=Math.max(0,Math.floor(n(x.due_days)));const due=x.due_date||dueDate(x.invoice_date,days);

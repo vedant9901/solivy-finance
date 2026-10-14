@@ -1,0 +1,16 @@
+SOLIVY Finance v2.5.26 — verification status
+
+Base: SOLIVY Finance v2.5.25 REMEDIATION FIX1
+
+PASS: ZIP/source integrity prepared in this workspace.
+PASS: scripts/check-source.cjs (61 source files parsed).
+PASS: scripts/check-security.cjs (static security assertions).
+PASS: scripts/check-import-schema.mjs (6 import integrity checks).
+PASS: scripts/license-tool.cjs self-test (Ed25519 sign/verify tests).
+
+NOT VERIFIED: npm install timed out in this environment, so node_modules could not be installed.
+NOT VERIFIED: TypeScript full check; current attempt cannot resolve Next.js, React, xlsx, better-sqlite3 and Node type packages because dependencies are unavailable.
+NOT VERIFIED: Next.js production build.
+NOT VERIFIED: live app smoke tests, Tally import into a real Tally company, real bank statement samples, backup restore, deactivation/session revocation and financial regression tests.
+
+Do not call this a fault-free or production-certified release. Run VERIFY-RELEASE-WINDOWS.ps1 on a Windows machine with npm registry access, then follow REGRESSION-CHECKLIST-v2.5.26.md against copied databases before any LIVE deployment.

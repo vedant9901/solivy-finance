@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     const d = db(mode, companyId);
     const party = d.prepare('SELECT * FROM parties WHERE id=?').get(Number(x.party_id)) as any;
     if (!party) throw Error('Party not found');
-    const decision = decideTds(d, party, String(x.payment_date || new Date().toISOString().slice(0,10)), n(x.amount));
+    const decision = decideTds(d, party, String(x.payment_date || new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10)), n(x.amount));
     return NextResponse.json({ ok: true, decision });
   } catch (e:any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 400 });

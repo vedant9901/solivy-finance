@@ -126,7 +126,17 @@ CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT,
   if ((d.prepare("SELECT COUNT(*) c FROM company_settings").get() as any).c === 0) d.prepare("INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY')").run();
 }
 
-// function openDb(file:string){if(isVercel)throw new Error('SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and migrate this API to PostgreSQL before using it online.');const key=path.resolve(file);if(!dbCache.has(key)){fs.mkdirSync(path.dirname(key),{recursive:true});const d=new Database(key);ensureSchema(d);dbCache.set(key,d);}return dbCache.get(key)!}
+function openDb(file: string) {
+  // if (isVercel) throw new Error("SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and migrate this API to PostgreSQL before using it online.");
+  const key = path.resolve(file);
+  if (!dbCache.has(key)) {
+    fs.mkdirSync(path.dirname(key), { recursive: true });
+    const d = new Database(key);
+    ensureSchema(d);
+    dbCache.set(key, d);
+  }
+  return dbCache.get(key)!;
+}
 
 function legacyFile(mode: Mode) {
   return path.join(dataDir, mode === "LIVE" ? "live.db" : "test.db");

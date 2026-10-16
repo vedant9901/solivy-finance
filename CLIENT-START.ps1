@@ -8,6 +8,9 @@ $env:NODE_ENV = 'production'
 $env:SESSION_SECRET = [string]$config.sessionSecret
 $env:SOLIVY_SETUP_SECRET = [string]$config.setupSecret
 $env:SOLIVY_LICENSE_TOKEN = [string]$config.licenseToken
+# Local installations use the saved per-install token. Prevent inherited machine/user
+# environment variables from overriding it with an online multi-company token map.
+$env:SOLIVY_LICENSES_JSON = ''
 $env:SOLIVY_LICENSE_ENFORCEMENT = [string]$config.licenseEnforcement
 $env:FINANCE_DATA_DIR = [string]$config.dataDir
 $env:PORT = [string]$config.port

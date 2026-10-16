@@ -11,3 +11,16 @@ PASS: source/security/import/license checks are included in the project.
 NOT VERIFIED in this environment: npm dependency installation (npm install timed out), TypeScript full check, Next.js standalone production build, actual Windows PowerShell execution, clean-machine installation, LIVE/TEST persistence, upgrade against a real client database, or live app regression tests.
 
 IMPORTANT: This is a setup-enhanced SOURCE/BUILD-TOOL package, not a precompiled installable client ZIP. On a Windows developer PC with Node.js 20+ and npm registry access, run BUILD-CLIENT-RELEASE.bat. Only use the generated releases/SOLIVY-Finance-Client-v2.5.27.zip if the builder exits successfully. Then test installation and the checklist against COPIES of databases before LIVE use.
+
+
+Additional source-package updates (2026-10-15):
+PASS: Added LICENSE-ACTIVATION-GUIDE-v2.5.27.md with owner-key checks, token issuance, local first activation, additional company activation, renewal, and online caveats.
+PASS: Local client launcher clears inherited SOLIVY_LICENSES_JSON so it does not override the saved client token.
+PASS: Login cooldown after five failed attempts reduced from 15 minutes to 2 minutes; rate limiting remains enabled.
+PASS: Secondary-backup status polling reduced from every 60 seconds to every 5 minutes; failed scheduled backup retry threshold reduced to 2 minutes (effective retries still depend on polling while the admin app is open).
+PASS: node scripts/license-tool.cjs self-test.
+PASS: node scripts/check-source.cjs.
+PASS: node scripts/check-security.cjs.
+PASS: node scripts/check-import-schema.mjs.
+
+NOT VERIFIED for these updates: npm dependency installation, TypeScript type-check, Next.js production build, Windows runtime test, backup schedule timing in a running client, or login lockout timing test. The archive remains a source/build-tool package, not a compiled client installer.

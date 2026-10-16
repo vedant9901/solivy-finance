@@ -1,6 +1,10 @@
 SOLIVY FINANCE - CLIENT INSTALLATION
 ====================================
 
+LICENSE ACTIVATION
+- Follow LICENSE-ACTIVATION-GUIDE-v2.5.27.md for owner key verification, token issuance, fresh client activation, additional company activation, renewal, and troubleshooting.
+- Never share the owner private key or the client-config.json file. It contains secrets and the license token.
+
 INSTALL
 1. Extract the entire release ZIP to a normal folder (for example Downloads\SOLIVY-Finance).
 2. Double-click CLIENT-INSTALL.bat.
@@ -23,6 +27,7 @@ DATA AND BACKUPS
 IMPORTANT
 - This is a local Windows application. Each client PC has its own local databases; it does not automatically synchronize data between PCs.
 - On first run, create the first administrator at the application setup screen using the one-time setup key displayed by the installer. No shared default administrator password should be used.
+- Local client activation reads the token saved in %APPDATA%\\SOLIVY-FINANCE\\client-config.json. After changing it, restart SOLIVY Finance and refresh License Management.
 - The installer does not include your development project, Git metadata, .env files, license private key, or source folders. However, local Next.js server bundles contain JavaScript that a determined user may inspect; this is not complete code secrecy.
 - Node.js installation may require internet access and Windows permissions.
 

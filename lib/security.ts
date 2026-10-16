@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 const loginAttempts = new Map<string, { count: number; resetAt: number; blockedUntil: number }>();
 const MAX_LOGIN_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;
-const BLOCK_MS = 15 * 60 * 1000;
+// Keep the lockout short enough for a legitimate user to retry after correcting credentials.
+// Five failures still trigger a cooldown; failed-login protection remains enabled.
+const BLOCK_MS = 2 * 60 * 1000;
 
 export function clientIp(req: Request) {
   // Forwarding headers are client-spoofable unless the deployment explicitly

@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT,
 
 function openDb(file: string) {
   // if (isVercel) throw new Error("SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and migrate this API to PostgreSQL before using it online.");
+  console.log("he");
   const key = path.resolve(file);
   if (!dbCache.has(key)) {
     fs.mkdirSync(path.dirname(key), { recursive: true });

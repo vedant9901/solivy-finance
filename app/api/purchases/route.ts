@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 import { db, Mode } from '../../../lib/db';
@@ -18,7 +19,7 @@ function ensureParty(d:any,id:number){
   if(!p.active) throw Error('Selected party is inactive');
 }
 
-export async function POST(req:Request){
+async function __bridge_POST(req:Request){
   try{
     const x=await req.json(); const d=db(sessionMode(req), Number(req.headers.get('x-aksh-company-id')||x.company_id||1));
     if(!String(x.purchase_date||'').trim()||n(x.net_weight)<=0||n(x.rate)<=0) throw Error('Purchase date, net weight and rate are required');
@@ -51,7 +52,7 @@ export async function POST(req:Request){
   }catch(e:any){const msg=String(e?.message||e);return NextResponse.json({error:msg.includes('UNIQUE constraint failed: purchases.sample_no')?'Sample number already exists. Enter a unique sample number or leave it blank to generate one automatically.':msg},{status:400});}
 }
 
-export async function PUT(req:Request){
+async function __bridge_PUT(req:Request){
   try{
     const x=await req.json(); const d=db(sessionMode(req), Number(req.headers.get('x-aksh-company-id')||x.company_id||1)); const id=Number(x.id);
     const p=d.prepare('SELECT * FROM purchases WHERE id=?').get(id) as any;
@@ -74,3 +75,11 @@ export async function PUT(req:Request){
     return NextResponse.json({ok:true,calc:c});
   }catch(e:any){const msg=String(e?.message||e);return NextResponse.json({error:msg.includes('UNIQUE constraint failed: purchases.sample_no')?'Sample number already exists. Enter a unique sample number or leave it blank to generate one automatically.':msg},{status:400});}
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }
+
+const __wrapped_PUT = withPostgresSQLiteBridge(__bridge_PUT);
+export async function PUT(req: Request) { return __wrapped_PUT(req); }

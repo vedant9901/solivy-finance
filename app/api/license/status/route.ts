@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { adminDb } from '../../../../lib/db';
@@ -78,7 +79,7 @@ function parseToken(token: string, companyId: number): LicenseInfo {
   }
 }
 
-export async function GET(req: Request) {
+async function __bridge_GET(req: Request) {
   try {
     const token = readCookie(req, COOKIE);
     const session = verifySession(token);
@@ -109,3 +110,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: String(error?.message || 'Unable to read license status.') }, { status: 500 });
   }
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+export async function GET(req: Request) { return __wrapped_GET(req); }

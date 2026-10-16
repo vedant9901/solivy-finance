@@ -1,10 +1,11 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../lib/db';
 import { hashPassword } from '../../../lib/session';
 
 const DEFAULT_MENU_IDS = ['dashboard','accounts','account-movements','parties','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','gst','commercial-bills','document-settings','settings'];
 
-export async function GET() {
+async function __bridge_GET() {
   try {
     const d = adminDb();
     const count = Number((d.prepare("SELECT COUNT(*) AS c FROM admin_users WHERE role='ADMIN' AND active=1").get() as any)?.c || 0);
@@ -14,7 +15,7 @@ export async function GET() {
   }
 }
 
-export async function POST(req: Request) {
+async function __bridge_POST(req: Request) {
   try {
     const body = await req.json();
     const expectedSetupSecret = String(process.env.SOLIVY_SETUP_SECRET || '').trim();
@@ -49,3 +50,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: msg }, { status: /already been completed|setup authorization|Username|password|name|match|organization/i.test(msg) ? 400 : 500 });
   }
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+export async function GET(req: Request) { return __wrapped_GET(req); }
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
 import { db, sessionMode } from '../../../lib/db';
 
@@ -24,7 +25,7 @@ function table(req: Request) {
   d.exec(`CREATE TABLE IF NOT EXISTS tally_ledger_mappings(mapping_key TEXT PRIMARY KEY,ledger_name TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
   return d;
 }
-export async function GET(req: Request) {
+async function __bridge_GET(req: Request) {
   try {
     authorized(req); const d = table(req);
     const saved = d.prepare('SELECT mapping_key,ledger_name FROM tally_ledger_mappings').all() as any[];
@@ -33,7 +34,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ mappings, fields: Object.keys(DEFAULTS) });
   } catch (e: any) { return NextResponse.json({ error: e.message || 'Could not load Tally mappings' }, { status: 403 }); }
 }
-export async function POST(req: Request) {
+async function __bridge_POST(req: Request) {
   try {
     authorized(req); const body = await req.json(); const d = table(req);
     if (!body || typeof body.mappings !== 'object' || Array.isArray(body.mappings)) throw new Error('Provide a mappings object.');
@@ -48,3 +49,11 @@ export async function POST(req: Request) {
     tx(); return NextResponse.json({ ok: true, message: 'Tally ledger mappings saved for this company and environment.' });
   } catch (e: any) { return NextResponse.json({ error: e.message || 'Could not save Tally mappings' }, { status: 400 }); }
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+export async function GET(req: Request) { return __wrapped_GET(req); }
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

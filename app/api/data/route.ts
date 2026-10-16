@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import {NextResponse} from 'next/server';
 import {db,Mode,adminDb} from '../../../lib/db';
@@ -5,7 +6,7 @@ export const dynamic='force-dynamic';
 function today(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10)}
 function addDays(date:string,days:number){const d=new Date(date+'T00:00:00');d.setDate(d.getDate()+days);return d.toISOString().slice(0,10)}
 function weekEnd(date:string){const d=new Date(date+'T00:00:00');const day=d.getDay();const delta=day===0?0:7-day;d.setDate(d.getDate()+delta);return d.toISOString().slice(0,10)}
-export async function GET(req:Request){
+async function __bridge_GET(req:Request){
  try{
   const u=new URL(req.url); const mode = sessionMode(req); const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1); const d=db(mode,companyId); const t=today(); const tomorrow=addDays(t,1); const week=weekEnd(t);
   const thirdParties=d.prepare('SELECT * FROM third_parties WHERE active=1 ORDER BY name').all();
@@ -43,3 +44,8 @@ export async function GET(req:Request){
   let menu:string[]=[];try{menu=JSON.parse(req.headers.get('x-aksh-menu')||'[]')}catch{}const can=(id:string)=>isAdmin||menu.includes(id);const canUseParties=can('parties')||can('purchase')||can('payments')||can('receivables')||can('money-in')||can('interest')||can('funding');const limitedParties=parties.map((p:any)=>({id:p.id,name:p.name,active:p.active,party_type:p.party_type,entity_type:p.entity_type}));return NextResponse.json({thirdParties:can('parties')?thirdParties:[],parties:can('parties')?parties:(canUseParties?limitedParties:[]),purchases:can('purchase')?(can('parties')?purchases:purchases.map((p:any)=>({...p,party_email:'',party_contact:'',broker_contact:'',broker_email:''}))):[],pendingPurchaseBills:can('purchase')?pendingPurchaseBills:[],payments:can('payments')?(can('parties')?payments:payments.map((p:any)=>({...p,email:'',contact:''}))):[],outstanding:can('parties')?outstanding:[],ledger:can('ledger')?ledger:[],unmatched:can('bank')?unmatched:[],users,companies,sales:can('receivables')?sales:[],receivables:can('receivables')?receivables:[],stats,settings:can('settings')||can('document-settings')?settings:{},accounts:can('accounts')?accounts:[],accountMovements:can('account-movements')?accountMovements:[],accountTransactions:can('accounts')?accountTransactions:[],moneyIn:can('money-in')?moneyIn:[],interestPayments:can('interest')?interestPayments:[],duePayables:can('purchase')?duePayables:[],dueReceivables:can('receivables')?dueReceivables:[],overdueReceivables:can('receivables')?overdueReceivables:[],todayPayable:can('purchase')?todayPayable:[],tomorrowPayable:can('purchase')?tomorrowPayable:[],todayReceivable:can('receivables')?todayReceivable:[],tomorrowReceivable:can('receivables')?tomorrowReceivable:[],profit:can('dashboard')?profit:{},fundingLoans:can('funding')?fundingLoans:[],fundingSchedule:can('funding')?fundingSchedule:[],fundingToday:can('funding')?fundingToday:[],fundingTomorrow:can('funding')?fundingTomorrow:[],nextFunding:can('funding')?nextFunding:[],averageMonthlyProfit:can('dashboard')?averageMonthlyProfit:[],monthlyProfit:can('dashboard')?monthlyProfit:[],monthlyCashIn:can('dashboard')?monthlyCashIn:[],fundingUpcoming:can('funding')?fundingUpcoming:[]});
  }catch(e:any){return NextResponse.json({error:e.message},{status:500})}
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+export async function GET(req: Request) { return __wrapped_GET(req); }

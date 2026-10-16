@@ -1,6 +1,6 @@
 {
   "name": "solivy-finance",
-  "version": "2.5.29",
+  "version": "2.5.30",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,29 +10,31 @@
     "check:env": "node scripts/check-env.mjs",
     "check:import": "node scripts/check-import-schema.mjs",
     "check:source": "node scripts/check-source.cjs",
+    "check:database-bridge": "node scripts/check-database-bridge.mjs",
     "check:security": "node scripts/check-security.cjs",
     "license:issue": "node scripts/license-tool.cjs issue",
     "license:keygen": "node scripts/license-tool.cjs keygen",
-    "check:license": "node scripts/license-tool.cjs self-test"
+    "check:license": "node scripts/license-tool.cjs self-test",
+    "db:upload-sqlite-snapshots": "node scripts/upload-sqlite-snapshots-to-postgres.mjs"
   },
   "dependencies": {
-    "@tailwindcss/postcss": "4.1.13",
     "better-sqlite3": "12.4.1",
     "jspdf": "3.0.2",
-    "next": "^15.5.28",
-    "pg": "^8.16.3",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "react-icons": "^5.5.0",
+    "next": "15.5.27",
+    "react": "19.1.7",
+    "react-dom": "19.1.7",
+    "xlsx": "0.18.5",
     "tailwindcss": "4.1.13",
-    "xlsx": "0.18.5"
+    "@tailwindcss/postcss": "4.1.13",
+    "react-icons": "^5.5.0",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "24.5.2",
-    "@types/pg": "^8.15.5",
     "@types/react": "19.1.13",
     "@types/react-dom": "19.1.9",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "@types/pg": "^8.15.5"
   }
 }

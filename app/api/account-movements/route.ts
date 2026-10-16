@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 import { db, Mode } from '../../../lib/db';
@@ -8,7 +9,7 @@ function balance(d:any, id:number){
   return row ? Number(row.balance||0) : null;
 }
 
-export async function GET(req:Request){
+async function __bridge_GET(req:Request){
   try{
     const u=new URL(req.url);
     const mode = sessionMode(req);
@@ -25,7 +26,7 @@ export async function GET(req:Request){
   }catch(e:any){return NextResponse.json({error:e.message},{status:500})}
 }
 
-export async function POST(req:Request){
+async function __bridge_POST(req:Request){
   try{
     const x=await req.json();
     const mode = sessionMode(req);
@@ -61,3 +62,11 @@ export async function POST(req:Request){
     return NextResponse.json({ok:true,id:tx(),movementNo:no,movementType:type,amount});
   }catch(e:any){return NextResponse.json({error:e.message},{status:400})}
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+export async function GET(req: Request) { return __wrapped_GET(req); }
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

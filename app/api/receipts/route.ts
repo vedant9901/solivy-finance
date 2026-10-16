@@ -1,8 +1,9 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 import { db, Mode } from '../../../lib/db';
 import { n } from '../../../lib/utils';
-export async function POST(req: Request) {
+async function __bridge_POST(req: Request) {
   try {
     const x=await req.json(); const d=db(sessionMode(req), Number(req.headers.get('x-aksh-company-id')||x.company_id||1)); const id=Number(x.sale_id); const amount=n(x.amount); const accountId=Number(x.account_id||0);
     const sale=d.prepare('SELECT * FROM sales WHERE id=? AND status=\'POSTED\'').get(id) as any;
@@ -16,3 +17,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ok:true,remaining:remaining-amount,received:already+amount});
   } catch(e:any){return NextResponse.json({error:e.message},{status:400});}
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

@@ -1,10 +1,11 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../lib/db';
 import { postgresPool, usesPostgres } from '../../../lib/postgres';
 import { signSession, COOKIE, hashPassword, verifyPassword, cookieOptions } from '../../../lib/session';
 import { checkLoginRateLimit, clearLoginFailures, loginRateLimitKey, recordLoginFailure } from '../../../lib/security';
 
-export async function POST(req: Request) {
+async function __bridge_POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const username = String(body.username || '').trim();
   const key = loginRateLimitKey(req, username);
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
     let allowed: any;
     let legacyPasswordUpgrade = false;
 
-    if (usesPostgres()) {
+    if (usesPostgres() && process.env.SOLIVY_NATIVE_PG_AUTH === '1') {
       // Online mode: use Neon only; never import/open SQLite for authentication.
       const pool = postgresPool();
       const userResult = await pool.query(
@@ -91,3 +92,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: String(e?.message || 'Invalid username or password') }, { status: 401 });
   }
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

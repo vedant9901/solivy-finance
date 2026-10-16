@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import {db,Mode,adminDb} from '../../../lib/db';
 import {jsPDF} from 'jspdf';
@@ -11,7 +12,7 @@ const on=(s:any,k:string,def=true)=>s?.[k]===undefined?def:s[k]!==false;
 function text(doc:any,v:any,x:number,y:number,w?:number,opts:any={}){const s=clean(v);if(!s)return 0;const lines=w?doc.splitTextToSize(s,w):[s];doc.text(lines,x,y,opts);return lines.length;}
 function line(doc:any,label:string,value:any,x:number,y:number,w=75){if(!clean(value)&&num(value)===0)return y;doc.setFont('helvetica','normal');doc.setFontSize(8);doc.text(label,x,y);doc.setFont('helvetica','bold');doc.text(clean(value),x+w,y);return y+5;}
 
-export async function GET(req:Request){
+async function __bridge_GET(req:Request){
  try{
   const u=new URL(req.url);const mode = sessionMode(req);const id=Number(u.searchParams.get('id'));const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1);if(!id)throw Error('Payment id is required');
   const d=db(mode,companyId);
@@ -94,3 +95,8 @@ export async function GET(req:Request){
   const bytes=new Uint8Array(doc.output('arraybuffer'));return new Response(bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="Payment-Advice-${clean(p.payment_no)||id}.pdf"`}});
  }catch(e:any){return new Response(String(e?.message||'Unable to generate payment advice'),{status:500})}
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+export async function GET(req: Request) { return __wrapped_GET(req); }

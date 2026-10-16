@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import {NextResponse} from 'next/server';
 import {db,Mode} from '../../../lib/db';
@@ -40,7 +41,7 @@ function accountBalance(d:any,id:number,excludePaymentId:number|null=null){
 }
 function paymentPayload(x:any,old:any){return {payment_no:String(x.payment_no||old?.payment_no||'').trim(),party_id:Number(x.party_id||old?.party_id),payment_date:String(x.payment_date||old?.payment_date||''),amount:Math.round(n(x.amount??old?.amount)),mode:String(x.mode||old?.mode||'BANK'),company_account_id:x.company_account_id??old?.company_account_id??null,broker_name:x.broker_name??old?.broker_name??'',broker_email:x.broker_email??old?.broker_email??'',bank_name:x.bank_name??old?.bank_name??'',utr:x.utr??old?.utr??'',notes:x.notes??old?.notes??''}}
 
-export async function POST(req:Request){
+async function __bridge_POST(req:Request){
  try{
   const x=await req.json(); const d=db(sessionMode(req),companyId(req,x)); const v=paymentPayload(x,null);
   if(!v.party_id||!v.payment_date||v.amount<=0)throw Error('Party, payment date and amount are required');
@@ -53,7 +54,7 @@ export async function POST(req:Request){
  }catch(e:any){const msg=String(e?.message||e);return NextResponse.json({error:msg.includes('UNIQUE constraint failed: payments.payment_no')?'Payment number already exists. Leave Payment Number blank for automatic numbering.':msg},{status:400})}
 }
 
-export async function PUT(req:Request){
+async function __bridge_PUT(req:Request){
  try{
   const x=await req.json(); const d=db(sessionMode(req),companyId(req,x)); const id=Number(x.id);if(!id)throw Error('Payment id is required');
   const old=d.prepare('SELECT * FROM payments WHERE id=?').get(id) as any;if(!old)throw Error('Payment not found');if(old.status!=='POSTED')throw Error('Only posted payments can be edited');
@@ -74,3 +75,11 @@ export async function PUT(req:Request){
   return NextResponse.json({ok:true,id,paymentNo:old.payment_no,allocated:result.allocated,tdsRate:dec.rate,tdsAmount,netPaid});
  }catch(e:any){return NextResponse.json({error:String(e?.message||e)},{status:400})}
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }
+
+const __wrapped_PUT = withPostgresSQLiteBridge(__bridge_PUT);
+export async function PUT(req: Request) { return __wrapped_PUT(req); }

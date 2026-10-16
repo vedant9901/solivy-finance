@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
 import { createHash, randomBytes } from 'node:crypto';
 import { adminDb } from '../../../lib/db';
@@ -5,7 +6,7 @@ import { adminDb } from '../../../lib/db';
 const generic = 'If the account and organization match, recovery instructions will be sent to the registered organization and SOLIVY administrator email addresses.';
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 
-export async function POST(req: Request) {
+async function __bridge_POST(req: Request) {
   try {
     const body = await req.json();
     const username = String(body.username || '').trim();
@@ -49,3 +50,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unable to process recovery request. Contact your SOLIVY administrator.' }, { status: 500 });
   }
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

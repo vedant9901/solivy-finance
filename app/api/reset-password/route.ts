@@ -1,9 +1,10 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { adminDb } from '../../../lib/db';
 import { hashPassword } from '../../../lib/session';
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
-export async function POST(req: Request) {
+async function __bridge_POST(req: Request) {
   try {
     const body = await req.json();
     const token = String(body.token || '');
@@ -29,3 +30,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: /invalid|expired|password|match|inactive/i.test(message) ? 400 : 500 });
   }
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

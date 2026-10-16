@@ -11,16 +11,19 @@ export function sessionMode(req: Request): Mode {
   return value;
 }
 
-const defaultRoot = process.platform === 'win32'
-  ? path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), 'AppData', 'Roaming'), 'SOLIVY-FINANCE')
-  : path.join(process.env.HOME || process.cwd(), '.solivy-finance');
-// Financial data lives outside the application folder by default. Deleting/replacing the build therefore does not delete data.
-// Set FINANCE_DATA_DIR explicitly for a server with a persistent mounted volume.
-const dataDir = path.resolve(process.env.FINANCE_DATA_DIR || path.join(defaultRoot, 'data'));
-// Vercel's deployed filesystem is read-only/ephemeral. Never create SQLite data
-// directories during module import; online mode must use a persistent database.
+// Vercel only permits temporary local working files under /tmp. The online
+// bridge hydrates these SQLite working copies from PostgreSQL before a route
+// runs and persists them back before returning the response.
 const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV) || Boolean(process.env.VERCEL_REGION) || process.cwd().replace(/\\/g, '/').startsWith('/var/task');
-if (!isVercel) fs.mkdirSync(dataDir, { recursive: true });
+const defaultRoot = isVercel
+  ? path.join('/tmp', 'solivy-finance')
+  : process.platform === 'win32'
+    ? path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), 'AppData', 'Roaming'), 'SOLIVY-FINANCE')
+    : path.join(process.env.HOME || process.cwd(), '.solivy-finance');
+// Financial data lives outside the application folder by default on local installs.
+// On Vercel, /tmp is only a working copy; PostgreSQL is the durable source of truth.
+const dataDir = path.resolve(process.env.FINANCE_DATA_DIR || path.join(defaultRoot, 'data'));
+if (!isVercel || process.env.SOLIVY_SQLITE_BRIDGE === '1') fs.mkdirSync(dataDir, { recursive: true });
 const dbCache = new Map<string, Database.Database>();
 
 function ensureSchema(d: Database.Database) {
@@ -73,7 +76,9 @@ CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT,
   if((d.prepare('SELECT COUNT(*) c FROM company_settings').get() as any).c===0)d.prepare("INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY')").run();
 }
 
-function openDb(file:string){if(isVercel)throw new Error('SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and migrate this API to PostgreSQL before using it online.');const key=path.resolve(file);if(!dbCache.has(key)){fs.mkdirSync(path.dirname(key),{recursive:true});const d=new Database(key);ensureSchema(d);dbCache.set(key,d);}return dbCache.get(key)!}
+function openDb(file:string){if(isVercel && process.env.SOLIVY_SQLITE_BRIDGE !== '1')throw new Error('SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and enable the SOLIVY Finance PostgreSQL database bridge before using this API online.');const key=path.resolve(file);if(!dbCache.has(key)){fs.mkdirSync(path.dirname(key),{recursive:true});const d=new Database(key);ensureSchema(d);dbCache.set(key,d);}return dbCache.get(key)!}
+
+export function closeAllDatabases(){ for (const d of dbCache.values()) { try { d.close(); } catch {} } dbCache.clear(); }
 
 function legacyFile(mode:Mode){return path.join(dataDir,mode==='LIVE'?'live.db':'test.db')}
 export function db(mode:Mode='LIVE',companyId=1){

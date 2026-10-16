@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 import { db, adminDb, Mode } from '../../../lib/db';
@@ -21,7 +22,7 @@ function bool(settings:any,key:string,def=true){return settings?.[key]===undefin
 function text(doc:any,value:any,x:number,y:number,maxWidth?:number,opts:any={}){const v=clean(value);if(!v)return false;doc.text(maxWidth?doc.splitTextToSize(v,maxWidth):v,x,y,opts);return true}
 function right(doc:any,value:any,x:number,y:number){const v=clean(value);if(!v)return false;doc.text(v,x,y,{align:'right'});return true}
 
-export async function GET(req:Request){
+async function __bridge_GET(req:Request){
  try{
   const u=new URL(req.url);
   const mode = sessionMode(req);
@@ -244,3 +245,8 @@ export async function GET(req:Request){
   return new Response(bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="Commercial-Bill-${safe}.pdf"`}});
  }catch(e:any){return NextResponse.json({error:e?.message||'Unable to generate commercial bill'},{status:500});}
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+export async function GET(req: Request) { return __wrapped_GET(req); }

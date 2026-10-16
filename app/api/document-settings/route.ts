@@ -1,3 +1,4 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import {NextResponse} from 'next/server';
 import {db,Mode} from '../../../lib/db';
@@ -11,5 +12,13 @@ function read(d:any){
  try{c=JSON.parse(r?.third_party_bill_settings||'{}')}catch{}
  return {commercial_bill:{...DEFAULTS.commercial_bill,...a},third_party_bill:{...DEFAULTS.third_party_bill,...c},payment_advice:{...DEFAULTS.payment_advice,...b}}
 }
-export async function GET(req:Request){try{if(!admin(req))throw Error('Admin access required');const u=new URL(req.url);const d=db(sessionMode(req),Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1));return NextResponse.json(read(d))}catch(e:any){return NextResponse.json({error:e.message},{status:403})}}
-export async function POST(req:Request){try{if(!admin(req))throw Error('Admin access required');const x=await req.json();const d=db(sessionMode(req),Number(req.headers.get('x-aksh-company-id')||x.company_id||1));const current=read(d);const cb={...current.commercial_bill,...(x.commercial_bill||{})};const tp={...current.third_party_bill,...(x.third_party_bill||{})};const pa={...current.payment_advice,...(x.payment_advice||{})};d.prepare(`UPDATE company_settings SET commercial_bill_settings=?,third_party_bill_settings=?,payment_advice_settings=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`).run(JSON.stringify(cb),JSON.stringify(tp),JSON.stringify(pa));return NextResponse.json({ok:true,commercial_bill:cb,third_party_bill:tp,payment_advice:pa})}catch(e:any){return NextResponse.json({error:e.message},{status:400})}}
+async function __bridge_GET(req:Request){try{if(!admin(req))throw Error('Admin access required');const u=new URL(req.url);const d=db(sessionMode(req),Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1));return NextResponse.json(read(d))}catch(e:any){return NextResponse.json({error:e.message},{status:403})}}
+async function __bridge_POST(req:Request){try{if(!admin(req))throw Error('Admin access required');const x=await req.json();const d=db(sessionMode(req),Number(req.headers.get('x-aksh-company-id')||x.company_id||1));const current=read(d);const cb={...current.commercial_bill,...(x.commercial_bill||{})};const tp={...current.third_party_bill,...(x.third_party_bill||{})};const pa={...current.payment_advice,...(x.payment_advice||{})};d.prepare(`UPDATE company_settings SET commercial_bill_settings=?,third_party_bill_settings=?,payment_advice_settings=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`).run(JSON.stringify(cb),JSON.stringify(tp),JSON.stringify(pa));return NextResponse.json({ok:true,commercial_bill:cb,third_party_bill:tp,payment_advice:pa})}catch(e:any){return NextResponse.json({error:e.message},{status:400})}}
+
+export const runtime = 'nodejs';
+
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+export async function GET(req: Request) { return __wrapped_GET(req); }
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

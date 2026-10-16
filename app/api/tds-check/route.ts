@@ -1,10 +1,11 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { sessionMode } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 import { db, Mode } from '../../../lib/db';
 import { n } from '../../../lib/utils';
 import { decideTds } from '../../../lib/tds';
 
-export async function POST(req: Request) {
+async function __bridge_POST(req: Request) {
   try {
     const x = await req.json();
     const mode = sessionMode(req);
@@ -18,3 +19,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 400 });
   }
 }
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

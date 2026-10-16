@@ -1,34 +1,30 @@
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
 
-export type Mode = "LIVE" | "TEST";
+export type Mode = 'LIVE' | 'TEST';
 
 /** Read the environment only from the authenticated session header injected by middleware. Never trust a body/query mode for ordinary finance operations. */
 export function sessionMode(req: Request): Mode {
-  const value = req.headers.get("x-aksh-mode");
-  if (value !== "LIVE" && value !== "TEST") throw new Error("A valid authenticated environment is required. Sign in again.");
+  const value = req.headers.get('x-aksh-mode');
+  if (value !== 'LIVE' && value !== 'TEST') throw new Error('A valid authenticated environment is required. Sign in again.');
   return value;
 }
 
-const defaultRoot =
-  process.platform === "win32"
-    ? path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), "AppData", "Roaming"), "SOLIVY-FINANCE")
-    : path.join(process.env.HOME || process.cwd(), ".solivy-finance");
+const defaultRoot = process.platform === 'win32'
+  ? path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), 'AppData', 'Roaming'), 'SOLIVY-FINANCE')
+  : path.join(process.env.HOME || process.cwd(), '.solivy-finance');
 // Financial data lives outside the application folder by default. Deleting/replacing the build therefore does not delete data.
 // Set FINANCE_DATA_DIR explicitly for a server with a persistent mounted volume.
-const dataDir = path.resolve(process.env.FINANCE_DATA_DIR || path.join(defaultRoot, "data"));
+const dataDir = path.resolve(process.env.FINANCE_DATA_DIR || path.join(defaultRoot, 'data'));
 // Vercel's deployed filesystem is read-only/ephemeral. Never create SQLite data
 // directories during module import; online mode must use a persistent database.
-const isVercel = process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
+const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV) || Boolean(process.env.VERCEL_REGION) || process.cwd().replace(/\\/g, '/').startsWith('/var/task');
 if (!isVercel) fs.mkdirSync(dataDir, { recursive: true });
 const dbCache = new Map<string, Database.Database>();
 
 function ensureSchema(d: Database.Database) {
-  d.pragma("journal_mode = WAL");
-  d.pragma("synchronous = FULL");
-  d.pragma("foreign_keys = ON");
-  d.pragma("busy_timeout = 5000");
+  d.pragma('journal_mode = WAL'); d.pragma('synchronous = FULL'); d.pragma('foreign_keys = ON'); d.pragma('busy_timeout = 5000');
   d.exec(`
 CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'DATA_ENTRY', password TEXT DEFAULT '', password_hash TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS company_settings (id INTEGER PRIMARY KEY CHECK(id=1), entity_name TEXT NOT NULL DEFAULT 'SOLIVY', tan TEXT DEFAULT '', deductor_type TEXT NOT NULL DEFAULT 'COMPANY', preceding_turnover REAL NOT NULL DEFAULT 0, tds_auto INTEGER NOT NULL DEFAULT 1, commercial_bill_settings TEXT NOT NULL DEFAULT '{}', third_party_bill_settings TEXT NOT NULL DEFAULT '{}', payment_advice_settings TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -54,252 +50,81 @@ CREATE TABLE IF NOT EXISTS funding_loans (id INTEGER PRIMARY KEY AUTOINCREMENT, 
 CREATE TABLE IF NOT EXISTS funding_schedule (id INTEGER PRIMARY KEY AUTOINCREMENT, loan_id INTEGER NOT NULL REFERENCES funding_loans(id) ON DELETE CASCADE, due_date TEXT NOT NULL, interest_amount REAL NOT NULL, principal_due REAL NOT NULL DEFAULT 0, paid_amount REAL NOT NULL DEFAULT 0, paid_date TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'DUE');
 CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, file_name TEXT NOT NULL, imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, row_count INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'IMPORTED');
   `);
-  const addColumn = (table: string, column: string, definition: string) => {
-    const cols = d.prepare(`PRAGMA table_info(${table})`).all() as any[];
-    if (!cols.some((c) => c.name === column)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-  };
-  addColumn("company_settings", "commercial_bill_settings", "TEXT NOT NULL DEFAULT '{}'");
-  addColumn("company_settings", "payment_advice_settings", "TEXT NOT NULL DEFAULT '{}'");
-  addColumn("parties", "email", "TEXT DEFAULT ''");
-  addColumn("parties", "tds_enabled", "INTEGER NOT NULL DEFAULT 0");
-  addColumn("parties", "tds_section", "TEXT DEFAULT ''");
-  addColumn("parties", "tds_rate", "REAL NOT NULL DEFAULT 0");
-  addColumn("parties", "party_type", "TEXT NOT NULL DEFAULT 'GOODS_VENDOR'");
-  addColumn("parties", "entity_type", "TEXT NOT NULL DEFAULT 'OTHER'");
-  addColumn("parties", "resident_status", "TEXT NOT NULL DEFAULT 'RESIDENT'");
-  addColumn("parties", "pan_status", "TEXT NOT NULL DEFAULT 'VALID'");
-  addColumn("parties", "tds_exempt", "INTEGER NOT NULL DEFAULT 0");
-  addColumn("parties", "opening_balance", "REAL NOT NULL DEFAULT 0");
-  addColumn("parties", "opening_balance_type", "TEXT NOT NULL DEFAULT 'PAYABLE'");
-  addColumn("purchases", "broker_party_id", "INTEGER");
-  addColumn("purchases", "goods_description", "TEXT DEFAULT ''");
-  addColumn("purchases", "bags_qty", "REAL NOT NULL DEFAULT 0");
-  addColumn("purchases", "invoice_no", "TEXT DEFAULT ''");
-  addColumn("purchases", "hsn", "TEXT DEFAULT ''");
-  addColumn("purchases", "gst_type", "TEXT DEFAULT 'NONE'");
-  addColumn("purchases", "gst_rate", "REAL NOT NULL DEFAULT 0");
-  addColumn("purchases", "gst_taxable", "REAL NOT NULL DEFAULT 0");
-  addColumn("purchases", "gst_amount", "REAL NOT NULL DEFAULT 0");
-  addColumn("purchases", "payment_due_days", "INTEGER NOT NULL DEFAULT 0");
-  addColumn("purchases", "payment_due_date", "TEXT DEFAULT ''");
+  const addColumn=(table:string,column:string,definition:string)=>{const cols=d.prepare(`PRAGMA table_info(${table})`).all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)};
+  addColumn('company_settings','commercial_bill_settings',"TEXT NOT NULL DEFAULT '{}'"); addColumn('company_settings','payment_advice_settings',"TEXT NOT NULL DEFAULT '{}'"); addColumn('parties','email',"TEXT DEFAULT ''"); addColumn('parties','tds_enabled','INTEGER NOT NULL DEFAULT 0'); addColumn('parties','tds_section',"TEXT DEFAULT ''"); addColumn('parties','tds_rate','REAL NOT NULL DEFAULT 0'); addColumn('parties','party_type',"TEXT NOT NULL DEFAULT 'GOODS_VENDOR'"); addColumn('parties','entity_type',"TEXT NOT NULL DEFAULT 'OTHER'"); addColumn('parties','resident_status',"TEXT NOT NULL DEFAULT 'RESIDENT'"); addColumn('parties','pan_status',"TEXT NOT NULL DEFAULT 'VALID'"); addColumn('parties','tds_exempt','INTEGER NOT NULL DEFAULT 0'); addColumn('parties','opening_balance','REAL NOT NULL DEFAULT 0'); addColumn('parties','opening_balance_type',"TEXT NOT NULL DEFAULT 'PAYABLE'");
+  addColumn('purchases','broker_party_id','INTEGER'); addColumn('purchases','goods_description',"TEXT DEFAULT ''"); addColumn('purchases','bags_qty','REAL NOT NULL DEFAULT 0'); addColumn('purchases','invoice_no',"TEXT DEFAULT ''"); addColumn('purchases','hsn',"TEXT DEFAULT ''"); addColumn('purchases','gst_type',"TEXT DEFAULT 'NONE'"); addColumn('purchases','gst_rate','REAL NOT NULL DEFAULT 0'); addColumn('purchases','gst_taxable','REAL NOT NULL DEFAULT 0'); addColumn('purchases','gst_amount','REAL NOT NULL DEFAULT 0'); addColumn('purchases','payment_due_days','INTEGER NOT NULL DEFAULT 0'); addColumn('purchases','payment_due_date',"TEXT DEFAULT ''");
   // Stable sequential bill number. Existing entries are backfilled once in id order;
   // subsequent inserts allocate the next number inside the purchase transaction.
-  addColumn("purchases", "bill_number", "INTEGER");
+  addColumn('purchases','bill_number','INTEGER');
   d.exec("UPDATE purchases SET bill_number=id WHERE bill_number IS NULL OR bill_number<=0");
   d.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_purchases_bill_number ON purchases(bill_number)");
 
-  addColumn("company_settings", "third_party_bill_settings", "TEXT NOT NULL DEFAULT '{}'");
-  addColumn("payments", "tds_rate", "REAL NOT NULL DEFAULT 0");
-  addColumn("payments", "tds_amount", "REAL NOT NULL DEFAULT 0");
-  addColumn("payments", "net_paid", "REAL NOT NULL DEFAULT 0");
-  addColumn("payments", "broker_name", "TEXT DEFAULT ''");
-  addColumn("payments", "broker_email", "TEXT DEFAULT ''");
-  addColumn("payments", "tds_base", "REAL NOT NULL DEFAULT 0");
-  addColumn("payments", "tds_rule", "TEXT DEFAULT ''");
-  addColumn("payments", "company_account_id", "INTEGER");
-  addColumn("sales", "due_days", "INTEGER NOT NULL DEFAULT 0");
-  addColumn("sales", "discount_pct", "REAL NOT NULL DEFAULT 0");
-  addColumn("sales", "discount_amount", "REAL NOT NULL DEFAULT 0");
-  addColumn("sales", "receivable_base", "REAL NOT NULL DEFAULT 0");
-  addColumn("sales", "due_date", "TEXT DEFAULT ''");
-  addColumn("sales", "cost_amount", "REAL NOT NULL DEFAULT 0");
-  addColumn("sales", "received", "INTEGER NOT NULL DEFAULT 0");
-  addColumn("sales", "received_date", "TEXT DEFAULT ''");
-  addColumn("sales", "received_amount", "REAL NOT NULL DEFAULT 0");
-  addColumn("sales", "receipt_account_id", "INTEGER");
-  addColumn("financing_receivables", "notes", "TEXT DEFAULT ''");
-  addColumn("financing_receivables", "other_charges_profit", "REAL NOT NULL DEFAULT 0");
-  addColumn("financing_receivables", "tds_rate", "REAL NOT NULL DEFAULT 0");
-  addColumn("financing_receivables", "tds_amount", "REAL NOT NULL DEFAULT 0");
-  addColumn("financing_receivables", "net_received", "REAL NOT NULL DEFAULT 0");
-  addColumn("financing_receivables", "tds_section", "TEXT DEFAULT ''");
-  addColumn("financing_receivables", "tds_reference", "TEXT DEFAULT ''");
+  addColumn('company_settings','third_party_bill_settings',"TEXT NOT NULL DEFAULT '{}'");
+  addColumn('payments','tds_rate','REAL NOT NULL DEFAULT 0'); addColumn('payments','tds_amount','REAL NOT NULL DEFAULT 0'); addColumn('payments','net_paid','REAL NOT NULL DEFAULT 0'); addColumn('payments','broker_name',"TEXT DEFAULT ''"); addColumn('payments','broker_email',"TEXT DEFAULT ''"); addColumn('payments','tds_base','REAL NOT NULL DEFAULT 0'); addColumn('payments','tds_rule',"TEXT DEFAULT ''"); addColumn('payments','company_account_id','INTEGER');
+  addColumn('sales','due_days','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','discount_pct','REAL NOT NULL DEFAULT 0'); addColumn('sales','discount_amount','REAL NOT NULL DEFAULT 0'); addColumn('sales','receivable_base','REAL NOT NULL DEFAULT 0'); addColumn('sales','due_date',"TEXT DEFAULT ''"); addColumn('sales','cost_amount','REAL NOT NULL DEFAULT 0'); addColumn('sales','received','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','received_date',"TEXT DEFAULT ''"); addColumn('sales','received_amount','REAL NOT NULL DEFAULT 0'); addColumn('sales','receipt_account_id','INTEGER');
+  addColumn('financing_receivables','notes',"TEXT DEFAULT ''"); addColumn('financing_receivables','other_charges_profit','REAL NOT NULL DEFAULT 0'); addColumn('financing_receivables','tds_rate','REAL NOT NULL DEFAULT 0'); addColumn('financing_receivables','tds_amount','REAL NOT NULL DEFAULT 0'); addColumn('financing_receivables','net_received','REAL NOT NULL DEFAULT 0'); addColumn('financing_receivables','tds_section',"TEXT DEFAULT ''"); addColumn('financing_receivables','tds_reference',"TEXT DEFAULT ''");
   d.prepare("UPDATE sales SET receivable_base=taxable_value+COALESCE(discount_amount,0) WHERE COALESCE(receivable_base,0)=0").run();
-  d.prepare(
-    "UPDATE financing_receivables SET other_charges_profit=(SELECT COALESCE(other_charges,0) FROM purchases WHERE purchases.id=financing_receivables.purchase_id), receivable_amount=cost_amount+discount_amount+(SELECT COALESCE(other_charges,0) FROM purchases WHERE purchases.id=financing_receivables.purchase_id) WHERE COALESCE(other_charges_profit,0)=0 AND EXISTS(SELECT 1 FROM purchases WHERE purchases.id=financing_receivables.purchase_id AND COALESCE(purchases.other_charges,0)>0)",
-  ).run();
+  d.prepare("UPDATE financing_receivables SET other_charges_profit=(SELECT COALESCE(other_charges,0) FROM purchases WHERE purchases.id=financing_receivables.purchase_id), receivable_amount=cost_amount+discount_amount+(SELECT COALESCE(other_charges,0) FROM purchases WHERE purchases.id=financing_receivables.purchase_id) WHERE COALESCE(other_charges_profit,0)=0 AND EXISTS(SELECT 1 FROM purchases WHERE purchases.id=financing_receivables.purchase_id AND COALESCE(purchases.other_charges,0)>0)").run();
   // Money-in receipts are cash inflows and must be CREDIT transactions.
   // Older builds incorrectly stored them as DEBIT, which made the payment API
   // calculate a different available balance than the dashboard. Normalize only
   // legacy MONEY_IN rows; reversals use reference_type=REVERSAL and are untouched.
   d.prepare("UPDATE account_transactions SET transaction_type='CREDIT' WHERE reference_type='MONEY_IN' AND transaction_type='DEBIT'").run();
-  if ((d.prepare("SELECT COUNT(*) c FROM company_settings").get() as any).c === 0) d.prepare("INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY')").run();
+  if((d.prepare('SELECT COUNT(*) c FROM company_settings').get() as any).c===0)d.prepare("INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY')").run();
 }
 
-function openDb(file: string) {
-  // if (isVercel) throw new Error("SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and migrate this API to PostgreSQL before using it online.");
-  console.log("he");
-  const key = path.resolve(file);
-  if (!dbCache.has(key)) {
-    fs.mkdirSync(path.dirname(key), { recursive: true });
-    const d = new Database(key);
-    ensureSchema(d);
-    dbCache.set(key, d);
-  }
-  return dbCache.get(key)!;
-}
+function openDb(file:string){if(isVercel)throw new Error('SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and migrate this API to PostgreSQL before using it online.');const key=path.resolve(file);if(!dbCache.has(key)){fs.mkdirSync(path.dirname(key),{recursive:true});const d=new Database(key);ensureSchema(d);dbCache.set(key,d);}return dbCache.get(key)!}
 
-function legacyFile(mode: Mode) {
-  return path.join(dataDir, mode === "LIVE" ? "live.db" : "test.db");
-}
-export function db(mode: Mode = "LIVE", companyId = 1) {
-  if (companyId === 1) {
-    const target = legacyFile(mode);
-    if (!fs.existsSync(target)) {
-      const projectLegacy = path.join(process.cwd(), "data", mode === "LIVE" ? "live.db" : "test.db");
-      const oldExternal = path.join(
-        path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), "AppData", "Roaming"), "AKSH-ENTERPRISE-FINANCE"),
-        "data",
-        mode === "LIVE" ? "live.db" : "test.db",
-      );
-      const legacy = [projectLegacy, oldExternal].find((x) => path.resolve(x) !== path.resolve(target) && fs.existsSync(x));
-      if (legacy) {
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.copyFileSync(legacy, target);
-      }
+function legacyFile(mode:Mode){return path.join(dataDir,mode==='LIVE'?'live.db':'test.db')}
+export function db(mode:Mode='LIVE',companyId=1){
+  if(companyId===1){
+    const target=legacyFile(mode);
+    if(!fs.existsSync(target)){
+      const projectLegacy=path.join(process.cwd(),'data',mode==='LIVE'?'live.db':'test.db');
+      const oldExternal=path.join(path.join(process.env.APPDATA || path.join(process.env.USERPROFILE || process.cwd(), 'AppData', 'Roaming'), 'AKSH-ENTERPRISE-FINANCE'),'data',mode==='LIVE'?'live.db':'test.db');
+      const legacy=[projectLegacy,oldExternal].find(x=>path.resolve(x)!==path.resolve(target)&&fs.existsSync(x));
+      if(legacy){fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(legacy,target)}
     }
-    return openDb(target);
+    return openDb(target)
   }
-  return openDb(path.join(dataDir, "companies", String(companyId), mode === "LIVE" ? "live.db" : "test.db"));
+  return openDb(path.join(dataDir,'companies',String(companyId),mode==='LIVE'?'live.db':'test.db'));
 }
 
-export function adminDb() {
-  const d = openDb(path.join(dataDir, "admin.db"));
-  d.exec(
-    `CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,code TEXT UNIQUE NOT NULL,address TEXT DEFAULT '',city TEXT DEFAULT '',state TEXT DEFAULT '',email TEXT DEFAULT '',gstin TEXT DEFAULT '',pan TEXT DEFAULT '',financial_year TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS admin_users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'DATA_ENTRY',password TEXT DEFAULT '',password_hash TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,menu_access TEXT NOT NULL DEFAULT '',card_access TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS user_companies(user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,can_live INTEGER NOT NULL DEFAULT 1,can_test INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,company_id));CREATE TABLE IF NOT EXISTS password_reset_tokens(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,expires_at TEXT NOT NULL,used_at TEXT DEFAULT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`,
-  );
-  const addCompanyColumn = (column: string, definition: string) => {
-    const cols = d.prepare("PRAGMA table_info(companies)").all() as any[];
-    if (!cols.some((c) => c.name === column)) d.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`);
-  };
-  const addUserColumn = (column: string, definition: string) => {
-    const cols = d.prepare("PRAGMA table_info(admin_users)").all() as any[];
-    if (!cols.some((c) => c.name === column)) d.exec(`ALTER TABLE admin_users ADD COLUMN ${column} ${definition}`);
-  };
-  addUserColumn("menu_access", "TEXT NOT NULL DEFAULT ''");
-  addUserColumn("card_access", "TEXT NOT NULL DEFAULT ''");
-  addUserColumn("email", "TEXT NOT NULL DEFAULT ''");
-  addCompanyColumn("address", "TEXT DEFAULT ''");
-  addCompanyColumn("city", "TEXT DEFAULT ''");
-  addCompanyColumn("state", "TEXT DEFAULT ''");
-  addCompanyColumn("email", "TEXT DEFAULT ''");
-  addCompanyColumn("gstin", "TEXT DEFAULT ''");
-  addCompanyColumn("pan", "TEXT DEFAULT ''");
-  addCompanyColumn("financial_year", "TEXT DEFAULT ''");
-  addCompanyColumn("updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP");
-  const c = d.prepare("SELECT COUNT(*) c FROM companies").get() as any;
-  if (!c.c) d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();
-  let defaultCompanyRow = d.prepare("SELECT id FROM companies WHERE code=?").get("SOLIVY") as any;
-  if (!defaultCompanyRow) {
-    const legacyCompany = d.prepare("SELECT id FROM companies WHERE code=? OR UPPER(name)=UPPER(?) ORDER BY id LIMIT 1").get("AKSH", "AKSH ENTERPRISE") as any;
-    if (legacyCompany) {
-      d.prepare("UPDATE companies SET name='SOLIVY',code='SOLIVY',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(legacyCompany.id);
-      defaultCompanyRow = { id: legacyCompany.id };
-    } else {
-      d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();
-      defaultCompanyRow = d.prepare("SELECT id FROM companies WHERE code=?").get("SOLIVY") as any;
-    }
-  }
-  const defaultCompany = defaultCompanyRow.id;
-  const old = db("LIVE", 1);
-  const u = d.prepare("SELECT COUNT(*) c FROM admin_users").get() as any;
-  if (!u.c) {
-    const oldUsers = old.prepare("SELECT username,name,role,active,password,password_hash FROM users").all() as any[];
-    if (oldUsers.length) {
-      const ins = d.prepare("INSERT INTO admin_users(username,name,role,active,password,password_hash) VALUES(?,?,?,?,?,?)");
-      for (const x of oldUsers) ins.run(x.username, x.name, x.role, x.active, x.password || "", x.password_hash || "");
-    } /* New installations intentionally do not seed predictable administrator or tester credentials. The first administrator is created through /setup. */
-  }
+export function adminDb(){const d=openDb(path.join(dataDir,'admin.db'));d.exec(`CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,code TEXT UNIQUE NOT NULL,address TEXT DEFAULT '',city TEXT DEFAULT '',state TEXT DEFAULT '',email TEXT DEFAULT '',gstin TEXT DEFAULT '',pan TEXT DEFAULT '',financial_year TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS admin_users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'DATA_ENTRY',password TEXT DEFAULT '',password_hash TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,menu_access TEXT NOT NULL DEFAULT '',card_access TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS user_companies(user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,can_live INTEGER NOT NULL DEFAULT 1,can_test INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,company_id));CREATE TABLE IF NOT EXISTS password_reset_tokens(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,expires_at TEXT NOT NULL,used_at TEXT DEFAULT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);const addCompanyColumn=(column:string,definition:string)=>{const cols=d.prepare('PRAGMA table_info(companies)').all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`)};const addUserColumn=(column:string,definition:string)=>{const cols=d.prepare('PRAGMA table_info(admin_users)').all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE admin_users ADD COLUMN ${column} ${definition}`)};addUserColumn('menu_access',"TEXT NOT NULL DEFAULT ''");addUserColumn('card_access',"TEXT NOT NULL DEFAULT ''");addUserColumn('email',"TEXT NOT NULL DEFAULT ''");addCompanyColumn('address',"TEXT DEFAULT ''");addCompanyColumn('city',"TEXT DEFAULT ''");addCompanyColumn('state',"TEXT DEFAULT ''");addCompanyColumn('email',"TEXT DEFAULT ''");addCompanyColumn('gstin',"TEXT DEFAULT ''");addCompanyColumn('pan',"TEXT DEFAULT ''");addCompanyColumn('financial_year',"TEXT DEFAULT ''");addCompanyColumn('updated_at',"TEXT DEFAULT CURRENT_TIMESTAMP");const c=d.prepare('SELECT COUNT(*) c FROM companies').get() as any;if(!c.c)d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();let defaultCompanyRow=d.prepare('SELECT id FROM companies WHERE code=?').get('SOLIVY') as any;if(!defaultCompanyRow){const legacyCompany=d.prepare('SELECT id FROM companies WHERE code=? OR UPPER(name)=UPPER(?) ORDER BY id LIMIT 1').get('AKSH','AKSH ENTERPRISE') as any;if(legacyCompany){d.prepare("UPDATE companies SET name='SOLIVY',code='SOLIVY',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(legacyCompany.id);defaultCompanyRow={id:legacyCompany.id};}else{d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();defaultCompanyRow=d.prepare('SELECT id FROM companies WHERE code=?').get('SOLIVY') as any;}}const defaultCompany=defaultCompanyRow.id;const old=db('LIVE',1);const u=d.prepare('SELECT COUNT(*) c FROM admin_users').get() as any;if(!u.c){const oldUsers=old.prepare('SELECT username,name,role,active,password,password_hash FROM users').all() as any[];if(oldUsers.length){const ins=d.prepare('INSERT INTO admin_users(username,name,role,active,password,password_hash) VALUES(?,?,?,?,?,?)');for(const x of oldUsers)ins.run(x.username,x.name,x.role,x.active,x.password||'',x.password_hash||'')}/* New installations intentionally do not seed predictable administrator or tester credentials. The first administrator is created through /setup. */}
   // Disable known weak legacy plaintext defaults without resetting accounts that have modern password hashes.
   d.prepare("UPDATE admin_users SET active=0,password='',password_hash='' WHERE username='admin' AND password='admin123' AND COALESCE(password_hash,'')=''").run();
   d.prepare("UPDATE admin_users SET active=0,password='',password_hash='' WHERE username='tester' AND password='test123' AND COALESCE(password_hash,'')=''").run();
   // Reserved SOLIVY system identity: distinct, inactive, no password and no company grant (not a support backdoor).
   d.prepare("INSERT OR IGNORE INTO admin_users(username,name,role,password,password_hash,active,menu_access,email) VALUES('solivy-system','SOLIVY System Account','SYSTEM','','',0,'[]','')").run();
-  const admin = d.prepare("SELECT id FROM admin_users WHERE username='admin'").get() as any;
-  const tester = d.prepare("SELECT id FROM admin_users WHERE username='tester'").get() as any;
-  if (admin) d.prepare("INSERT OR IGNORE INTO user_companies(user_id,company_id,can_live,can_test) VALUES(?,?,1,1)").run(admin.id, defaultCompany);
-  if (tester) d.prepare("INSERT OR IGNORE INTO user_companies(user_id,company_id,can_live,can_test) VALUES(?,?,0,1)").run(tester.id, defaultCompany);
-  return d;
-}
+  const admin=(d.prepare("SELECT id FROM admin_users WHERE username='admin'").get() as any);const tester=(d.prepare("SELECT id FROM admin_users WHERE username='tester'").get() as any);if(admin)d.prepare('INSERT OR IGNORE INTO user_companies(user_id,company_id,can_live,can_test) VALUES(?,?,1,1)').run(admin.id,defaultCompany);if(tester)d.prepare('INSERT OR IGNORE INTO user_companies(user_id,company_id,can_live,can_test) VALUES(?,?,0,1)').run(tester.id,defaultCompany);return d;}
 
-export function resetMode(mode: Mode, companyId = 1) {
-  const d = db(mode, companyId);
-  const tables = [
-    "bank_statement_rows",
-    "bank_statement_imports",
-    "bank_matches",
-    "payment_allocations",
-    "account_movements",
-    "funding_schedule",
-    "payments",
-    "interest_payments",
-    "money_in",
-    "ledger",
-    "financing_receivables",
-    "purchases",
-    "sales",
-    "account_transactions",
-    "company_accounts",
-    "bank_accounts",
-    "funding_loans",
-    "parties",
-    "third_parties",
-    "import_batches",
-    "audit_logs",
-  ];
-  const tx = d.transaction(() => {
-    for (const t of tables) d.prepare(`DELETE FROM ${t}`).run();
-    d.prepare("DELETE FROM sqlite_sequence WHERE name IN (" + tables.map(() => "?").join(",") + ")").run(...tables);
+export function resetMode(mode:Mode,companyId=1){
+  const d=db(mode,companyId);
+  const tables=['bank_statement_rows','bank_statement_imports','bank_matches','payment_allocations','account_movements','funding_schedule','payments','interest_payments','money_in','ledger','financing_receivables','purchases','sales','account_transactions','company_accounts','bank_accounts','funding_loans','parties','third_parties','import_batches','audit_logs'];
+  const tx=d.transaction(()=>{
+    for(const t of tables) d.prepare(`DELETE FROM ${t}`).run();
+    d.prepare("DELETE FROM sqlite_sequence WHERE name IN ("+tables.map(()=>'?').join(',')+")").run(...tables);
   });
   tx();
-  try {
-    d.pragma("wal_checkpoint(TRUNCATE)");
-  } catch {}
+  try{ d.pragma('wal_checkpoint(TRUNCATE)'); }catch{}
 }
-export function resetTest(companyId = 1) {
-  resetMode("TEST", companyId);
-}
+export function resetTest(companyId=1){resetMode('TEST',companyId)}
 
 // Clears only financial/transactional records while preserving master data,
 // users, parties, bank accounts, company accounts and document settings.
 // This is intentionally different from resetMode(), which is the destructive
 // database purge used by the Admin backup/purge screen.
-export function clearTransactionData(mode: Mode, companyId = 1) {
-  const d = db(mode, companyId);
-  const tables = [
-    "bank_statement_rows",
-    "bank_statement_imports",
-    "bank_matches",
-    "payment_allocations",
-    "account_movements",
-    "funding_schedule",
-    "payments",
-    "interest_payments",
-    "money_in",
-    "ledger",
-    "financing_receivables",
-    "purchases",
-    "sales",
-    "account_transactions",
-  ];
-  const tx = d.transaction(() => {
-    for (const t of tables) d.prepare(`DELETE FROM ${t}`).run();
-    d.prepare("DELETE FROM sqlite_sequence WHERE name IN (" + tables.map(() => "?").join(",") + ")").run(...tables);
+export function clearTransactionData(mode:Mode,companyId=1){
+  const d=db(mode,companyId);
+  const tables=['bank_statement_rows','bank_statement_imports','bank_matches','payment_allocations','account_movements','funding_schedule','payments','interest_payments','money_in','ledger','financing_receivables','purchases','sales','account_transactions'];
+  const tx=d.transaction(()=>{
+    for(const t of tables) d.prepare(`DELETE FROM ${t}`).run();
+    d.prepare("DELETE FROM sqlite_sequence WHERE name IN ("+tables.map(()=>'?').join(',')+")").run(...tables);
   });
   tx();
-  try {
-    d.pragma("wal_checkpoint(TRUNCATE)");
-  } catch {}
+  try{ d.pragma('wal_checkpoint(TRUNCATE)'); }catch{}
 }
-export function backup(mode: Mode, companyId = 1) {
-  return db(mode, companyId).serialize();
-}
-export function adminDatabasePath() {
-  return path.join(dataDir, "admin.db");
-}
-export function appDataDirectory() {
-  return dataDir;
-}
-export function databasePath(mode: Mode, companyId = 1) {
-  return companyId === 1 ? legacyFile(mode) : path.join(dataDir, "companies", String(companyId), mode === "LIVE" ? "live.db" : "test.db");
-}
+export function backup(mode:Mode,companyId=1){return db(mode,companyId).serialize()}
+export function adminDatabasePath(){return path.join(dataDir,'admin.db')}
+export function appDataDirectory(){return dataDir}
+export function databasePath(mode:Mode,companyId=1){return companyId===1?legacyFile(mode):path.join(dataDir,'companies',String(companyId),mode==='LIVE'?'live.db':'test.db')}

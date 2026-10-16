@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 # npm can emit non-fatal warnings on stderr; use exit codes to determine failure.
 $PSNativeCommandUseErrorActionPreference = $false
 Set-Location $PSScriptRoot
-Write-Host 'SOLIVY Finance v2.5.27 release verification' -ForegroundColor Cyan
+Write-Host 'SOLIVY Finance v2.5.28 release verification' -ForegroundColor Cyan
 if (!(Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js is not installed.' }
 if (!(Get-Command npm -ErrorAction SilentlyContinue)) { throw 'npm is not installed.' }
 Write-Host 'Installing exact dependencies from package.json (this project currently has no lockfile)...' -ForegroundColor Yellow

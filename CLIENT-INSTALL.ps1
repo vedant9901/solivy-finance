@@ -82,7 +82,7 @@ if (-not (Test-Path $ConfigFile)) {
   Write-Host $setupSecret -ForegroundColor White
   $licenseToken = Read-Host 'Paste the customer-specific SOLIVY license token (required)'
   if ([string]::IsNullOrWhiteSpace($licenseToken)) { throw 'A license token is required. Ask SOLIVY Team to issue one.' }
-  @{ sessionSecret = $secret; setupSecret = $setupSecret; licenseToken = $licenseToken.Trim(); licenseEnforcement = 'required'; dataDir = $DataRoot; port = $Port; version = '2.5.27' } | ConvertTo-Json | Set-Content -Path $ConfigFile -Encoding UTF8
+  @{ sessionSecret = $secret; setupSecret = $setupSecret; licenseToken = $licenseToken.Trim(); licenseEnforcement = 'required'; dataDir = $DataRoot; port = $Port; version = '2.5.28' } | ConvertTo-Json | Set-Content -Path $ConfigFile -Encoding UTF8
 } else {
   $existing = Get-Content $ConfigFile -Raw | ConvertFrom-Json
   if ([string]::IsNullOrWhiteSpace([string]$existing.sessionSecret)) {
@@ -103,7 +103,7 @@ if (-not (Test-Path $ConfigFile)) {
   # Persist the selected/existing database location. Never reset this to a default during upgrades.
   $existing | Add-Member -NotePropertyName dataDir -NotePropertyValue $DataRoot -Force
   $existing | Add-Member -NotePropertyName port -NotePropertyValue $Port -Force
-  $existing | Add-Member -NotePropertyName version -NotePropertyValue '2.5.27' -Force
+  $existing | Add-Member -NotePropertyName version -NotePropertyValue '2.5.28' -Force
   $existing | ConvertTo-Json | Set-Content -Path $ConfigFile -Encoding UTF8
 }
 

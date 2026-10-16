@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const loginAttempts = new Map<string, { count: number; resetAt: number; blockedUntil: number }>();
 const MAX_LOGIN_ATTEMPTS = 5;
-const WINDOW_MS = 15 * 60 * 1000;
-// Keep the lockout short enough for a legitimate user to retry after correcting credentials.
-// Five failures still trigger a cooldown; failed-login protection remains enabled.
+const WINDOW_MS = 10 * 60 * 1000;
+// Keep brute-force protection while avoiding a long lockout for a legitimate typo.
 const BLOCK_MS = 2 * 60 * 1000;
 
 export function clientIp(req: Request) {

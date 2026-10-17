@@ -1,6 +1,6 @@
 {
   "name": "solivy-finance",
-  "version": "2.5.30",
+  "version": "2.5.47",
   "private": true,
   "scripts": {
     "dev": "next dev",

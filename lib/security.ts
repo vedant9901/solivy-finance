@@ -132,7 +132,7 @@ export function authorizeRequest(req: NextRequest, role: string, session?: any) 
   if (role !== 'ADMIN') {
     const moduleRules: Array<[string, string[]]> = [
       ['/api/accounts', ['accounts']], ['/api/account-movements', ['account-movements']],
-      ['/api/parties', ['parties']], ['/api/third-parties', ['parties']], ['/api/parties-delete', ['parties']],
+      ['/api/parties', ['parties']], ['/api/third-parties', ['parties']], ['/api/parties-delete', ['parties']], ['/api/party-aliases', ['party-aliases','parties']],
       ['/api/purchases', ['purchase']], ['/api/purchase-bill', ['purchase']],
       ['/api/payments', ['payments']], ['/api/payment-advice', ['payments']],
       ['/api/money-in', ['money-in']], ['/api/receipts', ['money-in']], ['/api/sales', ['receivables']],
@@ -142,7 +142,7 @@ export function authorizeRequest(req: NextRequest, role: string, session?: any) 
       ['/api/backup', ['backup']], ['/api/admin-backup-all', ['backup']], ['/api/tally-export', ['tally-export']], ['/api/tally-mapping', ['tally-export']], ['/api/bank-statement-import', ['bank-statement-import']],
       ['/api/export/gst', ['gst']], ['/api/export/payments', ['reports']], ['/api/export/purchases', ['reports']],
       ['/api/document-settings', ['document-settings']], ['/api/settings', ['settings']],
-      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']], ['/api/data', ['dashboard']],
+      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']], ['/api/data', ['dashboard']], ['/api/transfers', ['transfers']],
     ];
     const rule = moduleRules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
     if (rule) {

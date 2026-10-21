@@ -1,6 +1,6 @@
 {
   "name": "solivy-finance",
-  "version": "2.5.47",
+  "version": "2.5.54",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -15,7 +15,8 @@
     "license:issue": "node scripts/license-tool.cjs issue",
     "license:keygen": "node scripts/license-tool.cjs keygen",
     "check:license": "node scripts/license-tool.cjs self-test",
-    "db:upload-sqlite-snapshots": "node scripts/upload-sqlite-snapshots-to-postgres.mjs"
+    "db:upload-sqlite-snapshots": "node scripts/upload-sqlite-snapshots-to-postgres.mjs",
+    "check:transfers": "node scripts/check-transfers.mjs"
   },
   "dependencies": {
     "better-sqlite3": "12.4.1",

@@ -50,7 +50,7 @@ async function validateLicenseToken(token: string, companyId: number): Promise<{
 function requiredFeatureForPath(path: string): string {
   const rules: Array<[string, string]> = [
     ['/api/accounts','accounts'], ['/api/account-movements','account-movements'],
-    ['/api/parties','parties'], ['/api/third-parties','parties'], ['/api/parties-delete','parties'],
+    ['/api/parties','parties'], ['/api/third-parties','parties'], ['/api/parties-delete','parties'], ['/api/party-aliases','party-aliases'],
     ['/api/purchases','purchase'], ['/api/purchase-bill','purchase'],
     ['/api/payments','payments'], ['/api/payment-advice','payments'], ['/api/reverse','payments'],
     ['/api/money-in','money-in'], ['/api/receipts','money-in'], ['/api/sales','receivables'],
@@ -58,8 +58,8 @@ function requiredFeatureForPath(path: string): string {
     ['/api/tally-export','tally-export'], ['/api/tally-mapping','tally-export'], ['/api/bank-statement-import','bank-statement-import'], ['/api/secondary-backup','secondary-backup'], ['/api/export/ledger','ledger'], ['/api/receivables','receivables'], ['/api/bank','bank'],
     ['/api/backup','backup'], ['/api/admin-backup-all','backup'], ['/api/export/gst','gst'],
     ['/api/export/payments','reports'], ['/api/export/purchases','reports'], ['/api/document-settings','document-settings'],
-    ['/api/settings','settings'], ['/api/tds-check','payments'], ['/api/test-to-live','backup'],
-    ['/api/data','dashboard'],
+    ['/api/settings','settings'], ['/api/tds-check','payments'], ['/api/test-to-live','backup'], ['/api/transfers','intercompany-transfers'],
+    ['/api/data','dashboard'], ['/api/transfers','intercompany-transfers'],
   ];
   const match = rules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
   return match?.[1] || 'core';
@@ -67,6 +67,12 @@ function requiredFeatureForPath(path: string): string {
 function licenseFeatureAllowed(payload: any, feature: string): boolean {
   const features = Array.isArray(payload?.features) ? payload.features.map((x: unknown) => String(x)) : [];
   return features.includes('*') || features.includes(feature);
+}
+function featureAssignedToSession(session: any, feature: string): boolean {
+  if (session?.r === 'ADMIN') return true;
+  const access = Array.isArray(session?.a) ? session.a.map((x: unknown) => String(x)) : [];
+  const aliases: Record<string, string[]> = { 'intercompany-transfers': ['transfers'], 'party-aliases': ['party-aliases', 'parties'] };
+  return access.includes(feature) || (aliases[feature] || []).some((id) => access.includes(id));
 }
 
 async function checkLicense(companyId: number): Promise<{ok: boolean; reason?: string; payload?: any; disabled?: boolean}> {
@@ -107,7 +113,7 @@ export async function middleware(req: NextRequest) {
       return securityHeaders(NextResponse.redirect(target), req);
     }
   }
-  if (!(session.r === 'ADMIN' && path === '/') && license.ok && !license.disabled && !licenseFeatureAllowed(license.payload, requiredFeatureForPath(path))) {
+  if (!(session.r === 'ADMIN' && path === '/') && license.ok && !license.disabled && !licenseFeatureAllowed(license.payload, requiredFeatureForPath(path)) && !featureAssignedToSession(session, requiredFeatureForPath(path))) {
     const message = 'This module is not included in your SOLIVY license. Contact the SOLIVY Team to upgrade.';
     if (path.startsWith('/api/')) return securityHeaders(NextResponse.json({ error: message, code: 'LICENSE_FEATURE_LOCKED' }, { status: 403 }), req);
     const target = new URL('/license', req.url); target.searchParams.set('reason', message);

@@ -1,432 +1,5830 @@
-'use client';
-import React,{useEffect,useMemo,useState} from 'react';
-import {money} from '../lib/utils';
-import LicenseManagement from './components/LicenseManagement';
-import PartyAliasesPanel from './components/PartyAliasesPanel';
-import {FaFilePdf,FaEnvelope,FaWhatsapp} from 'react-icons/fa';
-import * as XLSX from 'xlsx';
-import {FiGrid,FiBriefcase,FiRepeat,FiUsers,FiShoppingCart,FiCreditCard,FiTrendingUp,FiPercent,FiUpload,FiBookOpen,FiClock,FiBarChart2,FiRefreshCw,FiDatabase,FiFileText,FiSettings,FiChevronRight,FiDollarSign,FiLayers,FiShield,FiCheckCircle,FiLock,FiUnlock,FiMenu,FiX} from 'react-icons/fi';
+"use client";
+import React, { useEffect, useMemo, useState } from "react";
+import { money } from "../lib/utils";
+import LicenseManagement from "./components/LicenseManagement";
+import PartyAliasesPanel from "./components/PartyAliasesPanel";
+import { FaFilePdf, FaEnvelope, FaWhatsapp } from "react-icons/fa";
+import * as XLSX from "xlsx";
+import {
+  FiGrid,
+  FiBriefcase,
+  FiRepeat,
+  FiUsers,
+  FiShoppingCart,
+  FiCreditCard,
+  FiTrendingUp,
+  FiPercent,
+  FiUpload,
+  FiBookOpen,
+  FiClock,
+  FiBarChart2,
+  FiRefreshCw,
+  FiDatabase,
+  FiFileText,
+  FiSettings,
+  FiChevronRight,
+  FiDollarSign,
+  FiLayers,
+  FiShield,
+  FiCheckCircle,
+  FiLock,
+  FiUnlock,
+  FiMenu,
+  FiX,
+} from "react-icons/fi";
 
-type Mode='LIVE'|'TEST';
-const nav=[['dashboard','Dashboard'],['accounts','Bank / Cash Accounts'],['account-movements','Withdrawal / Transfer'],['parties','Parties'],['party-aliases','Party Aliases'],['purchase','Purchase / Sample'],['payments','Payments'],['money-in','Money In'],['interest','Interest Paid'],['funding','Funding / Loans'],['import','CSV Import'],['ledger','Vendor Ledger'],['receivables','Receivables'],['reports','Reports'],['bank','Bank Matching'],['backup','Backup / Restore'],['secondary-backup','Secondary Backup'],['tally-export','Tally Export'],['bank-statement-import','Bank Statement Import'],['gst','GST Filing'],['commercial-bills','Commercial Bills'],['document-settings','Document Settings'],['settings','Company / TDS Settings'],['license','License Management'],['transfers','Inter-Company Transfers'],['sync','Offline / Online Sync']];
-const NAV_TRANSLATIONS:Record<string,Record<string,string>>={hi:{dashboard:'डैशबोर्ड',administration:'प्रशासन',accounts:'बैंक / नकद खाते','account-movements':'निकासी / ट्रांसफर',parties:'पार्टियाँ',purchase:'खरीद / सैंपल',payments:'भुगतान','money-in':'प्राप्त धन',interest:'ब्याज भुगतान',funding:'फंडिंग / ऋण',import:'CSV आयात',ledger:'पार्टी लेजर',receivables:'प्राप्य राशि',reports:'रिपोर्ट',bank:'बैंक मिलान',backup:'बैकअप / रीस्टोर',gst:'GST फाइलिंग','commercial-bills':'कमर्शियल बिल','document-settings':'दस्तावेज़ सेटिंग्स',settings:'कंपनी / TDS सेटिंग्स'},gu:{dashboard:'ડેશબોર્ડ',administration:'વહીવટ',accounts:'બેંક / રોકડ ખાતાં','account-movements':'ઉપાડ / ટ્રાન્સફર',parties:'પાર્ટીઓ',purchase:'ખરીદી / સેમ્પલ',payments:'ચુકવણીઓ','money-in':'મળેલ નાણાં',interest:'વ્યાજ ચુકવણી',funding:'ફંડિંગ / લોન',import:'CSV આયાત',ledger:'પાર્ટી લેજર',receivables:'પ્રાપ્ય રકમ',reports:'અહેવાલો',bank:'બેંક મેળવણી',backup:'બેકઅપ / રિસ્ટોર',gst:'GST ફાઇલિંગ','commercial-bills':'કોમર્શિયલ બિલ','document-settings':'દસ્તાવેજ સેટિંગ્સ',settings:'કંપની / TDS સેટિંગ્સ'}};
-const navLabel=(k:string,fallback:string,language:string)=>NAV_TRANSLATIONS[language]?.[k]||fallback;
-const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
-const emptyPurchase=()=>({purchase_date:today(),discount_pct:0,payment_due_days:0,receivable_due_days:0});
-const emptyPayment=()=>({payment_date:today(),mode:'BANK',payment_no:'',amount:'',broker_name:'',broker_email:'',company_account_id:'',allocations:[]});
-const emptySale=()=>({invoice_date:today(),invoice_type:'B2B',gst_type:'CGST_SGST',gst_rate:18,due_days:0,cost_amount:0,discount_pct:0});
-function notifyFinance(type:'success'|'error',message:string){window.dispatchEvent(new CustomEvent('finance-toast',{detail:{type,message}}));window.dispatchEvent(new CustomEvent('finance-feedback',{detail:{type,message}}));}
-
-export default function Home(){
- const [mode,setMode]=useState<Mode>('LIVE'),[currency,setCurrency]=useState('INR'),[language,setLanguage]=useState('en'),[role,setRole]=useState('ADMIN'),[menuAccess,setMenuAccess]=useState<string[]>([]),[cardAccess,setCardAccess]=useState<string[]>([]),[companyId,setCompanyId]=useState(1),[companyName,setCompanyName]=useState('SOLIVY'),[companies,setCompanies]=useState<any[]>([]),[hydrated,setHydrated]=useState(false),[mobileMenuOpen,setMobileMenuOpen]=useState(false),[tab,setTab]=useState('dashboard'),[lockedModule,setLockedModule]=useState<string|null>(null),[data,setData]=useState<any>({}),[party,setParty]=useState<any>({}),[purchase,setPurchase]=useState<any>(emptyPurchase()),[payment,setPayment]=useState<any>(emptyPayment()),[sale,setSale]=useState<any>(emptySale()),[account,setAccount]=useState<any>({account_type:'BANK',opening_date:today()}),[movement,setMovement]=useState<any>({movement_type:'WITHDRAWAL',movement_date:today(),amount:'',from_account_id:'',to_account_id:'',movement_no:'',reference_no:'',narration:''}),[moneyIn,setMoneyIn]=useState<any>({receipt_date:today(),receipt_type:'OTHER_RECEIPT',amount:'',account_id:'',party_id:'',reference_no:'',narration:''}),[interest,setInterest]=useState<any>({payment_date:today(),amount:'',account_id:'',payee:'',party_id:'',reference_no:'',narration:''}),[funding,setFunding]=useState<any>({loan_start_date:today(),lender_name:'',principal_amount:'',interest_type:'PERCENT',interest_rate:'',fixed_interest_amount:'',frequency:'MONTHLY',first_payment_date:'',bank_name:'',account_number:'',ifsc:'',notes:''}),[msg,setMsg]=useState(''),[apiBusy,setApiBusy]=useState(0),[toast,setToast]=useState<any>(null);
- useEffect(()=>{
-   const originalFetch=window.fetch.bind(window);
-   let active=0;
-   const wrappedFetch=async (input:RequestInfo|URL,init?:RequestInit)=>{
-     const url=typeof input==='string'?input:(input instanceof Request?input.url:String(input));
-     const isApi=url.includes('/api/');
-     if(!isApi)return originalFetch(input,init);
-     const method=String(init?.method||(input instanceof Request?input.method:'GET')).toUpperCase();
-     const track=method!=='GET' && method!=='HEAD' && !url.includes('/api/tds-check');
-     if(track){active++; setApiBusy(active);}
-     try{
-       const response=await originalFetch(input,init);
-       if(method!=='GET' && method!=='HEAD' && !url.includes('/api/tds-check')){
-         let message=response.ok?'Action completed successfully.':'Request failed.'; let actionOk=response.ok;
-         try{const clone=response.clone();const j=await clone.json();if(j?.error){actionOk=false;message=j.error}else message=j?.message||message;}catch{}
-         window.dispatchEvent(new CustomEvent('finance-feedback',{detail:{type:actionOk?'success':'error',message}}));
-         window.dispatchEvent(new CustomEvent('finance-toast',{detail:{type:actionOk?'success':'error',message}}));
-       }
-       return response;
-     }catch(error:any){
-       const message=error?.message||'Network request failed.';
-       window.dispatchEvent(new CustomEvent('finance-feedback',{detail:{type:'error',message}}));
-       window.dispatchEvent(new CustomEvent('finance-toast',{detail:{type:'error',message}}));
-       throw error;
-     }finally{if(track){active=Math.max(0,active-1);setApiBusy(active)}}
-   };
-   window.fetch=wrappedFetch as typeof window.fetch;
-   return()=>{window.fetch=originalFetch as typeof window.fetch};
- },[]);
- useEffect(()=>{
-   const h=(e:any)=>{const detail=e.detail||{};setToast(detail);window.setTimeout(()=>setToast((x:any)=>x===detail?null:x),3500)};
-   window.addEventListener('finance-toast',h);return()=>window.removeEventListener('finance-toast',h);
- },[]);
- async function api(path:string,opt:any={}){const body=opt.body?JSON.parse(opt.body):null;const payload=body?JSON.stringify({...body,company_id:companyId}):opt.body;const sep=path.includes('?')?'&':'?';const url='/api'+path+(path.startsWith('/logout')?'':`${sep}company_id=${companyId}`);const r=await fetch(url,{...opt,body:payload,headers:{'Content-Type':'application/json','x-aksh-mode':mode,...(opt.headers||{})}});const text=await r.text();let j:any;try{j=JSON.parse(text)}catch{throw Error(`Server returned non-JSON (${r.status}). Check the terminal.`)}if(!r.ok)throw Error(j.error||'Request failed');return j}
- async function load(){try{setData(await api(`/data?mode=${mode}&company_id=${companyId}`))}catch(e:any){if(role==='ADMIN'&&/license/i.test(String(e.message||''))){setMsg('');setTab('license')}else setMsg(e.message)}}
- useEffect(()=>{const r=sessionStorage.getItem('aksh-role')||'ADMIN';const lm=(sessionStorage.getItem('aksh-login-mode')||'LIVE') as Mode;const cid=Number(sessionStorage.getItem('aksh-company-id')||1);setRole(r);try{const saved=JSON.parse(sessionStorage.getItem('solivy-menu-access')||'[]');setMenuAccess(Array.isArray(saved)?saved:nav.map(([k])=>String(k)))}catch{setMenuAccess(nav.map(([k])=>String(k)))}try{const cards=JSON.parse(sessionStorage.getItem('solivy-card-access')||'[]');setCardAccess(Array.isArray(cards)?cards:[])}catch{setCardAccess([])}setMode(r==='TESTER'?'TEST':lm);setCompanyId(cid);setCompanyName(sessionStorage.getItem('aksh-company-name')||'SOLIVY');setCurrency(localStorage.getItem('solivy-currency')||'INR');setLanguage(localStorage.getItem('solivy-language')||'en');fetch('/api/companies').then(x=>x.json()).then(j=>{const rows=Array.isArray(j.companies)?j.companies:[];setCompanies(rows)}).catch(()=>{});fetch('/api/license/status').then(x=>x.json()).then(j=>{if(r==='ADMIN'&&String(j.enforcement||'off').toLowerCase()==='required'){const current=(j.organizations||[]).find((o:any)=>Number(o.companyId)===cid);if(current&&current.status!=='valid'){setMsg('');setTab('license')}}}).catch(()=>{});const requestedTab=new URLSearchParams(window.location.search).get('tab');if(requestedTab&&nav.some(([key])=>String(key)===requestedTab))setTab(requestedTab);setHydrated(true)},[]);
- useEffect(()=>{if(hydrated&&tab!=='license')load()},[mode,tab,companyId,hydrated]);
- const hasMenuAccess=(key:string)=>role==='ADMIN'||menuAccess.includes(key);const openMenu=(key:string)=>{setMobileMenuOpen(false);if(key==='sync'){window.location.href='/sync';return}if(key==='administration'){if(role==='ADMIN'){setLockedModule(null);setTab(key);return}setMsg('Administration is restricted to administrators.');return}if(!hasMenuAccess(key)){setLockedModule(key);return}setLockedModule(null);setMsg('');setTab(key)};
- useEffect(()=>{if(hydrated&&tab!=='dashboard'&&tab!=='administration'&&!hasMenuAccess(tab)){setTab('dashboard');setMsg(`Access locked for menu: ${tab}. Ask an administrator to grant access.`)}},[tab,menuAccess,role,hydrated]);
- useEffect(()=>{if(!hydrated||role!=='ADMIN')return;const check=()=>{fetch('/api/secondary-backup',{cache:'no-store'}).catch(()=>{})};check();const timer=window.setInterval(check,300000);return()=>window.clearInterval(timer)},[hydrated,role]);
- useEffect(()=>{if(payment.mode==='BANK' && !payment.company_account_id && data.accounts?.length)setPayment((p:any)=>({...p,company_account_id:data.accounts[0].id}))},[data.accounts,payment.mode,payment.company_account_id]);
- const calc=useMemo(()=>{const net=Number(purchase.net_weight||0),rate=Number(purchase.rate||0),gross=Math.round(net*rate),disc=Math.round(gross*Number(purchase.discount_pct||0)/100),quality=Math.round(net/1000*Number(purchase.quality_deduct_per_mt||0)),other=Math.round(Number(purchase.other_charges||0));const total=Math.round(Number(purchase.freight||0)+Number(purchase.unload_charge||0)+Number(purchase.moisture||0)+disc+Number(purchase.driver_rokdi||0)+other+quality);const netPay=Math.round(gross-total);const profit=Math.round(disc+other);return {gross,disc,quality,other,total,netPay,profit,receivable:netPay+profit}},[purchase]);
- const saveParty=async()=>{try{await api('/parties',{method:'POST',body:JSON.stringify({mode,...party})});setParty({});setMsg('Party saved');load()}catch(e:any){setMsg(e.message)}};
- const savePurchase=async()=>{try{const j=await api('/purchases',{method:purchase.id?'PUT':'POST',body:JSON.stringify({mode,...purchase})});setPurchase(emptyPurchase());setMsg(purchase.id?'Purchase updated':'Purchase posted to vendor ledger');load()}catch(e:any){setMsg(e.message)}};
- const savePayment=async()=>{try{const j=await api('/payments',{method:payment.id?'PUT':'POST',body:JSON.stringify({db_mode:mode,...payment})});setPayment(emptyPayment());setMsg(`Payment ${j.paymentNo} posted. Allocated ${money(j.allocated)} • TDS ${money(j.tdsAmount)} • Bank paid ${money(j.netPaid)}`);load()}catch(e:any){setMsg(e.message)}};
- const saveAccount=async()=>{try{await api('/accounts',{method:account.id?'PUT':'POST',body:JSON.stringify({mode,...account})});setAccount({account_type:'BANK',opening_date:today()});setMsg(account.id?'Account updated':'Account and opening balance saved');load()}catch(e:any){setMsg(e.message)}}; const saveMovement=async()=>{try{const j=await api('/account-movements',{method:'POST',body:JSON.stringify({mode,...movement})});setMovement({movement_type:'WITHDRAWAL',movement_date:today(),amount:'',from_account_id:data.accounts?.[0]?.id||'',to_account_id:'',movement_no:'',reference_no:'',narration:''});setMsg(`${j.movementType==='TRANSFER'?'Transfer':'Withdrawal'} ${j.movementNo} posted`);load()}catch(e:any){setMsg(e.message)}}; const saveMoneyIn=async()=>{try{const j=await api('/money-in',{method:'POST',body:JSON.stringify({mode,...moneyIn})});setMoneyIn({receipt_date:today(),receipt_type:'OTHER_RECEIPT',amount:'',account_id:data.accounts?.[0]?.id||'',party_id:'',reference_no:'',narration:''});setMsg(`Money received ${j.receiptNo}`);load()}catch(e:any){setMsg(e.message)}}; const saveInterest=async()=>{try{const j=await api('/interest-payments',{method:'POST',body:JSON.stringify({mode,...interest})});setInterest({payment_date:today(),amount:'',account_id:data.accounts?.[0]?.id||'',payee:'',party_id:'',reference_no:'',narration:''});setMsg(`Interest payment ${j.paymentNo} posted and deducted from profit`);load()}catch(e:any){setMsg(e.message)}};
- const saveFunding=async()=>{try{const j=await api('/funding',{method:funding.id?'PUT':'POST',body:JSON.stringify({mode,...funding})});setFunding({loan_start_date:today(),lender_name:'',principal_amount:'',interest_type:'PERCENT',interest_rate:'',fixed_interest_amount:'',frequency:'MONTHLY',first_payment_date:'',bank_name:'',account_number:'',ifsc:'',notes:''});setMsg(`Loan ${j.loanNo||''} saved`);load()}catch(e:any){setMsg(e.message)}};
- const saveSale=async()=>{try{await api('/sales',{method:sale.id?'PUT':'POST',body:JSON.stringify({mode,...sale})});setSale(emptySale());setMsg(sale.id?'Sales invoice updated':'Sales invoice saved');load()}catch(e:any){setMsg(e.message)}};
- const receive=async(r:any)=>{const amount=prompt(`Outstanding ${money(r.outstanding)}. Amount received?`,String(r.outstanding));if(amount===null)return;const acc=data.accounts?.[0];if(!acc){setMsg('Create a bank/cash account first');return}try{await api('/receipts',{method:'POST',body:JSON.stringify({mode,sale_id:r.id,amount:Number(amount),account_id:acc.id,received_date:today()})});setMsg(`Receipt marked against ${r.invoice_no}`);load()}catch(e:any){setMsg(e.message)}};
- const purge=async()=>{const phrase=prompt(`This will permanently delete ALL ${mode} financial data. Type PURGE ${mode} to continue.`);if(phrase!==`PURGE ${mode}`)return;try{await api('/admin',{method:'POST',body:JSON.stringify({action:'purge',mode,confirmation:phrase})});setMsg(`${mode} database purged`);load()}catch(e:any){setMsg(e.message)}};
- const switchEnvironment=async(next:Mode)=>{if(next===mode)return;const rr=await fetch('/api/switch-environment',{method:'POST',headers:{'Content-Type':'application/json','x-aksh-mode':mode},body:JSON.stringify({company_id:companyId,mode:next})});const jj=await rr.json();if(!rr.ok){setMsg(jj.error||'Environment switch failed');return}sessionStorage.setItem('aksh-login-mode',next);setMode(next);setMsg(`Switched to ${next} mode`)}; const switchCompany=async(id:number)=>{const c=companies.find(x=>Number(x.id)===id);if(!c)return;const rr=await fetch('/api/switch-company',{method:'POST',headers:{'Content-Type':'application/json','x-aksh-mode':mode},body:JSON.stringify({company_id:id})});const jj=await rr.json();if(!rr.ok){setMsg(jj.error||'Company switch failed');return}sessionStorage.setItem('aksh-company-id',String(id));sessionStorage.setItem('aksh-company-name',c.name);setCompanyId(id);setCompanyName(c.name);setTab('dashboard');}; const selectedPurchaseParty=data.parties?.find((p:any)=>p.id===Number(purchase.party_id)); const selectedPaymentParty=data.parties?.find((p:any)=>p.id===Number(payment.party_id)); const paymentOutstanding=Number(data.outstanding?.find((x:any)=>x.id===Number(payment.party_id))?.outstanding||0); const logout=async()=>{await fetch('/api/logout',{method:'POST'});sessionStorage.clear();location.href='/login'};
- return <div className="min-h-screen bg-slate-50 lg:flex">
-  <aside className="hidden lg:flex lg:fixed lg:inset-y-0 lg:z-40 lg:w-72 lg:flex-col bg-slate-950 text-white p-5 shadow-xl"><Brand/><nav className="space-y-1 overflow-y-auto pr-1">{role==='ADMIN'&&<div className="px-3 pb-2 pt-1 text-[10px] font-black uppercase tracking-[.18em] text-slate-500">Administration</div>}{role==='ADMIN'&&<NavButton k="administration" l={navLabel('administration','Administration',language)} active={tab==='administration'} onClick={()=>openMenu('administration')}/>}<div className="my-3 border-t border-white/10"/>{nav.filter(([k])=>(k!=='license'||role==='ADMIN')&&(!['document-settings','settings','backup','secondary-backup'].includes(k)||role==='ADMIN')).map(([k,l])=><NavButton key={k} k={k} l={navLabel(k,l,language)} active={tab===k} locked={!hasMenuAccess(k)} onClick={()=>openMenu(k)}/>)}</nav><div className="mt-auto pt-6 px-2 text-xs text-slate-500 leading-5">TEST and LIVE use separate databases.<br/>Financial data is persisted outside the app folder.</div></aside>
-  <div className="mobile-nav lg:hidden"><div className="mobile-brand-row"><button type="button" aria-label={mobileMenuOpen?'Close navigation':'Open navigation'} className="mobile-menu-toggle" onClick={()=>setMobileMenuOpen(v=>!v)}>{mobileMenuOpen?<FiX size={21}/>:<FiMenu size={21}/>}</button><img src="/solivy-logo.png" alt="SOLIVY" className="mobile-brand-logo"/><div className="min-w-0 flex-1"><div className="mobile-brand-name">SOLIVY Finance</div><div className="mobile-brand-sub">{companyName} workspace</div></div><span className={`mobile-mode-pill ${mode==='TEST'?'is-test':'is-live'}`}>{mode}</span></div>{mobileMenuOpen&&<><button className="mobile-drawer-backdrop" aria-label="Close navigation" onClick={()=>setMobileMenuOpen(false)}/><section className="mobile-drawer" aria-label="Main navigation"><div className="mobile-drawer-top"><div><div className="text-xs font-bold uppercase tracking-widest text-teal-700">Workspace</div><div className="mt-1 text-lg font-extrabold text-slate-900">{companyName}</div></div><button type="button" aria-label="Close navigation" className="secondary btn !p-2" onClick={()=>setMobileMenuOpen(false)}><FiX size={18}/></button></div><button className={`mobile-drawer-item ${tab==='dashboard'?'is-active':''}`} onClick={()=>openMenu('dashboard')}><FiGrid size={18}/><span>Dashboard</span></button>{role==='ADMIN'&&<button className={`mobile-drawer-item ${tab==='administration'?'is-active':''}`} onClick={()=>openMenu('administration')}><FiShield size={18}/><span>Administration</span></button>}<div className="mobile-drawer-label">Finance modules</div>{nav.filter(([k])=>k!=='dashboard'&&(k!=='license'||role==='ADMIN')&&(!['document-settings','settings','backup','secondary-backup'].includes(k)||role==='ADMIN')).map(([k,l])=>{const Icon=NAV_ICONS[k]||FiGrid;return <button key={k} className={`mobile-drawer-item ${tab===k?'is-active':''} ${!hasMenuAccess(k)?'is-locked':''}`} onClick={()=>openMenu(k)}><Icon size={18}/><span>{navLabel(k,l,language)}</span>{!hasMenuAccess(k)&&<FiLock className="ml-auto" size={14}/>}</button>})}<div className="mobile-drawer-footer">Menu permissions are applied to your account. TEST and LIVE data are separate.</div></section></>}</div>
-  {lockedModule&&<LockedModulePreview moduleKey={lockedModule} moduleLabel={nav.find(x=>x[0]===lockedModule)?.[1]||lockedModule} onClose={()=>setLockedModule(null)}/> }
-  <main className="lg:pl-72 flex-1 min-w-0"><div className="mx-auto w-full max-w-[1750px] px-3 py-4 sm:px-5 sm:py-6 lg:px-8 lg:py-8">
-   <header className="page-header -mx-3 mb-5 grid grid-cols-1 gap-3 border-b border-slate-200 bg-white px-3 py-4 sm:-mx-5 sm:flex sm:items-center sm:justify-between sm:px-5 lg:-mx-8 lg:px-8"><div className="min-w-0"><h1 className="truncate text-xl font-bold sm:text-2xl">{tab==='administration'?navLabel('administration','Administration',language):navLabel(tab,nav.find(x=>x[0]===tab)?.[1]||'Finance Dashboard',language)}</h1><p className="mt-1 text-xs text-slate-500">{companyName} <span className="mx-1 text-slate-300">/</span> Finance workspace</p></div><div className="header-controls grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center"><select aria-label="Company" className="company-select col-span-2 !w-full !min-w-0 sm:col-span-1 sm:!w-auto" value={companyId} onChange={e=>switchCompany(Number(e.target.value))}>{companies.filter((c:any)=>c.active).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><select aria-label="Environment" className="!w-full !min-w-0 sm:!w-auto" value={mode} onChange={e=>switchEnvironment(e.target.value as Mode)}>{role!=='TESTER'&&<option>LIVE</option>}<option>TEST</option></select>{mode==='TEST'&&<span className="hidden rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 sm:inline-flex">TEST MODE</span>}<button className="secondary btn w-full text-xs sm:w-auto" onClick={logout}>LOG OUT</button></div></header>
-   {msg&&<div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">{msg}</div>}
-
-   {tab==='administration'&&role==='ADMIN'&&<Administration companies={companies} mode={mode} onRefresh={()=>{fetch('/api/companies').then(x=>x.json()).then(j=>setCompanies(j.companies||[]));load()}} api={api} data={data} setMsg={setMsg} load={load}/> }
-   {tab==='transfers'&&<InterCompanyTransfers companies={companies} data={data} mode={mode} companyId={companyId}/>}
-   {tab==='tally-export'&&<TallyExportPage mode={mode} companyId={companyId} api={api}/>}
-   {tab==='bank-statement-import'&&<BankStatementImportPage mode={mode} companyId={companyId}/>}
-   {tab==='secondary-backup'&&role==='ADMIN'&&<SecondaryBackupPage/>}
-   {tab==='license'&&role==='ADMIN'&&<LicenseManagement/>}
-   {tab==='dashboard'&&<Dashboard data={data} money={money} onReceive={()=>openMenu('receivables')} onOpenTab={openMenu} cardAccess={cardAccess} role={role}/>}
-   {tab==='party-aliases'&&<PartyAliasesPanel mode={mode} companyId={companyId} masterParties={data.parties||[]} masterThirdParties={data.thirdParties||[]}/>}  
-   {tab==='accounts'&&<Accounts data={data} account={account} setAccount={setAccount} save={saveAccount} mode={mode}/>}
-   {tab==='account-movements'&&<AccountMovements data={data} form={movement} setForm={setMovement} save={saveMovement} mode={mode}/>} 
-   {tab==='parties'&&<Parties data={data} party={party} setParty={setParty} save={saveParty} setMsg={setMsg} mode={mode}/>} 
-   {tab==='purchase'&&<Purchase data={data} purchase={purchase} setPurchase={setPurchase} selectedParty={selectedPurchaseParty} calc={calc} save={savePurchase} mode={mode}/>} 
-   {tab==='payments'&&<Payments data={data} payment={payment} setPayment={setPayment} selectedParty={selectedPaymentParty} selectedOutstanding={paymentOutstanding} save={savePayment} mode={mode} companyId={companyId}/>}
-   {tab==='money-in'&&<MoneyIn data={data} form={moneyIn} setForm={setMoneyIn} save={saveMoneyIn} mode={mode}/>}
-   {tab==='interest'&&<InterestPaid data={data} form={interest} setForm={setInterest} save={saveInterest} mode={mode}/>}
-   {tab==='funding'&&<Funding data={data} form={funding} setForm={setFunding} save={saveFunding} mode={mode} api={api} load={load}/>}
-   {tab==='import'&&<CSVImport mode={mode} companyId={companyId} api={api} load={load}/>} 
-   {tab==='ledger'&&<Ledger data={data} mode={mode}/>} 
-   {tab==='receivables'&&<Receivables data={data} mode={mode} load={load}/>} 
-   {tab==='reports'&&<Reports mode={mode} data={data}/>} 
-   {tab==='bank'&&<div className="card p-4 sm:p-5"><h2 className="font-bold mb-1">Bank Matching</h2><p className="muted mb-4">Match recorded payments against bank transactions.</p><InlineFeedback/><Table rows={data.unmatched||[]} cols={['payment_no','payment_date','party_name','amount','net_paid','utr','mode']} action={(r:any)=><button className="secondary btn text-xs" onClick={async()=>{await api('/bank',{method:'POST',body:JSON.stringify({mode,payment_id:r.id,statement_date:r.payment_date,statement_amount:r.net_paid,reference:r.utr||''})});load()}}>Match</button>}/></div>}
-   {tab==='backup'&&<div className="grid gap-4 xl:grid-cols-2"><div className="card p-4 sm:p-6"><h2 className="font-bold mb-1">Company Backup</h2><p className="muted mb-5">Backup the selected company&apos;s {mode} database.</p><InlineFeedback/><div className="flex flex-wrap gap-2"><a className="secondary btn" href={`/api/backup?mode=${mode}&company_id=${companyId}`}>Download {mode} Backup</a>{role==='ADMIN'&&<><button className="secondary btn" onClick={async()=>{const phrase=prompt(`This clears ONLY ${mode} transaction data and keeps parties, bank accounts, users and settings. Type CLEAR TRANSACTIONS ${mode} to continue.`);if(phrase!==`CLEAR TRANSACTIONS ${mode}`)return;try{await api('/admin',{method:'POST',body:JSON.stringify({action:'clear_transactions',mode,confirmation:phrase})});setMsg(`${mode} transaction data cleared; master data preserved`);load()}catch(e:any){setMsg(e.message)}}}>Clear Transaction Data</button><button className="danger btn" onClick={purge}>Purge {mode} Database</button></>}</div></div><div className="card p-4 sm:p-6"><h2 className="font-bold mb-1">Admin — All Companies</h2><p className="muted mb-5">One compressed backup package containing the admin database plus every company&apos;s LIVE and TEST databases.</p>{role==='ADMIN'&&<a className="primary btn" href="/api/admin-backup-all">DOWNLOAD ALL COMPANIES BACKUP</a>}</div></div>}
-   {tab==='gst'&&<GST data={data} sale={sale} setSale={setSale} save={saveSale} mode={mode}/>} 
-   {tab==='commercial-bills'&&<CommercialBills data={data} mode={mode} api={api} load={load}/>} {tab==='document-settings'&&role==='ADMIN'&&<DocumentSettings data={data} mode={mode} api={api} load={load}/>} {tab==='settings'&&<Settings data={data} setData={setData} api={api} mode={mode} load={load} currency={currency} setCurrency={(v:string)=>{localStorage.setItem('solivy-currency',v);setCurrency(v);setData((d:any)=>({...d,uiCurrency:v}))}} language={language} setLanguage={(v:string)=>{localStorage.setItem('solivy-language',v);setLanguage(v)}} />} 
-  </div></main>{apiBusy>0&&<div className="api-loader-backdrop"><div className="api-loader-card"><span className="api-loader-spinner"></span><span>Processing… please wait</span></div></div>}{toast&&<div className={`finance-toast ${toast.type==='error'?'finance-toast-error':'finance-toast-success'}`} role="status">{toast.message}</div>}</div>
-}
-
-const LOCKED_MODULE_INFO:Record<string,{summary:string;features:string[];previewLabels:string[]}>={
- accounts:{summary:'Keep your company bank and cash accounts in one place, with opening balances and current balances.',features:['View bank and cash accounts','Track opening and running balances','Know which account money moves through'],previewLabels:['Bank / Cash','Opening balance','Current balance']},
- 'account-movements':{summary:'Record money withdrawn from an account or transferred between company accounts, with a date and reference.',features:['Record withdrawals','Transfer between accounts','Keep a searchable movement history'],previewLabels:['Movement type','From / To account','Amount']},
- parties:{summary:'Maintain supplier, customer and broker details once, then reuse them in purchases, payments and ledgers.',features:['Save contact and tax details','Keep bank details with each party','Use the same party across transactions'],previewLabels:['Party directory','Contact details','Outstanding']},
- purchase:{summary:'Enter purchase or sample details and calculate the payable amount after freight, deductions and other charges.',features:['Record weight, rate and sample number','Calculate deductions and net payable','Link purchases to the vendor ledger'],previewLabels:['Purchase entry','Net weight','Net payable']},
- payments:{summary:'Record vendor payments, allocate them to purchase bills and review TDS and the final bank-paid amount.',features:['Record bank or cash payments','Allocate payment against bills','Calculate TDS and net payment'],previewLabels:['Payment entry','Bill allocation','Net paid']},
- 'money-in':{summary:'Record money received into a bank or cash account and keep the receipt linked to its source.',features:['Record date and amount received','Choose the receiving account','Keep receipt references and notes'],previewLabels:['Money received','Account','Reference']},
- interest:{summary:'Track interest paid to lenders and reflect it in your finance profit calculations.',features:['Record interest payments','Link payments to accounts and parties','Review interest cost over time'],previewLabels:['Interest paid','Payee','Payment date']},
- funding:{summary:'Manage loans and funding, including principal, interest rules and upcoming payment schedules.',features:['Save lender and loan details','Set interest rate and frequency','See upcoming interest due'],previewLabels:['Active funding','Principal','Next due']},
- import:{summary:'Upload a spreadsheet or CSV, preview the records, and import supported finance data in batches.',features:['Choose the type of data','Validate a preview before importing','Skip duplicate records where supported'],previewLabels:['CSV import','Rows validated','Ready to import']},
- ledger:{summary:'Review vendor-wise purchases, payments and the balance still payable to each supplier.',features:['See purchases and payments together','Review outstanding balances','Trace transactions by vendor'],previewLabels:['Vendor ledger','Purchases','Balance due']},
- receivables:{summary:'Track money customers or parties still owe, including due dates and receipts against bills.',features:['Review unpaid receivables','Monitor due and overdue bills','Record amounts received'],previewLabels:['Receivables','Due date','Outstanding']},
- reports:{summary:'Turn transaction data into summaries that help you understand cash flow, payments and finance performance.',features:['Review financial summaries','Compare transactions across periods','Use reports to support decisions'],previewLabels:['Finance report','This month','Total']},
- bank:{summary:'Compare transactions in SOLIVY Finance with your bank statement and identify entries that need attention.',features:['Match statement entries','Spot unmatched transactions','Review differences before reconciliation'],previewLabels:['Bank matching','Matched','Needs review']},
- backup:{summary:'Create and restore backups of your finance data to help protect records during maintenance or migration.',features:['Create a data backup','Restore a suitable backup','Check backup status before proceeding'],previewLabels:['Backup & restore','Last backup','Data status']},
- gst:{summary:'Organise GST-related sales and purchase information to help prepare records for filing and review.',features:['Review GST-related transactions','Prepare supporting summaries','Check records before filing'],previewLabels:['GST summary','Taxable value','GST amount']},
- 'commercial-bills':{summary:'Prepare and manage commercial bills with the relevant parties, amounts and supporting details.',features:['Create commercial bill records','Keep third-party details organised','Review bill history'],previewLabels:['Commercial bills','Bill details','Total amount']},
- 'document-settings':{summary:'Set up the business details and document preferences used when generating finance documents.',features:['Manage document information','Configure available print details','Keep generated documents consistent'],previewLabels:['Document settings','Business details','Print preferences']},
- settings:{summary:'Manage company-level preferences and tax-related settings used by supported finance workflows.',features:['Review company settings','Configure supported TDS preferences','Keep company details organised'],previewLabels:['Company settings','TDS settings','Preferences']}
+type Mode = "LIVE" | "TEST";
+const nav = [
+  ["dashboard", "Dashboard"],
+  ["accounts", "Bank / Cash Accounts"],
+  ["account-movements", "Withdrawal / Transfer"],
+  ["parties", "Parties"],
+  ["party-aliases", "Party Aliases"],
+  ["purchase", "Purchase / Sample"],
+  ["payments", "Payments"],
+  ["money-in", "Money In"],
+  ["interest", "Interest Paid"],
+  ["funding", "Funding / Loans"],
+  ["import", "CSV Import"],
+  ["ledger", "Vendor Ledger"],
+  ["receivables", "Receivables"],
+  ["reports", "Reports"],
+  ["bank", "Bank Matching"],
+  ["backup", "Backup / Restore"],
+  ["secondary-backup", "Secondary Backup"],
+  ["tally-export", "Tally Export"],
+  ["bank-statement-import", "Bank Statement Import"],
+  ["gst", "GST Filing"],
+  ["commercial-bills", "Commercial Bills"],
+  ["document-settings", "Document Settings"],
+  ["settings", "Company / TDS Settings"],
+  ["license", "License Management"],
+  ["transfers", "Inter-Company Transfers"],
+  ["sync", "Offline / Online Sync"],
+];
+const NAV_TRANSLATIONS: Record<string, Record<string, string>> = {
+  hi: {
+    dashboard: "डैशबोर्ड",
+    administration: "प्रशासन",
+    accounts: "बैंक / नकद खाते",
+    "account-movements": "निकासी / ट्रांसफर",
+    parties: "पार्टियाँ",
+    purchase: "खरीद / सैंपल",
+    payments: "भुगतान",
+    "money-in": "प्राप्त धन",
+    interest: "ब्याज भुगतान",
+    funding: "फंडिंग / ऋण",
+    import: "CSV आयात",
+    ledger: "पार्टी लेजर",
+    receivables: "प्राप्य राशि",
+    reports: "रिपोर्ट",
+    bank: "बैंक मिलान",
+    backup: "बैकअप / रीस्टोर",
+    gst: "GST फाइलिंग",
+    "commercial-bills": "कमर्शियल बिल",
+    "document-settings": "दस्तावेज़ सेटिंग्स",
+    settings: "कंपनी / TDS सेटिंग्स",
+  },
+  gu: {
+    dashboard: "ડેશબોર્ડ",
+    administration: "વહીવટ",
+    accounts: "બેંક / રોકડ ખાતાં",
+    "account-movements": "ઉપાડ / ટ્રાન્સફર",
+    parties: "પાર્ટીઓ",
+    purchase: "ખરીદી / સેમ્પલ",
+    payments: "ચુકવણીઓ",
+    "money-in": "મળેલ નાણાં",
+    interest: "વ્યાજ ચુકવણી",
+    funding: "ફંડિંગ / લોન",
+    import: "CSV આયાત",
+    ledger: "પાર્ટી લેજર",
+    receivables: "પ્રાપ્ય રકમ",
+    reports: "અહેવાલો",
+    bank: "બેંક મેળવણી",
+    backup: "બેકઅપ / રિસ્ટોર",
+    gst: "GST ફાઇલિંગ",
+    "commercial-bills": "કોમર્શિયલ બિલ",
+    "document-settings": "દસ્તાવેજ સેટિંગ્સ",
+    settings: "કંપની / TDS સેટિંગ્સ",
+  },
 };
-function LockedModulePreview({moduleKey,moduleLabel,onClose}:{moduleKey:string;moduleLabel:string;onClose:()=>void}){
- const info=LOCKED_MODULE_INFO[moduleKey]||{summary:'This module provides additional tools for your finance workflow.',features:['Organise related records','Review important information','Support day-to-day finance work'],previewLabels:['Module overview','Records','Status']};
- return <div className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true" aria-labelledby="locked-module-title" onClick={onClose}>
-  <div className="my-auto w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={e=>e.stopPropagation()}>
-   <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 sm:p-6"><div className="min-w-0"><div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800"><FiLock size={13}/> Module access needs enabling</div><h2 id="locked-module-title" className="mt-3 text-xl font-black text-slate-950 sm:text-2xl">{moduleLabel}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{info.summary}</p></div><button type="button" className="secondary btn shrink-0" onClick={onClose} aria-label="Close module preview">Close</button></div>
-   <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[1.15fr_.85fr]">
-    <div><div className="mb-2 flex items-center justify-between gap-2"><span className="text-xs font-bold uppercase tracking-wider text-slate-500">Module screenshot preview</span><span className="rounded bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">ID: {moduleKey}</span></div><div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"><div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-3"><span className="h-2.5 w-2.5 rounded-full bg-rose-300"/><span className="h-2.5 w-2.5 rounded-full bg-amber-300"/><span className="h-2.5 w-2.5 rounded-full bg-emerald-300"/><span className="ml-2 truncate text-xs font-bold text-slate-600">SOLIVY Finance / {moduleLabel}</span></div><div className="grid gap-3 p-3 sm:p-4"><div className="flex items-center justify-between gap-2"><div><div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Workspace preview</div><div className="mt-1 text-sm font-black text-slate-800">{moduleLabel}</div></div><span className="rounded-lg bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500">PREVIEW</span></div><div className="grid grid-cols-3 gap-2">{info.previewLabels.map((label,i)=><div key={label} className="min-w-0 rounded-xl border border-slate-200 bg-white p-2 sm:p-3"><div className="truncate text-[9px] font-semibold text-slate-400 sm:text-[10px]">{label}</div><div className="mt-2 h-2 w-3/4 rounded bg-slate-200"/><div className="mt-1.5 h-1.5 w-1/2 rounded bg-slate-100"/></div>)}</div><div className="rounded-xl border border-slate-200 bg-white p-3"><div className="mb-3 flex items-center justify-between"><div className="h-2 w-24 rounded bg-slate-300"/><div className="h-5 w-16 rounded-md bg-slate-100"/></div>{[0,1,2,3].map(i=><div key={i} className="grid grid-cols-3 items-center gap-3 border-t border-slate-100 py-3"><div className="h-2 rounded bg-slate-200"/><div className="h-2 rounded bg-slate-100"/><div className="ml-auto h-2 w-10 rounded bg-slate-200"/></div>)}</div></div></div><p className="mt-2 text-[11px] leading-5 text-slate-400">Illustrative preview of the module layout; actual records and available actions depend on your plan and permissions.</p></div>
-    <div className="flex flex-col"><h3 className="text-base font-black text-slate-900">What this module helps you do</h3><ul className="mt-3 space-y-3">{info.features.map((feature,i)=><li key={feature} className="flex gap-3 text-sm leading-5 text-slate-600"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xs font-black text-teal-700">{i+1}</span><span>{feature}</span></li>)}</ul><div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4"><div className="flex items-start gap-3"><FiShield className="mt-0.5 shrink-0 text-amber-700" size={19}/><div><p className="text-sm font-black text-amber-950">This module is not included in your current plan.</p><p className="mt-1 text-sm leading-5 text-amber-900">This menu is not enabled for your current user access in this organization. Ask your SOLIVY administrator to enable the module in User Management → Menu access. If the organization has already enabled it, refresh your session and verify the selected company.</p></div></div></div><button type="button" className="primary btn mt-4 w-full" onClick={onClose}>Back to Finance</button></div>
-   </div>
-  </div>
- </div>;
+const navLabel = (k: string, fallback: string, language: string) => NAV_TRANSLATIONS[language]?.[k] || fallback;
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const emptyPurchase = () => ({ purchase_date: today(), discount_pct: 0, payment_due_days: 0, receivable_due_days: 0 });
+const emptyPayment = () => ({ payment_date: today(), mode: "BANK", payment_no: "", amount: "", broker_name: "", broker_email: "", company_account_id: "", allocations: [] });
+const emptySale = () => ({ invoice_date: today(), invoice_type: "B2B", gst_type: "CGST_SGST", gst_rate: 18, due_days: 0, cost_amount: 0, discount_pct: 0 });
+function notifyFinance(type: "success" | "error", message: string) {
+  window.dispatchEvent(new CustomEvent("finance-toast", { detail: { type, message } }));
+  window.dispatchEvent(new CustomEvent("finance-feedback", { detail: { type, message } }));
 }
 
-function Brand(){return <div className="brand-shell mb-7 px-2"><img src="/solivy-logo.png" alt="SOLIVY" className="brand-logo"/><div className="min-w-0"><div className="brand-sub">Finance Management</div></div></div>}
-const NAV_ICONS:Record<string,React.ComponentType<any>>={dashboard:FiGrid,administration:FiShield,accounts:FiBriefcase,'account-movements':FiRepeat,parties:FiUsers,purchase:FiShoppingCart,payments:FiCreditCard,'money-in':FiDollarSign,interest:FiPercent,funding:FiTrendingUp,import:FiUpload,ledger:FiBookOpen,receivables:FiClock,reports:FiBarChart2,bank:FiRefreshCw,backup:FiDatabase,gst:FiFileText,'commercial-bills':FiLayers,'document-settings':FiSettings,settings:FiSettings,license:FiShield,transfers:FiRepeat,sync:FiRefreshCw};
-function NavButton({k,l,active,onClick,locked=false}:{k:string,l:string,active:boolean,onClick:()=>void,locked?:boolean}){const Icon=NAV_ICONS[k]||FiGrid;return <button onClick={onClick} aria-current={active?'page':undefined} aria-disabled={locked} title={`Menu ID: ${k}${locked?' • Access locked':''}`} className={`nav-item ${active?'nav-item-active':''} ${locked?'opacity-60':''}`}><span className="nav-label"><span className="nav-icon-wrap"><Icon aria-hidden="true" size={17}/></span><span className="nav-item-text min-w-0"><span className="block truncate">{l}</span><span className="block text-[9px] font-medium opacity-50">ID: {k}</span></span></span>{locked?<FiLock className="nav-chevron" size={14}/>:active&&<FiChevronRight className="nav-chevron" size={16}/>}</button>}
-const DASHBOARD_CARDS=[['kpi-parties','Parties KPI'],['kpi-purchase-cost','Purchase Cost KPI'],['kpi-paid','Paid KPI'],['kpi-vendor-outstanding','Vendor Outstanding KPI'],['kpi-finance-profit','Finance Profit KPI'],['kpi-average-earning','Average Monthly Earning KPI'],['business-pulse','Business Pulse'],['due-pay-today','Pay Today'],['due-pay-tomorrow','Pay Tomorrow'],['due-receive-today','Receive Today'],['due-receive-tomorrow','Receive Tomorrow'],['due-interest-today','Interest Today'],['due-interest-tomorrow','Interest Tomorrow'],['due-this-week','This Week'],['overdue-receivables','Overdue Receivables'],['overdue-payables','Overdue Payables'],['bank-cash','Bank / Cash'],['realised-profit','Realised Profit'],['charts','Dashboard Charts']];
-function TallyExportPage({mode,companyId,api}:{mode:Mode,companyId:number,api:any}){const [types,setTypes]=useState(['purchases','payments','sales','interest','money-in']);const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false);const [mappings,setMappings]=useState<any>({});const [mappingBusy,setMappingBusy]=useState(false);const fields:[string,string][]=[['purchase_account','Purchase ledger'],['sales_account','Sales ledger'],['output_cgst','Output CGST ledger'],['output_sgst','Output SGST ledger'],['output_igst','Output IGST ledger'],['tds_payable','TDS payable ledger'],['interest_expense','Interest expense ledger'],['default_bank','Default bank ledger'],['default_cash','Default cash ledger']];useEffect(()=>{let alive=true;fetch('/api/tally-mapping').then(r=>r.json()).then(j=>{if(alive&&j.mappings)setMappings(j.mappings);if(alive&&j.error)setNotice(j.error)}).catch(()=>{if(alive)setNotice('Could not load ledger mappings')});return()=>{alive=false}},[mode,companyId]);const toggle=(v:string)=>setTypes(p=>p.includes(v)?p.filter(x=>x!==v):p.concat(v));const saveMappings=async()=>{setMappingBusy(true);try{const r=await fetch('/api/tally-mapping',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mappings})});const j=await r.json();if(!r.ok)throw new Error(j.error||'Could not save mappings');setNotice(j.message||'Ledger mappings saved.')}catch(e:any){setNotice(e.message||'Could not save mappings')}finally{setMappingBusy(false)}};const exportFile=async(format:'xml'|'xlsx')=>{setBusy(true);setNotice('Preparing export…');try{const r=await fetch(`/api/tally-export?mode=${mode}&company_id=${companyId}&format=${format}&types=${encodeURIComponent(types.join(','))}`);if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||`Export failed (${r.status})`)}const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`SOLIVY-Tally-${mode}-${new Date().toISOString().slice(0,10)}.${format}`;a.click();URL.revokeObjectURL(url);setNotice('Export generated. Review the Excel file and test the XML in a Tally company backup. Confirm the ledger masters and voucher balances before LIVE import.')}catch(e:any){setNotice(e.message||'Export failed')}finally{setBusy(false)}};return <div className="space-y-5"><div className="card p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-widest text-teal-700">Accounting integration</div><h2 className="mt-1 text-2xl font-black">TallyPrime Export</h2><p className="muted mt-2 text-sm">Generate review Excel and voucher XML from posted SOLIVY transactions. Export currently covers purchase, supplier payment, sales, interest-payment and other money-in vouchers. Financing receivable receipt history is not complete enough to export every receipt safely as an individual voucher.</p><div className="mt-5 grid gap-3 sm:grid-cols-2">{[['purchases','Purchase vouchers'],['payments','Supplier payment vouchers'],['sales','Sales invoices'],['interest','Interest payment vouchers'],['money-in','Other money-in vouchers']].map(([k,label])=><label key={k} className="flex items-center gap-3 rounded-xl border p-3"><input type="checkbox" checked={types.includes(k)} onChange={()=>toggle(k)}/><span className="text-sm font-semibold">{label}</span></label>)}</div><div className="mt-5 flex flex-wrap gap-3"><button disabled={busy||!types.length} className="primary btn" onClick={()=>exportFile('xml')}>{busy?'Preparing…':'DOWNLOAD TALLY XML'}</button><button disabled={busy||!types.length} className="secondary btn" onClick={()=>exportFile('xlsx')}>DOWNLOAD REVIEW EXCEL</button></div>{notice&&<div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">{notice}</div>}<div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">Tally XML compatibility depends on TallyPrime release and company configuration. Required ledgers must exist in Tally. Always test on a backup company first; this export does not certify GST/TDS statutory treatment or successful import.</div></div><div className="card p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-widest text-indigo-700">Company-specific ledger mapping</div><h3 className="mt-1 text-xl font-black">Map SOLIVY ledgers to Tally</h3><p className="muted mt-2 text-sm">Set exact ledger names that already exist in the selected Tally company. Mappings are saved separately for this SOLIVY company and environment.</p><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([key,label])=><label key={key} className="text-sm font-semibold">{label}<input className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm" maxLength={120} value={mappings[key]||''} onChange={e=>setMappings((m:any)=>({...m,[key]:e.target.value}))}/><span className="mt-1 block break-all font-mono text-[10px] text-slate-500">ID: {key}</span></label>)}</div><button className="primary btn mt-4" disabled={mappingBusy} onClick={saveMappings}>{mappingBusy?'Saving…':'SAVE LEDGER MAPPINGS'}</button></div></div>}
-function BankStatementImportPage({mode,companyId}:{mode:Mode,companyId:number}){const [file,setFile]=useState<File|null>(null);const [rows,setRows]=useState<any[]>([]);const [headers,setHeaders]=useState<string[]>([]);const [mapping,setMapping]=useState<any>({});const [filename,setFilename]=useState('');const fields:[string,string][]=[['date','Transaction date'],['narration','Narration / description'],['reference','Reference / UTR'],['debit','Debit / withdrawal'],['credit','Credit / deposit'],['amount','Single amount column'],['type','Debit-credit indicator'],['balance','Running balance']];const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false);const upload=async()=>{if(!file){setNotice('Choose a bank statement first.');return}setBusy(true);setNotice('Reading statement…');try{const fd=new FormData();fd.append('file',file);fd.append('mode',mode);fd.append('company_id',String(companyId));fd.append('mapping',JSON.stringify(mapping));const r=await fetch('/api/bank-statement-import',{method:'POST',body:fd});const j=await r.json();if(!r.ok)throw new Error(j.error||'Import failed');setRows(j.rows||[]);setHeaders(j.headers||[]);setFilename(j.filename||file.name);setMapping(j.mapping||mapping);setNotice(j.message||`Preview ready: ${(j.rows||[]).length} rows. Nothing was posted to accounts.`)}catch(e:any){setNotice(e.message||'Could not read statement')}finally{setBusy(false)}};const save=async()=>{setBusy(true);try{const r=await fetch(`/api/bank-statement-import?mode=${mode}&company_id=${companyId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows,filename})});const j=await r.json();if(!r.ok)throw new Error(j.error||'Save failed');setNotice(j.message||'Statement rows saved for reconciliation.');}catch(e:any){setNotice(e.message)}finally{setBusy(false)}};return <div className="space-y-5"><div className="card p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-widest text-indigo-700">Multi-bank statement intake</div><h2 className="mt-1 text-2xl font-black">Bank Statement Import</h2><p className="muted mt-2 text-sm">Upload original CSV, XLS/XLSX or MT940 statement downloaded from the bank portal. PDF and PDF-converted sheets are intentionally not supported.</p><div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center"><input type="file" accept=".csv,.xls,.xlsx,.mt940,.sta,.txt" onChange={e=>{setFile(e.target.files?.[0]||null);setRows([])}} className="w-full rounded-xl border p-3"/><button className="primary btn" disabled={busy||!file} onClick={upload}>{busy?'Processing…':'PREVIEW STATEMENT'}</button></div>{notice&&<div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">{notice}</div>}{headers.length>0&&<div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4"><div className="font-bold">Column mapping</div><p className="muted mt-1 text-xs">If automatic detection is wrong, select the exact source column for each field and preview again. Mapping changes never post accounting entries.</p><div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{fields.map(([key,label])=><label key={key} className="text-xs font-semibold">{label}<select className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs" value={mapping[key]||''} onChange={e=>setMapping((m:any)=>({...m,[key]:e.target.value}))}><option value="">Auto detect</option>{headers.map(h=><option key={h} value={h}>{h}</option>)}</select></label>)}</div><button className="secondary btn mt-3 text-xs" disabled={busy||!file} onClick={upload}>RE-PREVIEW WITH MAPPING</button></div>}{rows.length>0&&<><div className="mt-5 flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold">Preview ({rows.length} rows)</h3><p className="muted text-xs">Review normalized date, narration, reference, debit, credit and balance before saving.</p></div><button disabled={busy} className="secondary btn" onClick={save}>SAVE FOR RECONCILIATION</button></div><div className="mt-3 overflow-auto rounded-xl border"><table className="min-w-[900px] w-full text-left text-xs"><thead className="bg-slate-100"><tr>{['Date','Narration','Reference','Debit','Credit','Balance'].map(x=><th key={x} className="p-3">{x}</th>)}</tr></thead><tbody>{rows.slice(0,300).map((r:any,i:number)=><tr key={i} className="border-t"><td className="p-3">{r.date}</td><td className="p-3">{r.narration}</td><td className="p-3">{r.reference}</td><td className="p-3">{r.debit}</td><td className="p-3">{r.credit}</td><td className="p-3">{r.balance??''}</td></tr>)}</tbody></table></div></>}</div><div className="card p-4 text-xs text-slate-600">Supported statement formats depend on the bank's export headers. Unrecognized files return an error instead of guessing amounts. Importing here stages statement rows; it does not create or alter payments automatically.</div></div>}
-function SecondaryBackupPage(){const [path,setPath]=useState('');const [enabled,setEnabled]=useState(true);const [time,setTime]=useState('18:00');const [status,setStatus]=useState<any>(null);const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');const refresh=async()=>{try{const r=await fetch('/api/secondary-backup');const j=await r.json();if(!r.ok)throw new Error(j.error||'Status check failed');setStatus(j);setPath(j.path||'');setEnabled(j.enabled!==false);setTime(j.time||'18:00')}catch(e:any){setNotice(e.message)}};useEffect(()=>{refresh()},[]);const save=async()=>{setBusy(true);try{const r=await fetch('/api/secondary-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,enabled,time})});const j=await r.json();if(!r.ok)throw new Error(j.error||'Save failed');setNotice(j.message||'Settings saved');await refresh()}catch(e:any){setNotice(e.message)}finally{setBusy(false)}};const run=async()=>{setBusy(true);try{const r=await fetch('/api/secondary-backup',{method:'PUT'});const j=await r.json();if(!r.ok)throw new Error(j.error||'Backup failed');setNotice(j.message||'Backup completed');await refresh()}catch(e:any){setNotice(e.message)}finally{setBusy(false)}};return <div className="space-y-5"><div className="card p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-widest text-indigo-700">Offline disaster recovery</div><h2 className="mt-1 text-2xl font-black">Secondary Backup Location</h2><p className="muted mt-2 text-sm">Set a local drive, external drive or reachable network share on the machine running SOLIVY Finance. The server must remain running for scheduled checks. Status checks run every five minutes while an administrator is signed in.</p><label className="mt-5 block text-sm font-bold">Destination folder (absolute server path)</label><input className="mt-2 w-full rounded-xl border p-3" value={path} onChange={e=>setPath(e.target.value)} placeholder="E:\\SOLIVY-Backups or \\\\NAS\\FinanceBackups"/><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-semibold">Daily backup time (server local time)<input className="mt-2 block w-full rounded-xl border p-3" type="time" value={time} onChange={e=>setTime(e.target.value)}/></label><label className="flex items-center gap-3 rounded-xl border p-3 text-sm font-semibold"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> Enable daily secondary backup</label></div><div className="mt-5 flex flex-wrap gap-3"><button className="primary btn" disabled={busy} onClick={save}>SAVE BACKUP SETTINGS</button><button className="secondary btn" disabled={busy||!path} onClick={run}>RUN BACKUP NOW</button><button className="btn border bg-white" disabled={busy} onClick={refresh}>CHECK LOCATION</button></div>{notice&&<div className="mt-4 rounded-xl border p-3 text-sm">{notice}</div>}<div className="mt-5 rounded-xl border p-4"><h3 className="font-bold">Latest backup status</h3><div className="mt-2 grid gap-2 text-sm sm:grid-cols-2"><div>Status: <b>{status?.lastStatus||'Not run yet'}</b></div><div>Last success: <b>{status?.lastSuccess||'Never'}</b></div><div>Next due: <b>{status?.nextDue||'—'}</b></div><div>Destination: <b className="break-all">{status?.path||'Not configured'}</b></div></div>{status?.lastError&&<div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800"><b>Backup error:</b> {status.lastError}</div>}{status?.lastMessage&&<p className="muted mt-3 text-xs">{status.lastMessage}</p>}</div><div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">Backups are unencrypted SQLite snapshots. Restrict access to the destination. A disconnected drive/share will be retried on the next status check; the app/server must be running for scheduled checks to occur.</div></div></div>}
-
-function RevenueDashboard({data,money,onOpenTab}:{data:any,money:any,onOpenTab:(tab:string)=>void}){
- const now=new Date(); const fyStart=new Date(now.getFullYear()-(now.getMonth()<3?1:0),3,1); const fyEnd=new Date(fyStart.getFullYear()+1,3,1); const prevStart=new Date(fyStart.getFullYear()-1,3,1); const prevEnd=fyStart;
- const dateIn=(v:any,start:Date,end:Date)=>{if(!v)return false;const raw=String(v).slice(0,10);const d=new Date(raw+'T00:00:00');return !Number.isNaN(d.getTime())&&d>=start&&d<end};
- const posted=(x:any)=>String(x.status||'POSTED').toUpperCase()==='POSTED';
- const sum=(rows:any[],k:string)=>rows.reduce((a:number,r:any)=>a+Number(r[k]||0),0);
- const receivables=(data.receivables||[]).filter((r:any)=>String(r.purchase_status||'POSTED').toUpperCase()==='POSTED');
- const thisBills=receivables.filter((r:any)=>dateIn(r.bill_date,fyStart,fyEnd));
- const lastBills=receivables.filter((r:any)=>dateIn(r.bill_date,prevStart,prevEnd));
- const billValue=(rows:any[])=>sum(rows,'receivable_amount');
- const thisTurnover=billValue(thisBills),lastTurnover=billValue(lastBills);
- const growth=lastTurnover?((thisTurnover-lastTurnover)/Math.abs(lastTurnover))*100:null;
- const avgBill=thisBills.length?thisTurnover/thisBills.length:0;
- const bookProfit=(rows:any[])=>rows.reduce((a:number,r:any)=>a+Number(r.discount_amount||0)+Number(r.other_charges_profit||0),0);
- const bookProfitFY=bookProfit(thisBills),bookMargin=thisTurnover?bookProfitFY/thisTurnover*100:0;
- const realizedProfit=(rows:any[])=>rows.reduce((a:number,r:any)=>{const face=Math.max(0,Number(r.receivable_amount||0));const received=Math.max(0,Math.min(face,Number(r.received_amount||0)));const gross=Number(r.discount_amount||0)+Number(r.other_charges_profit||0);return a+(face?gross*received/face:0)},0);
- const interest=(data.interestPayments||[]).filter(posted);
- const interestFY=sum(interest.filter((r:any)=>dateIn(r.payment_date,fyStart,fyEnd)),'amount');
- const receivedBillsFY=receivables.filter((r:any)=>dateIn(r.received_date,fyStart,fyEnd)&&Number(r.received_amount||0)>0);
- const receivedFY=receivedBillsFY.reduce((a:number,r:any)=>a+Number(r.net_received||r.received_amount||0),0);
- const realizedGrossFY=realizedProfit(receivedBillsFY); const realizedNetFY=realizedGrossFY-interestFY;
- const realizedMargin=receivedFY?realizedNetFY/receivedFY*100:0;
- const monthNames=['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
- const monthly=monthNames.map((label,i)=>{const y=i<9?fyStart.getFullYear():fyStart.getFullYear()+1;const m=(i+3)%12;const a=new Date(y,m,1),b=new Date(y,m+1,1);const py=i<9?prevStart.getFullYear():prevStart.getFullYear()+1;const pa=new Date(py,m,1),pb=new Date(py,m+1,1);return {label,current:billValue(thisBills.filter((x:any)=>dateIn(x.bill_date,a,b))),previous:billValue(lastBills.filter((x:any)=>dateIn(x.bill_date,pa,pb))),currentCount:thisBills.filter((x:any)=>dateIn(x.bill_date,a,b)).length,previousCount:lastBills.filter((x:any)=>dateIn(x.bill_date,pa,pb)).length}});
- const parties=Object.entries(thisBills.reduce((acc:any,r:any)=>{const name=String(r.party_name||'Unknown party');acc[name]=(acc[name]||0)+Number(r.receivable_amount||0);return acc},{})).map(([name,value])=>({name,value:Number(value)})).sort((a,b)=>b.value-a.value).slice(0,5);
- const activeLoanPrincipal=sum((data.fundingLoans||[]).filter((x:any)=>String(x.status||'ACTIVE').toUpperCase()==='ACTIVE'),'principal_amount');
- const allReceivedProfit=realizedProfit(receivables); const allInterest=sum(interest,'amount'); const netProfitToDate=allReceivedProfit-allInterest; const fundingAvailable=activeLoanPrincipal+netProfitToDate;
- const sales=(data.sales||[]).filter(posted); const thisSales=sales.filter((x:any)=>dateIn(x.invoice_date,fyStart,fyEnd));
- const paymentFY=sum((data.payments||[]).filter((x:any)=>posted(x)&&dateIn(x.payment_date,fyStart,fyEnd)),'amount');
- const moneyInFY=sum((data.moneyIn||[]).filter((x:any)=>posted(x)&&dateIn(x.receipt_date,fyStart,fyEnd)),'amount');
- const withdrawalsFY=sum((data.accountMovements||[]).filter((x:any)=>posted(x)&&String(x.movement_type||'').toUpperCase()==='WITHDRAWAL'&&dateIn(x.movement_date,fyStart,fyEnd)),'amount');
- const max=Math.max(1,...monthly.flatMap(x=>[x.current,x.previous]));
- const fmt=(n:number)=>money(n); const fyLabel=`FY ${fyStart.getFullYear()}–${String(fyEnd.getFullYear()).slice(-2)}`; const lastLabel=`FY ${prevStart.getFullYear()}–${String(prevEnd.getFullYear()).slice(-2)}`;
- const card='rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5';
- return <section className="space-y-5">
-  <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg sm:p-7"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="text-[10px] font-black uppercase tracking-[.2em] text-teal-300">Executive business intelligence · {fyLabel}</div><h3 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Business performance, at a glance</h3><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Turnover is measured from financing receivable bills. Profit is shown on both a book basis and a cash-realised basis; collections and supplier payments remain separate cash-flow measures.</p></div><button className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-bold text-white hover:bg-white/15" onClick={()=>onOpenTab('reports')}>Detailed reports ↗</button></div>
-   <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-white/10 bg-white/[.08] p-4"><div className="text-xs font-semibold text-slate-300">Book turnover · {fyLabel}</div><div className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">{fmt(thisTurnover)}</div><div className="mt-2 text-xs text-teal-200">{thisBills.length} posted receivable bills</div></div><div className="rounded-2xl border border-white/10 bg-white/[.08] p-4"><div className="text-xs font-semibold text-slate-300">Previous year · {lastLabel}</div><div className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">{fmt(lastTurnover)}</div><div className="mt-2 text-xs text-slate-300">{lastBills.length} posted receivable bills</div></div><div className="rounded-2xl border border-white/10 bg-white/[.08] p-4"><div className="text-xs font-semibold text-slate-300">Year-on-year growth</div><div className="mt-2 text-2xl font-black sm:text-3xl">{growth===null?'—':`${growth>=0?'+':''}${growth.toFixed(1)}%`}</div><div className="mt-2 text-xs text-slate-300">{growth===null?'No previous-year turnover to compare':'Compared with previous FY'}</div></div><div className="rounded-2xl border border-white/10 bg-white/[.08] p-4"><div className="text-xs font-semibold text-slate-300">Average billing value</div><div className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">{fmt(avgBill)}</div><div className="mt-2 text-xs text-slate-300">Book turnover ÷ posted bills</div></div></div>
-  </div>
-  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><div className={card}><div className="text-xs font-bold uppercase tracking-wide text-slate-500">Realised profit margin</div><div className="mt-2 text-2xl font-black text-emerald-700">{receivedFY?`${realizedMargin.toFixed(2)}%`:'—'}</div><p className="mt-1 text-xs text-slate-500">Only profit earned on amounts actually received, less interest paid</p><div className="mt-3 border-t pt-3 text-sm"><span className="text-slate-500">Net realised profit</span><strong className="float-right">{fmt(realizedNetFY)}</strong></div></div><div className={card}><div className="text-xs font-bold uppercase tracking-wide text-slate-500">Book profit margin</div><div className="mt-2 text-2xl font-black text-indigo-700">{thisTurnover?`${bookMargin.toFixed(2)}%`:'—'}</div><p className="mt-1 text-xs text-slate-500">Expected profit on all posted receivable bills, whether collected or not</p><div className="mt-3 border-t pt-3 text-sm"><span className="text-slate-500">Book profit</span><strong className="float-right">{fmt(bookProfitFY)}</strong></div></div><div className={`${card} sm:col-span-2`}><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wide text-slate-500">Funding available · cumulative</div><div className="mt-2 text-3xl font-black tracking-tight text-slate-950">{fmt(fundingAvailable)}</div><p className="mt-1 text-xs text-slate-500">Total active loan principal taken + cumulative realised net profit to date</p></div><button className="secondary btn text-xs" onClick={()=>onOpenTab('funding')}>View funding ↗</button></div><div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-3"><div><div className="text-xs text-slate-500">Active loan principal</div><div className="mt-1 font-extrabold">{fmt(activeLoanPrincipal)}</div></div><div><div className="text-xs text-slate-500">Net realised profit to date</div><div className="mt-1 font-extrabold">{fmt(netProfitToDate)}</div></div><div><div className="text-xs text-slate-500">Bank / cash balance (reference)</div><div className="mt-1 font-extrabold">{fmt(sum(data.accounts||[],'balance'))}</div></div></div></div></div>
-  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><div className={card}><div className="text-xs font-semibold text-slate-500">Sales invoices · {fyLabel}</div><div className="mt-2 text-xl font-black">{fmt(sum(thisSales,'total_value'))}</div><p className="mt-1 text-xs text-slate-500">{thisSales.length} posted sales invoices (separate from financing bills)</p></div><div className={card}><div className="text-xs font-semibold text-slate-500">Supplier payments · {fyLabel}</div><div className="mt-2 text-xl font-black">{fmt(paymentFY)}</div><p className="mt-1 text-xs text-slate-500">Cash outflow; not turnover</p></div><div className={card}><div className="text-xs font-semibold text-slate-500">Money received · {fyLabel}</div><div className="mt-2 text-xl font-black">{fmt(moneyInFY+receivedFY)}</div><p className="mt-1 text-xs text-slate-500">Receivable collections + other receipts</p></div><div className={card}><div className="text-xs font-semibold text-slate-500">Withdrawals · {fyLabel}</div><div className="mt-2 text-xl font-black">{fmt(withdrawalsFY)}</div><p className="mt-1 text-xs text-slate-500">Posted bank/cash withdrawals</p></div></div>
-  <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]"><div className={`${card} min-w-0`}><div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="font-black text-slate-900">Month-on-month turnover</h3><p className="mt-1 text-xs text-slate-500">Each financial-year month against the same month last year</p></div><div className="flex flex-wrap gap-3 text-xs font-semibold"><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-sm bg-teal-600"/>Current FY</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-sm bg-slate-300"/>Previous FY</span></div></div><div className="mt-5 space-y-4">{monthly.map((m:any)=><div key={m.label} className="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-3"><div className="text-xs font-bold text-slate-500">{m.label}</div><div className="min-w-0 space-y-1.5"><div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-600 transition-all" style={{width:`${m.current?Math.max(1,m.current/max*100):0}%`}}/></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-slate-300" style={{width:`${m.previous?Math.max(1,m.previous/max*100):0}%`}}/></div><div className="flex flex-wrap justify-between gap-1 text-[10px] text-slate-500"><span>This FY: {fmt(m.current)} · {m.currentCount} bills</span><span>Last FY: {fmt(m.previous)} · {m.previousCount} bills</span></div></div></div>)}</div></div>
-   <div className={`${card} min-w-0`}><div><h3 className="font-black text-slate-900">Top parties · {fyLabel}</h3><p className="mt-1 text-xs text-slate-500">Ranked by posted receivable billing value</p></div>{parties.length?<div className="mt-5 space-y-4">{parties.map((p:any,i:number)=><div key={p.name} className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2"><div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-xs font-black text-slate-600">{i+1}</div><div className="min-w-0"><div className="truncate text-sm font-bold text-slate-800">{p.name}</div><div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-600" style={{width:`${Math.max(1,p.value/Math.max(1,parties[0]?.value)*100)}%`}}/></div></div><div className="text-right text-sm font-black text-slate-900">{fmt(p.value)}</div></div>)}</div>:<div className="py-8 text-center text-sm text-slate-500">No posted receivable bills found in this financial year.</div>}<button className="secondary btn mt-5 w-full text-xs" onClick={()=>onOpenTab('receivables')}>Open receivables ↗</button></div>
-  </div>
-  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600"><strong>Metric definitions:</strong> Turnover = posted financing receivable amount by bill date. Book profit = discount + other-charge profit. Realised profit = expected profit allocated proportionately to received amounts, less posted interest paid. Funding available = active recorded loan principal + cumulative realised net profit; this is a management metric, not a bank balance or cash solvency guarantee.</div>
- </section>
-}
-function Dashboard({data,money,onReceive,onOpenTab,cardAccess,role}:{data:any,money:any,onReceive:()=>void,onOpenTab:(tab:string)=>void,cardAccess:string[],role:string}){const showCard=(id:string)=>role==='ADMIN'||cardAccess.includes(id);const [showVendorOutstanding,setShowVendorOutstanding]=useState(false);const pendingVendors=(data.outstanding||[]).filter((r:any)=>Number(r.outstanding)>0);const pendingBills=data.pendingPurchaseBills||[];return <div className="space-y-5"><section className="dashboard-welcome"><div className="min-w-0"><div className="dashboard-eyebrow">FINANCE OVERVIEW</div><h2>Good business starts with clarity.</h2><p>Review cash position, upcoming obligations, collections and realised finance performance.</p></div><div className="dashboard-actions"><button className="primary btn" onClick={()=>onOpenTab('purchase')}><FiShoppingCart size={15}/> New purchase</button><button className="dashboard-action-secondary btn" onClick={()=>onOpenTab('payments')}><FiCreditCard size={15}/> Record payment</button></div></section><RevenueDashboard data={data} money={money} onOpenTab={onOpenTab}/><section className="dashboard-quick-actions" aria-label="Quick actions"><button onClick={()=>onOpenTab('parties')}><FiUsers size={17}/><span>Add party</span><FiChevronRight size={15}/></button><button onClick={()=>onOpenTab('money-in')}><FiDollarSign size={17}/><span>Record receipt</span><FiChevronRight size={15}/></button><button onClick={()=>onOpenTab('receivables')}><FiClock size={17}/><span>View receivables</span><FiChevronRight size={15}/></button><button onClick={()=>onOpenTab('reports')}><FiBarChart2 size={17}/><span>Open reports</span><FiChevronRight size={15}/></button></section><div className="dashboard-section-heading"><div><h3>Key indicators</h3><p>Current company and environment totals</p></div><span className="dashboard-live-tag"><span/> {data?.stats?'Data loaded':'Loading data'}</span></div><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-6">{showCard('kpi-parties')&&<KPI label="Parties" value={data.stats?.parties||0}/>}{showCard('kpi-purchase-cost')&&<KPI label="Purchase Cost" value={money(data.stats?.purchases||0)}/>}{showCard('kpi-paid')&&<KPI label="Paid" value={money(data.stats?.payments||0)}/>}{showCard('kpi-vendor-outstanding')&&<KPI label="Vendor Outstanding" value={money(data.stats?.outstanding||0)} onClick={()=>setShowVendorOutstanding(true)}/>}{showCard('kpi-finance-profit')&&<KPI label="Finance Profit" value={money(data.profit?.profit||0)}/>}{showCard('kpi-average-earning')&&<KPI label="Avg Profit / Bill Month" value={money(data.averageMonthlyProfit||0)}/>}</div><div className="dashboard-section-heading mt-2"><div><h3>Action centre</h3><p>Items that may need attention soon</p></div><button className="dashboard-text-link" onClick={()=>onOpenTab('reports')}>View reports <FiChevronRight size={14}/></button></div>{showCard('business-pulse')&&<div className="business-pulse mb-4 rounded-2xl border p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[.18em] text-teal-700">Business Pulse</div><h2 className="mt-1 text-lg font-black">Next scheduled payment: {data.nextFunding?`${data.nextFunding.lender_name} • ${money(data.nextFunding.interest_amount-data.nextFunding.paid_amount)} • ${data.nextFunding.due_date}`:'No funding payment scheduled'}</h2><p className="muted mt-1 text-xs">Average uses months represented in receivable bill data; it is not a trailing-12-month forecast.</p></div><button className="secondary btn text-xs" onClick={()=>onOpenTab('funding')}>OPEN FUNDING</button></div></div>}<div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">{showCard('due-pay-today')&&<DueCard title="PAY TODAY" rows={data.todayPayable||[]} amountKey="due_amount" partyKey="party_name" billKey="invoice_no" dateKey="payment_due_date"/>}{showCard('due-pay-tomorrow')&&<DueCard title="PAY TOMORROW" rows={data.tomorrowPayable||[]} amountKey="due_amount" partyKey="party_name" billKey="invoice_no" dateKey="payment_due_date"/>}{showCard('due-receive-today')&&<DueCard title="RECEIVE TODAY" rows={data.todayReceivable||[]} amountKey="outstanding" partyKey="party_name" billKey="bill_no" dateKey="due_date"/>}{showCard('due-receive-tomorrow')&&<DueCard title="RECEIVE TOMORROW" rows={data.tomorrowReceivable||[]} amountKey="outstanding" partyKey="party_name" billKey="bill_no" dateKey="due_date"/>}{showCard('due-interest-today')&&<DueCard title="INTEREST TODAY" rows={data.fundingToday||[]} amountKey="interest_amount" partyKey="lender_name" billKey="loan_no" dateKey="due_date"/>}{showCard('due-interest-tomorrow')&&<DueCard title="INTEREST TOMORROW" rows={data.fundingTomorrow||[]} amountKey="interest_amount" partyKey="lender_name" billKey="loan_no" dateKey="due_date"/>}{showCard('due-this-week')&&<DueCard title="THIS WEEK" rows={[...(data.duePayables||[]).map((x:any)=>({...x,_kind:'PAY',_party:x.party_name,_bill:x.invoice_no||x.sample_no,_amount:Math.max(0,x.net_payable-x.paid),_date:x.payment_due_date})),...(data.dueReceivables||[]).map((x:any)=>({...x,_kind:'RECEIVE',_party:x.party_name,_bill:x.bill_no,_amount:x.outstanding,_date:x.due_date}))]} amountKey="_amount" partyKey="_party" billKey="_bill" dateKey="_date"/>}</div>{showCard('overdue-payables')&&<div className="card overflow-hidden border-amber-200"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-100 bg-amber-50 p-4 sm:p-5"><div><h2 className="font-black text-amber-950">Overdue Payables — Vendor Payments</h2><p className="mt-1 text-xs text-amber-800">Past-due purchase bills, outstanding balance and days overdue.</p></div><KPI label="Total Overdue" value={money((data.overduePayables||[]).reduce((a:number,r:any)=>a+Number(r.due_amount||0),0))}/></div><div className="p-4 sm:p-5"><Table rows={data.overduePayables||[]} cols={['sample_no','party_name','invoice_no','payment_due_date','days_overdue','due_amount']}/></div></div>}{showCard('overdue-receivables')&&<div className="card overflow-hidden border-rose-200"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-rose-100 bg-rose-50 p-4 sm:p-5"><div><h2 className="font-black text-rose-950">Overdue Receivables — Not Received</h2><p className="mt-1 text-xs text-rose-800">Sample number, overdue days and amount still receivable.</p></div><KPI label="Total Overdue" value={money((data.overdueReceivables||[]).reduce((a:number,r:any)=>a+Number(r.outstanding||0),0))}/></div><div className="p-4 sm:p-5"><Table rows={data.overdueReceivables||[]} cols={['sample_no','party_name','bill_no','due_date','days_overdue','outstanding']}/></div></div>}<div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">{showCard('bank-cash')&&<div className="card p-4 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-2 mb-3"><div><h2 className="font-bold">Bank / Cash</h2><p className="muted text-xs">Opening balance + receipts − payments</p></div><button className="secondary btn text-xs" onClick={()=>onOpenTab('accounts')}>Manage Accounts</button></div><Table rows={data.accounts||[]} cols={['account_name','bank_name','account_number','balance']}/></div>}{showCard('realised-profit')&&<div className="card p-4 sm:p-6"><h2 className="font-bold">Realised Finance Profit</h2><p className="muted text-sm mt-1">Discount + Other Charges − Interest Paid. Profit is realised as receivables are collected.</p><div className="mt-5 grid grid-cols-2 gap-3"><KPI label="Receivable" value={money(data.profit?.sales||0)}/><KPI label="Cost" value={money(data.profit?.cost||0)}/><KPI label="Profit after Interest" value={money(data.profit?.profit||0)}/><KPI label="Margin" value={`${Number(data.profit?.margin||0).toFixed(2)}%`}/></div><button className="primary btn mt-5 w-full" onClick={onReceive}>Open Receivables</button></div>}</div>{showCard('charts')&&<><div className="dashboard-section-heading mt-2"><div><h3>Performance trends</h3><p>Trends from recorded finance data</p></div></div><div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3"><ChartCard title="Profit by Bill Month (Estimated)" subtitle="Profit is allocated by receivable bill month; interest is grouped by payment month." data={data.monthlyProfit||[]}/><ChartCard title="Monthly Account Credits" subtitle="Credit transactions posted to bank/cash accounts, including internal transfers." data={data.monthlyCashIn||[]}/><ChartCard title="Upcoming Funding Interest" subtitle="Outstanding scheduled interest by due month." data={data.fundingUpcoming||[]}/></div></>}{showVendorOutstanding&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-3 sm:p-6" onClick={()=>setShowVendorOutstanding(false)}><div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={e=>e.stopPropagation()}><div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 sm:p-6"><div><div className="text-[10px] font-black uppercase tracking-[.18em] text-orange-600">Vendor Outstanding</div><h2 className="mt-1 text-xl font-black">Pending Vendor Payments</h2><p className="mt-1 text-xs text-slate-500">Only vendors and purchase bills with an unpaid balance are shown.</p></div><button className="secondary btn text-xs" onClick={()=>setShowVendorOutstanding(false)}>CLOSE</button></div><div className="max-h-[calc(90vh-105px)] overflow-auto p-5 sm:p-6"><div className="mb-5 grid gap-3 sm:grid-cols-3"><KPI label="Pending Vendors" value={pendingVendors.length}/><KPI label="Pending Bills" value={pendingBills.length}/><KPI label="Total Pending" value={money(pendingVendors.reduce((a:number,r:any)=>a+Math.max(0,Number(r.outstanding||0)),0))}/></div><div className="card overflow-hidden"><div className="border-b border-slate-200 p-4"><h3 className="font-bold">Vendor-wise Pending</h3></div><Table rows={pendingVendors} cols={['name','purchases','payments','outstanding']}/></div><div className="card mt-4 overflow-hidden"><div className="border-b border-slate-200 p-4"><h3 className="font-bold">Pending Purchase Bills</h3></div><Table rows={pendingBills} cols={['purchase_date','party_name','invoice_no','sample_no','net_payable','paid_amount','outstanding']}/></div></div></div></div>}</div>}
-function ChartCard({title,subtitle,data}:{title:string,subtitle?:string,data:any[]}){const vals=(data||[]).map(x=>Number(x.value||0));const max=Math.max(...vals,1);return <div className="card p-4 sm:p-5"><div className="flex items-center justify-between gap-2"><h2 className="font-bold">{title}</h2><span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Trend</span></div>{subtitle&&<p className="mt-1 min-h-8 text-[10px] leading-4 text-slate-500">{subtitle}</p>}<div className="mt-4 flex h-32 items-end gap-1 overflow-hidden">{(data||[]).slice(-12).map((x:any,i:number)=><div key={i} className="group flex h-full flex-1 flex-col justify-end"><div title={`${x.label}: ${money(x.value)}`} className="chart-bar mx-auto w-full max-w-8 rounded-t-lg transition-all duration-200" style={{height:`${Math.max(4,Number(x.value||0)/max*100)}%`}}/></div>)}</div><div className="mt-3 grid grid-cols-3 gap-2 text-[10px] text-slate-500">{(data||[]).slice(-3).map((x:any,i:number)=><div key={i} className="truncate text-center">{x.label}<br/><b className="text-slate-800">{money(x.value)}</b></div>)}</div></div>}
-
-function Funding({data,form,setForm,save,mode,api,load}:{data:any,form:any,setForm:any,save:any,mode:Mode,api:any,load:any}){const loans=data.fundingLoans||[];const schedule=data.fundingSchedule||[];const [pay,setPay]=useState<any>(null);const postPay=async()=>{try{const j=await api('/funding/pay',{method:'POST',body:JSON.stringify({mode,...pay})});setPay(null);load()}catch(e:any){}};return <div className="space-y-5"><div className="grid gap-5 xl:grid-cols-[460px_minmax(0,1fr)]"><div className="card p-5 sm:p-6"><div className="mb-5"><div className="text-xs font-black uppercase tracking-[.16em] text-indigo-600">Funding / Lenders</div><h2 className="mt-1 text-xl font-black">Add Loan / Funding</h2><p className="muted mt-1 text-sm">Track money borrowed, interest terms and the next scheduled payment.</p></div><div className="grid gap-3 sm:grid-cols-2"><div className="sm:col-span-2"><PartyPicker parties={data.parties||[]} value={form.lender_party_id} onChange={id=>{const p=(data.parties||[]).find((x:any)=>x.id===id);setForm({...form,lender_party_id:id,lender_name:p?.name||form.lender_name,bank_name:p?.bank_name||form.bank_name,account_number:p?.account_number||form.account_number,ifsc:p?.ifsc||form.ifsc})}}/></div><Field label="Lender Name" k="lender_name" obj={form} setObj={setForm}/><Field label="Loan No" k="loan_no" obj={form} setObj={setForm}/><Field label="Principal Amount" k="principal_amount" obj={form} setObj={setForm} type="number"/><Field label="Loan Start Date" k="loan_start_date" obj={form} setObj={setForm} type="date"/><SelectField label="Interest Type" k="interest_type" obj={form} setObj={setForm} options={{PERCENT:'Percentage',FIXED:'Fixed Amount'}}/>{form.interest_type==='PERCENT'?<Field label="Interest Rate %" k="interest_rate" obj={form} setObj={setForm} type="number"/>:<Field label="Interest / Period" k="fixed_interest_amount" obj={form} setObj={setForm} type="number"/>}<SelectField label="Frequency" k="frequency" obj={form} setObj={setForm} options={{MONTHLY:'Monthly',QUARTERLY:'Quarterly',YEARLY:'Yearly'}}/><Field label="First Payment Date (optional)" k="first_payment_date" obj={form} setObj={setForm} type="date"/><Field label="Bank Name" k="bank_name" obj={form} setObj={setForm}/><Field label="Account Number" k="account_number" obj={form} setObj={setForm}/><Field label="IFSC" k="ifsc" obj={form} setObj={setForm}/><div className="sm:col-span-2"><Field label="Notes" k="notes" obj={form} setObj={setForm}/></div></div><InlineFeedback/><button className="primary btn mt-5 w-full" onClick={save}>{form.id?'UPDATE FUNDING':'SAVE FUNDING'}</button></div><div className="card overflow-hidden"><div className="border-b border-slate-200 p-5 sm:p-6"><h2 className="text-lg font-black">Active Funding</h2><p className="muted text-sm">Next interest due and outstanding scheduled interest.</p></div><Table rows={loans} cols={['loan_no','lender_name','principal_amount','interest_type','interest_rate','fixed_interest_amount','frequency','next_due_date','outstanding_interest','status']} action={(r:any)=><button className="secondary btn text-xs" onClick={()=>setForm({...r,lender_party_id:r.lender_party_id||'',loan_start_date:r.loan_start_date||today(),first_payment_date:r.first_payment_date||''})}>Edit</button>}/></div></div><div className="card p-5 sm:p-6"><h2 className="text-lg font-black">Interest Schedule</h2><div className="mt-4"><Table rows={schedule} cols={['loan_no','lender_name','due_date','interest_amount','paid_amount','status']} action={(r:any)=>r.status!=='PAID'?<button className="primary btn text-xs" onClick={()=>setPay({schedule_id:r.id,amount:Math.max(0,Number(r.interest_amount)-Number(r.paid_amount||0)),account_id:data.accounts?.[0]?.id||'',payment_date:today(),payee:r.lender_name})}>PAY INTEREST</button>:null}/></div>{pay&&<div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><div className="grid gap-3 sm:grid-cols-3"><Field label="Amount" k="amount" obj={pay} setObj={setPay} type="number"/><Field label="Payment Date" k="payment_date" obj={pay} setObj={setPay} type="date"/><label className="text-sm font-semibold">Pay From<select value={pay.account_id||''} onChange={e=>setPay({...pay,account_id:Number(e.target.value)})}><option value="">Select account</option>{(data.accounts||[]).map((a:any)=><option key={a.id} value={a.id}>{a.account_name} • {money(a.balance)}</option>)}</select></label></div><div className="mt-3 flex gap-2"><button className="primary btn" onClick={postPay}>POST INTEREST</button><button className="secondary btn" onClick={()=>setPay(null)}>Cancel</button></div></div>}</div></div>}
-
-function CSVImport({mode,companyId,api,load}:{mode:Mode,companyId:number,api:any,load:any}){
- const TYPES:any={
-  PARTIES:{label:'Parties',desc:'Create/update your party master and opening balances.',headers:['Name','Address','Contact','Email','GSTIN','PAN','Party Type','Entity Type','Resident Status','PAN Status','TDS Enabled','TDS Section','TDS Rate','TDS Exempt','Opening Balance','Opening Balance Type','Active'],required:['Name']},
-  THIRD_PARTIES:{label:'Third Parties',desc:'Register parties used only for commercial bills.',headers:['Name','Address','Contact','Email','GSTIN','PAN','Active'],required:['Name']},
-  BANK_ACCOUNTS:{label:'Party Bank Accounts',desc:'Add bank details against existing parties.',headers:['Party Name','Bank Name','Account Holder','Account Number','IFSC','Branch','Is Primary'],required:['Party Name','Bank Name','Account Number']},
-  COMPANY_ACCOUNTS:{label:'Company Bank / Cash Accounts',desc:'Create your own bank/cash accounts and opening balances.',headers:['Account Name','Bank Name','Account Number','IFSC','Branch','Account Type','Opening Balance','Opening Date','Active'],required:['Account Name','Bank Name']},
-  PURCHASES:{label:'Purchases / Samples',desc:'Import purchase/sample transactions into the vendor ledger.',headers:['Sample No','Party Name','Purchase Date','Goods Description','Bags Qty','Invoice No','HSN','GST Type','GST Rate','GST Taxable','GST Amount','Gross Weight','Net Weight','Rate','Freight','Unload Charge','Moisture','Discount %','Driver Rokdi','Other Charges','Quality Deduct Per MT','Payment Due Days','Payment Due Date','Notes'],required:['Party Name','Purchase Date','Net Weight','Rate']},
-  PAYMENTS:{label:'Payments',desc:'Import vendor payments. Bill No + Allocation Amount can allocate against a purchase.',headers:['Payment No','Party Name','Payment Date','Amount','Mode','Company Account','UTR','Broker Name','Broker Email','Notes','Bill No','Allocation Amount','TDS Rate','TDS Amount'],required:['Party Name','Payment Date','Amount']},
-  MONEY_IN:{label:'Money In / Receipts',desc:'Record money received into a company bank/cash account.',headers:['Receipt No','Receipt Date','Account Name','Amount','Receipt Type','Party Name','Reference No','Narration'],required:['Receipt Date','Account Name','Amount']},
-  INTEREST_PAYMENTS:{label:'Interest Payments',desc:'Import interest paid from a company bank/cash account.',headers:['Payment No','Payment Date','Account Name','Amount','Payee','Party Name','Reference No','Narration'],required:['Payment Date','Account Name','Amount']},
-  FUNDING_LOANS:{label:'Funding / Loans',desc:'Register borrowed funds and generate the recurring interest schedule.',headers:['Loan No','Lender Name','Loan Start Date','Principal Amount','Interest Type','Interest Rate','Fixed Interest Amount','Frequency','First Payment Date','Bank Name','Account Number','IFSC','Notes'],required:['Lender Name','Loan Start Date','Principal Amount']},
-  SALES:{label:'Sales / Receivables',desc:'Import sales invoices and their receivable calculation.',headers:['Invoice No','Invoice Date','Customer Name','Customer GSTIN','Place of Supply','Invoice Type','HSN','Description','Taxable Value','Discount %','GST Rate','Due Days','Due Date','Cost Amount'],required:['Invoice No','Invoice Date','Customer Name','Taxable Value']},
-  RECEIVABLES:{label:'Financing Receivables',desc:'Import historical cost/receivable records. Existing bills are skipped.',headers:['Bill No','Bill Date','Party Name','Cost Amount','Discount Amount','Other Charges Profit','Receivable Amount','Due Days','Due Date','Received Amount','Received Date','Notes'],required:['Bill No','Bill Date','Party Name','Cost Amount','Receivable Amount']}
- };
- const [type,setType]=useState('PURCHASES'),[file,setFile]=useState<File|null>(null),[preview,setPreview]=useState<any[]>([]),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[previewHeaders,setPreviewHeaders]=useState<string[]>([]);
- const cfg=TYPES[type];
- const downloadTemplate=()=>{const csv=cfg.headers.join(',')+'\n';const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`SOLIVY-${type}-TEMPLATE.csv`;a.click();URL.revokeObjectURL(a.href)};
- const read=async()=>{if(!file)return;setBusy(true);setNotice('');try{const fd=new FormData();fd.append('file',file);fd.append('mode',mode);fd.append('company_id',String(companyId));fd.append('transaction_type',type);fd.append('action','preview');const r=await fetch('/api/import-finance',{method:'POST',headers:{'x-aksh-mode':mode,'x-aksh-company-id':String(companyId)},body:fd});const j=await r.json();if(!r.ok)throw Error(j.error||'Import preview failed');setPreview(j.rows||[]);setPreviewHeaders(j.headers||[]);setNotice(`${j.totalRows||j.rows?.length||0} rows validated for ${cfg.label}.`)}catch(e:any){setPreview([]);setNotice(e.message)}finally{setBusy(false)}};
- const commit=async()=>{if(!file||!preview.length)return;setBusy(true);try{const fd=new FormData();fd.append('file',file);fd.append('mode',mode);fd.append('company_id',String(companyId));fd.append('transaction_type',type);fd.append('action','import');const r=await fetch('/api/import-finance',{method:'POST',headers:{'x-aksh-mode':mode,'x-aksh-company-id':String(companyId)},body:fd});const j=await r.json();if(!r.ok)throw Error(j.error||'Import failed');if(j.newLedgersReport){const a=document.createElement('a');a.href='data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,'+j.newLedgersReport;a.download=`SOLIVY-new-ledgers-${new Date().toISOString().slice(0,10)}.xlsx`;a.click()}setNotice(`Imported ${j.imported} ${cfg.label.toLowerCase()}. New ledgers created: ${j.partiesCreated||0}. Existing/duplicate rows skipped: ${j.skippedExisting||0}. ${j.partiesCreated?'A downloadable new-ledgers Excel report was generated.':''}`);setPreview([]);setFile(null);load()}catch(e:any){setNotice(e.message)}finally{setBusy(false)}};
- return <div className="space-y-5">
-  <div className="card p-5 sm:p-6">
-   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-    <div><div className="text-xs font-black uppercase tracking-[.16em] text-indigo-600">Migration Center</div><h2 className="mt-1 text-xl font-black">Import data by transaction type</h2><p className="muted mt-2 text-sm">Select exactly what you are uploading. SOLIVY will show the required CSV headers before you choose the file and will validate them before import.</p></div>
-    <button className="secondary btn" onClick={downloadTemplate}>DOWNLOAD TEMPLATE</button>
-   </div>
-   <div className="mt-5 grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-    <div><label className="text-sm font-semibold">What type of data are you uploading?<select value={type} onChange={e=>{setType(e.target.value);setFile(null);setPreview([]);setNotice('')}}>{Object.entries(TYPES).map(([k,v]:any)=><option key={k} value={k}>{v.label}</option>)}</select></label><div className="mt-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4"><div className="font-black text-indigo-950">{cfg.label}</div><p className="mt-1 text-sm text-indigo-900/80">{cfg.desc}</p><div className="mt-3 text-xs font-bold uppercase tracking-wider text-indigo-700">Required</div><div className="mt-2 flex flex-wrap gap-2">{cfg.required.map((h:string)=><span key={h} className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-indigo-800 ring-1 ring-indigo-200">{h}</span>)}</div></div></div>
-    <div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><div className="text-xs font-black uppercase tracking-wider text-slate-500">CSV headers for this selection</div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{cfg.headers.map((h:string)=><div key={h} className={`rounded-xl border bg-white px-3 py-2 text-xs font-semibold ${cfg.required.includes(h)?'border-indigo-300 text-indigo-900':'border-slate-200 text-slate-700'}`}><span className="mr-1 text-slate-400">{cfg.required.includes(h)?'Required':'Optional'}</span>{h}</div>)}</div></div>
-     <div className="mt-4"><InlineFeedback/><div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]"><input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={e=>setFile(e.target.files?.[0]||null)}/><button className="secondary btn" disabled={!file||busy} onClick={read}>VALIDATE & PREVIEW</button><button className="primary btn" disabled={!file||busy||!preview.length} onClick={commit}>IMPORT</button></div></div>
+export default function Home() {
+  const [mode, setMode] = useState<Mode>("LIVE"),
+    [currency, setCurrency] = useState("INR"),
+    [language, setLanguage] = useState("en"),
+    [role, setRole] = useState("ADMIN"),
+    [menuAccess, setMenuAccess] = useState<string[]>([]),
+    [cardAccess, setCardAccess] = useState<string[]>([]),
+    [companyId, setCompanyId] = useState(1),
+    [companyName, setCompanyName] = useState("SOLIVY"),
+    [companies, setCompanies] = useState<any[]>([]),
+    [hydrated, setHydrated] = useState(false),
+    [mobileMenuOpen, setMobileMenuOpen] = useState(false),
+    [tab, setTab] = useState("dashboard"),
+    [lockedModule, setLockedModule] = useState<string | null>(null),
+    [data, setData] = useState<any>({}),
+    [party, setParty] = useState<any>({}),
+    [purchase, setPurchase] = useState<any>(emptyPurchase()),
+    [payment, setPayment] = useState<any>(emptyPayment()),
+    [sale, setSale] = useState<any>(emptySale()),
+    [account, setAccount] = useState<any>({ account_type: "BANK", opening_date: today() }),
+    [movement, setMovement] = useState<any>({
+      movement_type: "WITHDRAWAL",
+      movement_date: today(),
+      amount: "",
+      from_account_id: "",
+      to_account_id: "",
+      movement_no: "",
+      reference_no: "",
+      narration: "",
+    }),
+    [moneyIn, setMoneyIn] = useState<any>({ receipt_date: today(), receipt_type: "OTHER_RECEIPT", amount: "", account_id: "", party_id: "", reference_no: "", narration: "" }),
+    [interest, setInterest] = useState<any>({ payment_date: today(), amount: "", account_id: "", payee: "", party_id: "", reference_no: "", narration: "" }),
+    [funding, setFunding] = useState<any>({
+      loan_start_date: today(),
+      lender_name: "",
+      principal_amount: "",
+      interest_type: "PERCENT",
+      interest_rate: "",
+      fixed_interest_amount: "",
+      frequency: "MONTHLY",
+      first_payment_date: "",
+      bank_name: "",
+      account_number: "",
+      ifsc: "",
+      notes: "",
+    }),
+    [msg, setMsg] = useState(""),
+    [apiBusy, setApiBusy] = useState(0),
+    [toast, setToast] = useState<any>(null);
+  useEffect(() => {
+    const originalFetch = window.fetch.bind(window);
+    let active = 0;
+    const wrappedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+      const isApi = url.includes("/api/");
+      if (!isApi) return originalFetch(input, init);
+      const method = String(init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const track = method !== "GET" && method !== "HEAD" && !url.includes("/api/tds-check");
+      if (track) {
+        active++;
+        setApiBusy(active);
+      }
+      try {
+        console.log("asd");
+        const response = await originalFetch(input, init);
+        if (method !== "GET" && method !== "HEAD" && !url.includes("/api/tds-check")) {
+          let message = response.ok ? "Action completed successfully." : "Request failed.";
+          let actionOk = response.ok;
+          try {
+            const clone = response.clone();
+            const j = await clone.json();
+            if (j?.error) {
+              actionOk = false;
+              message = j.error;
+            } else message = j?.message || message;
+          } catch {}
+          window.dispatchEvent(new CustomEvent("finance-feedback", { detail: { type: actionOk ? "success" : "error", message } }));
+          window.dispatchEvent(new CustomEvent("finance-toast", { detail: { type: actionOk ? "success" : "error", message } }));
+        }
+        return response;
+      } catch (error: any) {
+        const message = error?.message || "Network request failed.";
+        window.dispatchEvent(new CustomEvent("finance-feedback", { detail: { type: "error", message } }));
+        window.dispatchEvent(new CustomEvent("finance-toast", { detail: { type: "error", message } }));
+        throw error;
+      } finally {
+        if (track) {
+          active = Math.max(0, active - 1);
+          setApiBusy(active);
+        }
+      }
+    };
+    window.fetch = wrappedFetch as typeof window.fetch;
+    return () => {
+      window.fetch = originalFetch as typeof window.fetch;
+    };
+  }, []);
+  useEffect(() => {
+    const h = (e: any) => {
+      const detail = e.detail || {};
+      setToast(detail);
+      window.setTimeout(() => setToast((x: any) => (x === detail ? null : x)), 3500);
+    };
+    window.addEventListener("finance-toast", h);
+    return () => window.removeEventListener("finance-toast", h);
+  }, []);
+  async function api(path: string, opt: any = {}) {
+    const body = opt.body ? JSON.parse(opt.body) : null;
+    const payload = body ? JSON.stringify({ ...body, company_id: companyId }) : opt.body;
+    const sep = path.includes("?") ? "&" : "?";
+    const url = "/api" + path + (path.startsWith("/logout") ? "" : `${sep}company_id=${companyId}`);
+    const r = await fetch(url, { ...opt, body: payload, headers: { "Content-Type": "application/json", "x-aksh-mode": mode, ...(opt.headers || {}) } });
+    const text = await r.text();
+    let j: any;
+    try {
+      j = JSON.parse(text);
+    } catch {
+      throw Error(`Server returned non-JSON (${r.status}). Check the terminal.`);
+    }
+    if (!r.ok) throw Error(j.error || "Request failed");
+    return j;
+  }
+  async function load() {
+    try {
+      setData(await api(`/data?mode=${mode}&company_id=${companyId}`));
+    } catch (e: any) {
+      if (role === "ADMIN" && /license/i.test(String(e.message || ""))) {
+        setMsg("");
+        setTab("license");
+      } else setMsg(e.message);
+    }
+  }
+  useEffect(() => {
+    const r = sessionStorage.getItem("aksh-role") || "ADMIN";
+    const lm = (sessionStorage.getItem("aksh-login-mode") || "LIVE") as Mode;
+    const cid = Number(sessionStorage.getItem("aksh-company-id") || 1);
+    setRole(r);
+    try {
+      const saved = JSON.parse(sessionStorage.getItem("solivy-menu-access") || "[]");
+      setMenuAccess(Array.isArray(saved) ? saved : nav.map(([k]) => String(k)));
+    } catch {
+      setMenuAccess(nav.map(([k]) => String(k)));
+    }
+    try {
+      const cards = JSON.parse(sessionStorage.getItem("solivy-card-access") || "[]");
+      setCardAccess(Array.isArray(cards) ? cards : []);
+    } catch {
+      setCardAccess([]);
+    }
+    setMode(r === "TESTER" ? "TEST" : lm);
+    setCompanyId(cid);
+    setCompanyName(sessionStorage.getItem("aksh-company-name") || "SOLIVY");
+    setCurrency(localStorage.getItem("solivy-currency") || "INR");
+    setLanguage(localStorage.getItem("solivy-language") || "en");
+    fetch("/api/companies")
+      .then((x) => x.json())
+      .then((j) => {
+        const rows = Array.isArray(j.companies) ? j.companies : [];
+        setCompanies(rows);
+      })
+      .catch(() => {});
+    fetch("/api/license/status")
+      .then((x) => x.json())
+      .then((j) => {
+        if (r === "ADMIN" && String(j.enforcement || "off").toLowerCase() === "required") {
+          const current = (j.organizations || []).find((o: any) => Number(o.companyId) === cid);
+          if (current && current.status !== "valid") {
+            setMsg("");
+            setTab("license");
+          }
+        }
+      })
+      .catch(() => {});
+    const requestedTab = new URLSearchParams(window.location.search).get("tab");
+    if (requestedTab && nav.some(([key]) => String(key) === requestedTab)) setTab(requestedTab);
+    setHydrated(true);
+  }, []);
+  useEffect(() => {
+    if (hydrated && tab !== "license") load();
+  }, [mode, tab, companyId, hydrated]);
+  const hasMenuAccess = (key: string) => role === "ADMIN" || menuAccess.includes(key);
+  const openMenu = (key: string) => {
+    setMobileMenuOpen(false);
+    if (key === "sync") {
+      window.location.href = "/sync";
+      return;
+    }
+    if (key === "administration") {
+      if (role === "ADMIN") {
+        setLockedModule(null);
+        setTab(key);
+        return;
+      }
+      setMsg("Administration is restricted to administrators.");
+      return;
+    }
+    if (!hasMenuAccess(key)) {
+      setLockedModule(key);
+      return;
+    }
+    setLockedModule(null);
+    setMsg("");
+    setTab(key);
+  };
+  useEffect(() => {
+    if (hydrated && tab !== "dashboard" && tab !== "administration" && !hasMenuAccess(tab)) {
+      setTab("dashboard");
+      setMsg(`Access locked for menu: ${tab}. Ask an administrator to grant access.`);
+    }
+  }, [tab, menuAccess, role, hydrated]);
+  useEffect(() => {
+    if (!hydrated || role !== "ADMIN") return;
+    const check = () => {
+      fetch("/api/secondary-backup", { cache: "no-store" }).catch(() => {});
+    };
+    check();
+    const timer = window.setInterval(check, 300000);
+    return () => window.clearInterval(timer);
+  }, [hydrated, role]);
+  useEffect(() => {
+    if (payment.mode === "BANK" && !payment.company_account_id && data.accounts?.length) setPayment((p: any) => ({ ...p, company_account_id: data.accounts[0].id }));
+  }, [data.accounts, payment.mode, payment.company_account_id]);
+  const calc = useMemo(() => {
+    const net = Number(purchase.net_weight || 0),
+      rate = Number(purchase.rate || 0),
+      gross = Math.round(net * rate),
+      disc = Math.round((gross * Number(purchase.discount_pct || 0)) / 100),
+      quality = Math.round((net / 1000) * Number(purchase.quality_deduct_per_mt || 0)),
+      other = Math.round(Number(purchase.other_charges || 0));
+    const total = Math.round(Number(purchase.freight || 0) + Number(purchase.unload_charge || 0) + Number(purchase.moisture || 0) + disc + Number(purchase.driver_rokdi || 0) + other + quality);
+    const netPay = Math.round(gross - total);
+    const profit = Math.round(disc + other);
+    return { gross, disc, quality, other, total, netPay, profit, receivable: netPay + profit };
+  }, [purchase]);
+  const saveParty = async () => {
+    try {
+      await api("/parties", { method: "POST", body: JSON.stringify({ mode, ...party }) });
+      setParty({});
+      setMsg("Party saved");
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const savePurchase = async () => {
+    try {
+      const j = await api("/purchases", { method: purchase.id ? "PUT" : "POST", body: JSON.stringify({ mode, ...purchase }) });
+      setPurchase(emptyPurchase());
+      setMsg(purchase.id ? "Purchase updated" : "Purchase posted to vendor ledger");
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const savePayment = async () => {
+    try {
+      const j = await api("/payments", { method: payment.id ? "PUT" : "POST", body: JSON.stringify({ db_mode: mode, ...payment }) });
+      setPayment(emptyPayment());
+      setMsg(`Payment ${j.paymentNo} posted. Allocated ${money(j.allocated)} • TDS ${money(j.tdsAmount)} • Bank paid ${money(j.netPaid)}`);
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const saveAccount = async () => {
+    try {
+      await api("/accounts", { method: account.id ? "PUT" : "POST", body: JSON.stringify({ mode, ...account }) });
+      setAccount({ account_type: "BANK", opening_date: today() });
+      setMsg(account.id ? "Account updated" : "Account and opening balance saved");
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const saveMovement = async () => {
+    try {
+      const j = await api("/account-movements", { method: "POST", body: JSON.stringify({ mode, ...movement }) });
+      setMovement({
+        movement_type: "WITHDRAWAL",
+        movement_date: today(),
+        amount: "",
+        from_account_id: data.accounts?.[0]?.id || "",
+        to_account_id: "",
+        movement_no: "",
+        reference_no: "",
+        narration: "",
+      });
+      setMsg(`${j.movementType === "TRANSFER" ? "Transfer" : "Withdrawal"} ${j.movementNo} posted`);
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const saveMoneyIn = async () => {
+    try {
+      const j = await api("/money-in", { method: "POST", body: JSON.stringify({ mode, ...moneyIn }) });
+      setMoneyIn({ receipt_date: today(), receipt_type: "OTHER_RECEIPT", amount: "", account_id: data.accounts?.[0]?.id || "", party_id: "", reference_no: "", narration: "" });
+      setMsg(`Money received ${j.receiptNo}`);
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const saveInterest = async () => {
+    try {
+      const j = await api("/interest-payments", { method: "POST", body: JSON.stringify({ mode, ...interest }) });
+      setInterest({ payment_date: today(), amount: "", account_id: data.accounts?.[0]?.id || "", payee: "", party_id: "", reference_no: "", narration: "" });
+      setMsg(`Interest payment ${j.paymentNo} posted and deducted from profit`);
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const saveFunding = async () => {
+    try {
+      const j = await api("/funding", { method: funding.id ? "PUT" : "POST", body: JSON.stringify({ mode, ...funding }) });
+      setFunding({
+        loan_start_date: today(),
+        lender_name: "",
+        principal_amount: "",
+        interest_type: "PERCENT",
+        interest_rate: "",
+        fixed_interest_amount: "",
+        frequency: "MONTHLY",
+        first_payment_date: "",
+        bank_name: "",
+        account_number: "",
+        ifsc: "",
+        notes: "",
+      });
+      setMsg(`Loan ${j.loanNo || ""} saved`);
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const saveSale = async () => {
+    try {
+      await api("/sales", { method: sale.id ? "PUT" : "POST", body: JSON.stringify({ mode, ...sale }) });
+      setSale(emptySale());
+      setMsg(sale.id ? "Sales invoice updated" : "Sales invoice saved");
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const receive = async (r: any) => {
+    const amount = prompt(`Outstanding ${money(r.outstanding)}. Amount received?`, String(r.outstanding));
+    if (amount === null) return;
+    const acc = data.accounts?.[0];
+    if (!acc) {
+      setMsg("Create a bank/cash account first");
+      return;
+    }
+    try {
+      await api("/receipts", { method: "POST", body: JSON.stringify({ mode, sale_id: r.id, amount: Number(amount), account_id: acc.id, received_date: today() }) });
+      setMsg(`Receipt marked against ${r.invoice_no}`);
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const purge = async () => {
+    const phrase = prompt(`This will permanently delete ALL ${mode} financial data. Type PURGE ${mode} to continue.`);
+    if (phrase !== `PURGE ${mode}`) return;
+    try {
+      await api("/admin", { method: "POST", body: JSON.stringify({ action: "purge", mode, confirmation: phrase }) });
+      setMsg(`${mode} database purged`);
+      load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
+  const switchEnvironment = async (next: Mode) => {
+    if (next === mode) return;
+    const rr = await fetch("/api/switch-environment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-aksh-mode": mode },
+      body: JSON.stringify({ company_id: companyId, mode: next }),
+    });
+    const jj = await rr.json();
+    if (!rr.ok) {
+      setMsg(jj.error || "Environment switch failed");
+      return;
+    }
+    sessionStorage.setItem("aksh-login-mode", next);
+    setMode(next);
+    setMsg(`Switched to ${next} mode`);
+  };
+  const switchCompany = async (id: number) => {
+    const c = companies.find((x) => Number(x.id) === id);
+    if (!c) return;
+    const rr = await fetch("/api/switch-company", { method: "POST", headers: { "Content-Type": "application/json", "x-aksh-mode": mode }, body: JSON.stringify({ company_id: id }) });
+    const jj = await rr.json();
+    if (!rr.ok) {
+      setMsg(jj.error || "Company switch failed");
+      return;
+    }
+    sessionStorage.setItem("aksh-company-id", String(id));
+    sessionStorage.setItem("aksh-company-name", c.name);
+    setCompanyId(id);
+    setCompanyName(c.name);
+    setTab("dashboard");
+  };
+  const selectedPurchaseParty = data.parties?.find((p: any) => p.id === Number(purchase.party_id));
+  const selectedPaymentParty = data.parties?.find((p: any) => p.id === Number(payment.party_id));
+  const paymentOutstanding = Number(data.outstanding?.find((x: any) => x.id === Number(payment.party_id))?.outstanding || 0);
+  const logout = async () => {
+    await fetch("/api/logout", { method: "POST" });
+    sessionStorage.clear();
+    location.href = "/login";
+  };
+  return (
+    <div className="min-h-screen bg-slate-50 lg:flex">
+      <aside className="hidden lg:flex lg:fixed lg:inset-y-0 lg:z-40 lg:w-72 lg:flex-col bg-slate-950 text-white p-5 shadow-xl">
+        <Brand />
+        <nav className="space-y-1 overflow-y-auto pr-1">
+          {role === "ADMIN" && <div className="px-3 pb-2 pt-1 text-[10px] font-black uppercase tracking-[.18em] text-slate-500">Administration</div>}
+          {role === "ADMIN" && <NavButton k="administration" l={navLabel("administration", "Administration", language)} active={tab === "administration"} onClick={() => openMenu("administration")} />}
+          <div className="my-3 border-t border-white/10" />
+          {nav
+            .filter(([k]) => (k !== "license" || role === "ADMIN") && (!["document-settings", "settings", "backup", "secondary-backup"].includes(k) || role === "ADMIN"))
+            .map(([k, l]) => (
+              <NavButton key={k} k={k} l={navLabel(k, l, language)} active={tab === k} locked={!hasMenuAccess(k)} onClick={() => openMenu(k)} />
+            ))}
+        </nav>
+        <div className="mt-auto pt-6 px-2 text-xs text-slate-500 leading-5">
+          TEST and LIVE use separate databases.
+          <br />
+          Financial data is persisted outside the app folder.
+        </div>
+      </aside>
+      <div className="mobile-nav lg:hidden">
+        <div className="mobile-brand-row">
+          <button type="button" aria-label={mobileMenuOpen ? "Close navigation" : "Open navigation"} className="mobile-menu-toggle" onClick={() => setMobileMenuOpen((v) => !v)}>
+            {mobileMenuOpen ? <FiX size={21} /> : <FiMenu size={21} />}
+          </button>
+          <img src="/solivy-logo.png" alt="SOLIVY" className="mobile-brand-logo" />
+          <div className="min-w-0 flex-1">
+            <div className="mobile-brand-name">SOLIVY Finance</div>
+            <div className="mobile-brand-sub">{companyName} workspace</div>
+          </div>
+          <span className={`mobile-mode-pill ${mode === "TEST" ? "is-test" : "is-live"}`}>{mode}</span>
+        </div>
+        {mobileMenuOpen && (
+          <>
+            <button className="mobile-drawer-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />
+            <section className="mobile-drawer" aria-label="Main navigation">
+              <div className="mobile-drawer-top">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-widest text-teal-700">Workspace</div>
+                  <div className="mt-1 text-lg font-extrabold text-slate-900">{companyName}</div>
+                </div>
+                <button type="button" aria-label="Close navigation" className="secondary btn !p-2" onClick={() => setMobileMenuOpen(false)}>
+                  <FiX size={18} />
+                </button>
+              </div>
+              <button className={`mobile-drawer-item ${tab === "dashboard" ? "is-active" : ""}`} onClick={() => openMenu("dashboard")}>
+                <FiGrid size={18} />
+                <span>Dashboard</span>
+              </button>
+              {role === "ADMIN" && (
+                <button className={`mobile-drawer-item ${tab === "administration" ? "is-active" : ""}`} onClick={() => openMenu("administration")}>
+                  <FiShield size={18} />
+                  <span>Administration</span>
+                </button>
+              )}
+              <div className="mobile-drawer-label">Finance modules</div>
+              {nav
+                .filter(([k]) => k !== "dashboard" && (k !== "license" || role === "ADMIN") && (!["document-settings", "settings", "backup", "secondary-backup"].includes(k) || role === "ADMIN"))
+                .map(([k, l]) => {
+                  const Icon = NAV_ICONS[k] || FiGrid;
+                  return (
+                    <button key={k} className={`mobile-drawer-item ${tab === k ? "is-active" : ""} ${!hasMenuAccess(k) ? "is-locked" : ""}`} onClick={() => openMenu(k)}>
+                      <Icon size={18} />
+                      <span>{navLabel(k, l, language)}</span>
+                      {!hasMenuAccess(k) && <FiLock className="ml-auto" size={14} />}
+                    </button>
+                  );
+                })}
+              <div className="mobile-drawer-footer">Menu permissions are applied to your account. TEST and LIVE data are separate.</div>
+            </section>
+          </>
+        )}
+      </div>
+      {lockedModule && <LockedModulePreview moduleKey={lockedModule} moduleLabel={nav.find((x) => x[0] === lockedModule)?.[1] || lockedModule} onClose={() => setLockedModule(null)} />}
+      <main className="lg:pl-72 flex-1 min-w-0">
+        <div className="mx-auto w-full max-w-[1750px] px-3 py-4 sm:px-5 sm:py-6 lg:px-8 lg:py-8">
+          <header className="page-header -mx-3 mb-5 grid grid-cols-1 gap-3 border-b border-slate-200 bg-white px-3 py-4 sm:-mx-5 sm:flex sm:items-center sm:justify-between sm:px-5 lg:-mx-8 lg:px-8">
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold sm:text-2xl">
+                {tab === "administration" ? navLabel("administration", "Administration", language) : navLabel(tab, nav.find((x) => x[0] === tab)?.[1] || "Finance Dashboard", language)}
+              </h1>
+              <p className="mt-1 text-xs text-slate-500">
+                {companyName} <span className="mx-1 text-slate-300">/</span> Finance workspace
+              </p>
+            </div>
+            <div className="header-controls grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+              <select aria-label="Company" className="company-select col-span-2 !w-full !min-w-0 sm:col-span-1 sm:!w-auto" value={companyId} onChange={(e) => switchCompany(Number(e.target.value))}>
+                {companies
+                  .filter((c: any) => c.active)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </select>
+              <select aria-label="Environment" className="!w-full !min-w-0 sm:!w-auto" value={mode} onChange={(e) => switchEnvironment(e.target.value as Mode)}>
+                {role !== "TESTER" && <option>LIVE</option>}
+                <option>TEST</option>
+              </select>
+              {mode === "TEST" && <span className="hidden rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 sm:inline-flex">TEST MODE</span>}
+              <button className="secondary btn w-full text-xs sm:w-auto" onClick={logout}>
+                LOG OUT
+              </button>
+            </div>
+          </header>
+          {msg && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">{msg}</div>}
+          {tab === "administration" && role === "ADMIN" && (
+            <Administration
+              companies={companies}
+              mode={mode}
+              onRefresh={() => {
+                fetch("/api/companies")
+                  .then((x) => x.json())
+                  .then((j) => setCompanies(j.companies || []));
+                load();
+              }}
+              api={api}
+              data={data}
+              setMsg={setMsg}
+              load={load}
+            />
+          )}
+          {tab === "transfers" && <InterCompanyTransfers companies={companies} data={data} mode={mode} companyId={companyId} />}
+          {tab === "tally-export" && <TallyExportPage mode={mode} companyId={companyId} api={api} />}
+          {tab === "bank-statement-import" && <BankStatementImportPage mode={mode} companyId={companyId} />}
+          {tab === "secondary-backup" && role === "ADMIN" && <SecondaryBackupPage />}
+          {tab === "license" && role === "ADMIN" && <LicenseManagement />}
+          {tab === "dashboard" && <Dashboard data={data} money={money} onReceive={() => openMenu("receivables")} onOpenTab={openMenu} cardAccess={cardAccess} role={role} />}
+          {tab === "party-aliases" && <PartyAliasesPanel mode={mode} companyId={companyId} masterParties={data.parties || []} masterThirdParties={data.thirdParties || []} />}
+          {tab === "accounts" && <Accounts data={data} account={account} setAccount={setAccount} save={saveAccount} mode={mode} />}
+          {tab === "account-movements" && <AccountMovements data={data} form={movement} setForm={setMovement} save={saveMovement} mode={mode} />}
+          {tab === "parties" && <Parties data={data} party={party} setParty={setParty} save={saveParty} setMsg={setMsg} mode={mode} />}
+          {tab === "purchase" && <Purchase data={data} purchase={purchase} setPurchase={setPurchase} selectedParty={selectedPurchaseParty} calc={calc} save={savePurchase} mode={mode} />}
+          {tab === "payments" && (
+            <Payments
+              data={data}
+              payment={payment}
+              setPayment={setPayment}
+              selectedParty={selectedPaymentParty}
+              selectedOutstanding={paymentOutstanding}
+              save={savePayment}
+              mode={mode}
+              companyId={companyId}
+            />
+          )}
+          {tab === "money-in" && <MoneyIn data={data} form={moneyIn} setForm={setMoneyIn} save={saveMoneyIn} mode={mode} />}
+          {tab === "interest" && <InterestPaid data={data} form={interest} setForm={setInterest} save={saveInterest} mode={mode} />}
+          {tab === "funding" && <Funding data={data} form={funding} setForm={setFunding} save={saveFunding} mode={mode} api={api} load={load} />}
+          {tab === "import" && <CSVImport mode={mode} companyId={companyId} api={api} load={load} />}
+          {tab === "ledger" && <Ledger data={data} mode={mode} />}
+          {tab === "receivables" && <Receivables data={data} mode={mode} load={load} />}
+          {tab === "reports" && <Reports mode={mode} data={data} />}
+          {tab === "bank" && (
+            <div className="card p-4 sm:p-5">
+              <h2 className="font-bold mb-1">Bank Matching</h2>
+              <p className="muted mb-4">Match recorded payments against bank transactions.</p>
+              <InlineFeedback />
+              <Table
+                rows={data.unmatched || []}
+                cols={["payment_no", "payment_date", "party_name", "amount", "net_paid", "utr", "mode"]}
+                action={(r: any) => (
+                  <button
+                    className="secondary btn text-xs"
+                    onClick={async () => {
+                      await api("/bank", { method: "POST", body: JSON.stringify({ mode, payment_id: r.id, statement_date: r.payment_date, statement_amount: r.net_paid, reference: r.utr || "" }) });
+                      load();
+                    }}
+                  >
+                    Match
+                  </button>
+                )}
+              />
+            </div>
+          )}
+          {tab === "backup" && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="card p-4 sm:p-6">
+                <h2 className="font-bold mb-1">Company Backup</h2>
+                <p className="muted mb-5">Backup the selected company&apos;s {mode} database.</p>
+                <InlineFeedback />
+                <div className="flex flex-wrap gap-2">
+                  <a className="secondary btn" href={`/api/backup?mode=${mode}&company_id=${companyId}`}>
+                    Download {mode} Backup
+                  </a>
+                  {role === "ADMIN" && (
+                    <>
+                      <button
+                        className="secondary btn"
+                        onClick={async () => {
+                          const phrase = prompt(`This clears ONLY ${mode} transaction data and keeps parties, bank accounts, users and settings. Type CLEAR TRANSACTIONS ${mode} to continue.`);
+                          if (phrase !== `CLEAR TRANSACTIONS ${mode}`) return;
+                          try {
+                            await api("/admin", { method: "POST", body: JSON.stringify({ action: "clear_transactions", mode, confirmation: phrase }) });
+                            setMsg(`${mode} transaction data cleared; master data preserved`);
+                            load();
+                          } catch (e: any) {
+                            setMsg(e.message);
+                          }
+                        }}
+                      >
+                        Clear Transaction Data
+                      </button>
+                      <button className="danger btn" onClick={purge}>
+                        Purge {mode} Database
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="card p-4 sm:p-6">
+                <h2 className="font-bold mb-1">Admin — All Companies</h2>
+                <p className="muted mb-5">One compressed backup package containing the admin database plus every company&apos;s LIVE and TEST databases.</p>
+                {role === "ADMIN" && (
+                  <a className="primary btn" href="/api/admin-backup-all">
+                    DOWNLOAD ALL COMPANIES BACKUP
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+          {tab === "gst" && <GST data={data} sale={sale} setSale={setSale} save={saveSale} mode={mode} />}
+          {tab === "commercial-bills" && <CommercialBills data={data} mode={mode} api={api} load={load} />}{" "}
+          {tab === "document-settings" && role === "ADMIN" && <DocumentSettings data={data} mode={mode} api={api} load={load} />}{" "}
+          {tab === "settings" && (
+            <Settings
+              data={data}
+              setData={setData}
+              api={api}
+              mode={mode}
+              load={load}
+              currency={currency}
+              setCurrency={(v: string) => {
+                localStorage.setItem("solivy-currency", v);
+                setCurrency(v);
+                setData((d: any) => ({ ...d, uiCurrency: v }));
+              }}
+              language={language}
+              setLanguage={(v: string) => {
+                localStorage.setItem("solivy-language", v);
+                setLanguage(v);
+              }}
+            />
+          )}
+        </div>
+      </main>
+      {apiBusy > 0 && (
+        <div className="api-loader-backdrop">
+          <div className="api-loader-card">
+            <span className="api-loader-spinner"></span>
+            <span>Processing… please wait</span>
+          </div>
+        </div>
+      )}
+      {toast && (
+        <div className={`finance-toast ${toast.type === "error" ? "finance-toast-error" : "finance-toast-success"}`} role="status">
+          {toast.message}
+        </div>
+      )}
     </div>
-   </div>
-   {notice&&<div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm font-semibold text-indigo-900">{notice}</div>}
-  </div>
-  {preview.length>0&&<div className="card overflow-hidden"><div className="border-b border-slate-200 p-5"><h3 className="font-black">Preview — first {preview.length} rows</h3><p className="muted mt-1 text-xs">Headers detected: {previewHeaders.join(' • ')}</p></div><Table rows={preview.slice(0,100)} cols={previewHeaders.filter(h=>Object.prototype.hasOwnProperty.call(preview[0],h))}/></div>}
-  <div className="card p-5 sm:p-6"><h3 className="font-black">Import rules</h3><ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-600"><li>Use the template for the selected transaction type; required headers cannot be missing.</li><li>Preview never writes to the database.</li><li>Duplicate parties, bills, payment numbers and receipt numbers are skipped where the module supports a unique reference.</li><li>Bank/account names must already exist for transaction imports that post money to an account.</li><li>Use TEST mode for historical cleanup/testing before importing into LIVE.</li></ul></div>
- </div>
-}
-function DueCard({title,rows,amountKey,partyKey,billKey,dateKey}:{title:string,rows:any[],amountKey:string,partyKey:string,billKey:string,dateKey:string}){return <div className="card p-4 sm:p-5"><div className="flex items-center justify-between mb-3"><h2 className="font-bold">{title}</h2><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold">{rows.length}</span></div>{rows.length?<div className="space-y-2">{rows.slice(0,6).map((r:any)=><div key={r.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3"><div className="min-w-0"><div className="font-semibold truncate">{r[partyKey]}</div><div className="text-xs text-slate-500">{r._kind&&<b className="mr-1">{r._kind}</b>}Bill {r[billKey]||r.sample_no||'—'} • {r[dateKey]||r.due_date||r.payment_due_date}</div></div><div className="font-bold whitespace-nowrap">{money(r[amountKey])}</div></div>)}</div>:<div className="py-7 text-center text-sm muted">Nothing due.</div>}</div>}
-function KPI({label,value,onClick}:{label:string,value:any,onClick?:()=>void}){return <div className={`kpi-card card p-4 sm:p-5 ${onClick?'is-clickable cursor-pointer':''}`} onClick={onClick} role={onClick?'button':undefined} tabIndex={onClick?0:undefined} onKeyDown={e=>{if(onClick&&(e.key==='Enter'||e.key===' ')){e.preventDefault();onClick()}}}><div className="kpi-accent"/><div className="min-w-0"><div className="kpi-label">{label}</div><div className="mt-2 max-w-full whitespace-nowrap text-lg font-extrabold tracking-tight text-slate-900 tabular-nums sm:text-xl lg:text-2xl">{value}</div></div>{onClick&&<div className="mt-3 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-teal-700">View details <FiChevronRight size={13}/></div>}</div>}
-function Ledger({data,mode}:{data:any,mode:Mode}){const [q,setQ]=useState('');const [from,setFrom]=useState('');const [to,setTo]=useState('');const [view,setView]=useState<'party'|'broker'>('party');const rows=(data.ledger||[]).filter((r:any)=>`${r.party_name} ${r.reference_no||''} ${r.entry_type} ${r.narration||''}`.toLowerCase().includes(q.toLowerCase())&&(!from||r.entry_date>=from)&&(!to||r.entry_date<=to));const brokerRows=(data.purchases||[]).filter((r:any)=>r.broker_party_id||r.broker_party_name).filter((r:any)=>`${r.broker_party_name||''} ${r.party_name||''} ${r.sample_no||''} ${r.invoice_no||''}`.toLowerCase().includes(q.toLowerCase())&&(!from||r.purchase_date>=from)&&(!to||r.purchase_date<=to));return <div className="card p-4 sm:p-6"><div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-lg font-bold">{view==='party'?'Party-wise Ledger':'Broker-wise Purchase Ledger'}</h2><p className="muted text-sm">{view==='party'?'Opening balance + purchases − payments.':'Purchases linked to each broker, including vendor, sample and payable amounts. Broker commissions are not inferred unless recorded separately.'}</p></div><a className="secondary btn text-xs" href={`/api/export/ledger?mode=${mode}&company_id=${Number(sessionStorage.getItem('aksh-company-id')||1)}`}>Excel</a></div><div className="mb-4 inline-flex max-w-full flex-wrap gap-2 rounded-xl bg-slate-100 p-1"><button className={`btn text-xs ${view==='party'?'primary':'secondary'}`} onClick={()=>setView('party')}>Party Ledger</button><button className={`btn text-xs ${view==='broker'?'primary':'secondary'}`} onClick={()=>setView('broker')}>Broker Ledger</button></div><div className="mb-4 grid gap-3 sm:grid-cols-3"><input placeholder={view==='party'?'Search party / bill / entry…':'Search broker / vendor / sample…'} value={q} onChange={e=>setQ(e.target.value)}/><input aria-label="From date" type="date" value={from} onChange={e=>setFrom(e.target.value)}/><input aria-label="To date" type="date" value={to} onChange={e=>setTo(e.target.value)}/></div>{view==='party'?<Table rows={rows} cols={['entry_date','party_name','entry_type','reference_no','debit','credit','narration']} action={(r:any)=><div className="flex gap-2"><a title="Email ledger entry" aria-label="Email ledger entry" className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2" href={`mailto:${encodeURIComponent(r.party_email||'')}?subject=${encodeURIComponent(`Ledger ${r.party_name}`)}&body=${encodeURIComponent(`Party: ${r.party_name}\nDate: ${r.entry_date}\nType: ${r.entry_type}\nReference: ${r.reference_no||'—'}\nDebit: ${money(r.debit)}\nCredit: ${money(r.credit)}\n${r.narration||''}`)}`}><FaEnvelope/></a><a title="WhatsApp ledger entry" aria-label="WhatsApp ledger entry" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-green-600" href={`https://wa.me/?text=${encodeURIComponent(`Ledger Entry\nParty: ${r.party_name}\nDate: ${r.entry_date}\nType: ${r.entry_type}\nReference: ${r.reference_no||'—'}\nDebit: ${money(r.debit)}\nCredit: ${money(r.credit)}`)}`}><FaWhatsapp/></a></div>}/>:<><div className="mb-3 grid gap-3 sm:grid-cols-3"><KPI label="Linked Purchases" value={brokerRows.length}/><KPI label="Net Payable" value={money(brokerRows.reduce((a:number,r:any)=>a+Number(r.net_payable||0),0))}/><KPI label="Outstanding" value={money(brokerRows.reduce((a:number,r:any)=>a+Math.max(0,Number(r.outstanding||0)),0))}/></div><Table rows={brokerRows} cols={['purchase_date','broker_party_name','party_name','sample_no','invoice_no','net_payable','paid_amount','outstanding']}/></>}</div>}
-function AccountMovements({data,form,setForm,save,mode}:{data:any,form:any,setForm:any,save:any,mode:Mode}){
- const rows=data.accountMovements||[];
- const isTransfer=form.movement_type==='TRANSFER';
- return <div className="grid gap-4 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
-  <div className="card p-4 sm:p-6">
-   <div className="mb-5"><div className="text-xs font-black uppercase tracking-[.16em] text-indigo-600">Bank / Cash Movement</div><h2 className="mt-1 text-xl font-black">Withdrawal / Transfer</h2><p className="muted mt-1 text-sm">Withdrawal removes money from an account. Transfer moves money between two company bank/cash accounts without changing total company funds.</p></div>
-   <div className="grid gap-3 sm:grid-cols-2">
-    <SelectField label="Movement Type" k="movement_type" obj={form} setObj={setForm} options={{WITHDRAWAL:'Withdrawal',TRANSFER:'Transfer'}}/>
-    <Field label="Date" k="movement_date" obj={form} setObj={setForm} type="date"/>
-    <Field label="Amount" k="amount" obj={form} setObj={setForm} type="number"/>
-    <Field label="Movement No (optional)" k="movement_no" obj={form} setObj={setForm}/>
-    <label className="text-sm font-semibold sm:col-span-2">From Account<select value={form.from_account_id||''} onChange={e=>setForm((p:any)=>({...p,from_account_id:Number(e.target.value)}))}><option value="">Select source account</option>{(data.accounts||[]).map((a:any)=><option key={a.id} value={a.id}>{a.account_name} • {a.bank_name} • Available {money(a.balance)}</option>)}</select></label>
-    {isTransfer&&<label className="text-sm font-semibold sm:col-span-2">To Account<select value={form.to_account_id||''} onChange={e=>setForm((p:any)=>({...p,to_account_id:Number(e.target.value)}))}><option value="">Select destination account</option>{(data.accounts||[]).map((a:any)=><option key={a.id} value={a.id}>{a.account_name} • {a.bank_name} • Balance {money(a.balance)}</option>)}</select></label>}
-    <Field label="Reference No" k="reference_no" obj={form} setObj={setForm}/>
-    <Field label="Narration" k="narration" obj={form} setObj={setForm}/>
-   </div>
-   {form.from_account_id&&<div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-xs text-indigo-900"><b>Source balance:</b> {money((data.accounts||[]).find((a:any)=>Number(a.id)===Number(form.from_account_id))?.balance||0)} {isTransfer?' • Destination balance is unchanged in total company funds.':' • This amount will be deducted from the selected account.'}</div>}
-   <InlineFeedback/>
-   <button className="primary btn mt-5 w-full" onClick={save}>POST {isTransfer?'TRANSFER':'WITHDRAWAL'}</button>
-  </div>
-  <div className="card overflow-hidden p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-lg">Withdrawal / Transfer History</h2><p className="muted text-sm">All account movements are shown here.</p></div><span className="badge">{mode} MODE</span></div><div className="mt-4"><Table rows={rows} cols={['movement_no','movement_type','movement_date','from_account_name','to_account_name','amount','reference_no','narration','status']}/></div></div>
- </div>
+  );
 }
 
-function Accounts({data,account,setAccount,save,mode}:{data:any,account:any,setAccount:any,save:any,mode:Mode}){return <div className="grid gap-4 xl:grid-cols-[440px_minmax(0,1fr)]"><div className="card p-4 sm:p-6"><h2 className="font-bold text-lg">Add Bank / Cash Account</h2><p className="muted text-sm mt-1 mb-5">Set the opening balance first. Payments and customer receipts update the live balance.</p><div className="grid gap-3 sm:grid-cols-2"><Field label="Account Name" k="account_name" obj={account} setObj={setAccount}/><Field label="Bank Name" k="bank_name" obj={account} setObj={setAccount}/><Field label="Account Number" k="account_number" obj={account} setObj={setAccount}/><Field label="IFSC" k="ifsc" obj={account} setObj={setAccount}/><Field label="Branch" k="branch" obj={account} setObj={setAccount}/><label className="text-sm font-medium">Account Type<select value={account.account_type||'BANK'} onChange={e=>setAccount({...account,account_type:e.target.value})}><option>BANK</option><option>CASH</option><option>OD</option><option>OTHER</option></select></label><Field label="Opening Balance" k="opening_balance" obj={account} setObj={setAccount} type="number"/><Field label="Opening Date" k="opening_date" obj={account} setObj={setAccount} type="date"/></div><InlineFeedback/><button className="primary btn mt-5 w-full" onClick={save}>SAVE ACCOUNT + OPENING BALANCE</button></div><div className="card p-4 sm:p-6"><h2 className="font-bold text-lg mb-3">My Bank / Cash Accounts</h2><Table rows={data.accounts||[]} cols={['account_name','bank_name','account_number','ifsc','opening_balance','balance']} action={(r:any)=><div className="flex gap-2"><button className="secondary btn text-xs" onClick={()=>setAccount(r)}>Edit</button><button className="btn danger-outline text-xs" onClick={async()=>{if(confirm(`Deactivate ${r.account_name}?`)){await fetch(`/api/accounts?mode=${mode}&id=${r.id}`,{method:'DELETE'});location.reload()}}}>Deactivate</button></div>}/></div></div>}
-function Parties({data,party,setParty,save,setMsg,mode}:{data:any,party:any,setParty:any,save:any,setMsg:any,mode:Mode}){return <div className="grid gap-4 xl:grid-cols-[430px_minmax(0,1fr)]"><div className="card p-4 sm:p-6"><h2 className="font-bold text-lg">{party.id?'Edit Party':'Add Party'}</h2><div className="mt-4 grid gap-3"><Field label="Party Name" k="name" obj={party} setObj={setParty}/><Field label="Address" k="address" obj={party} setObj={setParty}/><Field label="Contact Number" k="contact" obj={party} setObj={setParty}/><Field label="Email" k="email" obj={party} setObj={setParty}/><Field label="GST Number" k="gst" obj={party} setObj={setParty}/><Field label="PAN" k="pan" obj={party} setObj={setParty}/><div className="grid gap-3 sm:grid-cols-2"><SelectField label="Party Type" k="party_type" obj={party} setObj={setParty} options={{GOODS_VENDOR:'Goods Vendor',CONTRACTOR:'Contractor',PROFESSIONAL:'Professional',COMMISSION:'Commission / Brokerage',BROKER:'Broker',INTEREST:'Interest Payment',RENT:'Rent',OTHER:'Other'}}/><SelectField label="Entity Type" k="entity_type" obj={party} setObj={setParty} options={{INDIVIDUAL:'Individual',HUF:'HUF',COMPANY:'Company',FIRM:'Firm',LLP:'LLP',OTHER:'Other'}}/><SelectField label="PAN Status" k="pan_status" obj={party} setObj={setParty} options={{VALID:'Valid / Available',NOT_AVAILABLE:'Not Available',INOPERATIVE:'Inoperative'}}/></div><div className="rounded-xl bg-blue-50 p-3 text-xs text-blue-800">TDS is decided server-side from party type, payer settings, thresholds and PAN status. Use manual TDS only when your CA gives a special instruction.</div><label className="text-sm font-medium"><input type="checkbox" className="mr-2" checked={!!party.tds_exempt} onChange={e=>setParty({...party,tds_exempt:e.target.checked})}/> TDS exempt / lower deduction certificate</label><div className="grid gap-3 sm:grid-cols-2"><Field label="Manual TDS Section (CA)" k="tds_section" obj={party} setObj={setParty}/><Field label="Manual TDS Rate % (CA)" k="tds_rate" obj={party} setObj={setParty} type="number"/></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Opening Balance" k="opening_balance" obj={party} setObj={setParty} type="number"/><SelectField label="Opening Type" k="opening_balance_type" obj={party} setObj={setParty} options={{PAYABLE:'Payable to Party',RECEIVABLE:'Receivable from Party'}}/></div><div className="border-t pt-4"><div className="font-semibold text-sm mb-3">Party Bank Account</div><div className="grid gap-3 sm:grid-cols-2"><Field label="Bank Name" k="bank_name" obj={party} setObj={setParty}/><Field label="Account Holder" k="account_holder" obj={party} setObj={setParty}/><Field label="Account Number" k="account_number" obj={party} setObj={setParty}/><Field label="IFSC" k="ifsc" obj={party} setObj={setParty}/><Field label="Branch" k="branch" obj={party} setObj={setParty}/></div></div><InlineFeedback/><button className="primary btn w-full mt-2" onClick={save}>{party.id?'UPDATE PARTY':'SAVE PARTY'}</button></div></div><div className="card p-4 sm:p-6"><div className="flex items-center justify-between mb-3"><div><h2 className="font-bold text-lg">Party Master</h2><p className="muted text-xs">Financial parties with transactions are deactivated instead of deleted.</p></div></div><Table rows={data.parties||[]} cols={['name','contact','gst','active','opening_balance']} action={(r:any)=><div className="flex gap-2"><button className="secondary btn text-xs" onClick={()=>setParty(r)}>Edit</button><button className="danger-outline btn text-xs" onClick={async()=>{if(confirm(`Deactivate/delete ${r.name}?`)){await fetch('/api/parties-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,company_id:Number(sessionStorage.getItem('aksh-company-id')||1),id:r.id})});setMsg('Party deactivated/deleted');location.reload()}}}>Remove</button></div>}/></div></div>}
-function PartyDetails({party,outstanding=0}:{party:any,outstanding?:number}){if(!party)return null;return <div className="party-detail mt-2"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-bold">{party.name}</div><div className="text-xs text-slate-500 mt-1">{party.address||'Address not added'}</div></div><div className="text-right"><div className="text-[10px] font-bold uppercase text-slate-500">Vendor Outstanding</div><div className="font-black">{money(outstanding)}</div></div></div><div className="mt-3 grid gap-1 text-xs sm:grid-cols-2"><span>GST: {party.gst||'—'}</span><span>PAN: {party.pan||'—'}</span><span>Bank: {party.bank_name||'—'}</span><span>A/C: {party.account_number||'—'}</span><span>IFSC: {party.ifsc||'—'}</span><span>TDS: {party.tds_exempt?'Exempt/certificate':'Automatic rule check'}</span></div></div>}
-function PartyPicker({parties,value,onChange}:{parties:any[],value:any,onChange:(id:number)=>void}){const [open,setOpen]=useState(false);const [q,setQ]=useState('');const current=parties.find((p:any)=>p.id===Number(value));const filtered=parties.filter((p:any)=>p.active&&(`${p.name} ${p.gst||''} ${p.pan||''} ${p.contact||''}`.toLowerCase().includes(q.toLowerCase()))).slice(0,30);return <div className="relative"><label className="text-sm font-medium block">Party / Search<div className="relative mt-1.5"><input value={open?q:(current?.name||'')} placeholder="Search party, GST, PAN…" onFocus={()=>{setOpen(true);setQ('')}} onChange={e=>{setQ(e.target.value);setOpen(true)}}/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">⌄</span></div></label>{open&&<><button className="fixed inset-0 z-40 cursor-default bg-transparent" aria-label="Close party picker" onClick={()=>setOpen(false)}/><div className="absolute left-0 right-0 top-[76px] z-50 max-h-80 overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">{filtered.length?filtered.map((p:any)=><button type="button" key={p.id} onClick={()=>{onChange(p.id);setQ('');setOpen(false)}} className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left hover:bg-slate-50"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-orange-50 text-xs font-black text-orange-600">{p.name.slice(0,1).toUpperCase()}</span><span className="min-w-0"><span className="block truncate text-sm font-bold text-slate-800">{p.name}</span><span className="mt-0.5 block truncate text-xs text-slate-500">{p.gst||'No GST'} • {p.contact||'No contact'}</span></span></button>):<div className="p-5 text-center text-sm text-slate-500">No matching party</div>}</div></>}</div>}
-async function reverseFromUI(mode:Mode,type:string,id:number){const reason=prompt(`Reason for reversing ${type.toLowerCase()}?`,'Wrong entry');if(reason===null)return;const rr=await fetch('/api/reverse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,company_id:Number(sessionStorage.getItem('aksh-company-id')||1),type,id,reason})});const j=await rr.json();if(!rr.ok)throw Error(j.error||'Reverse failed');location.reload();}
-function Purchase({data,purchase,setPurchase,selectedParty,calc,save,mode}:{data:any,purchase:any,setPurchase:any,selectedParty:any,calc:any,save:any,mode:Mode}){return <div className="space-y-4"><div className="card min-w-0 p-4 sm:p-6"><h2 className="font-bold text-lg">Purchase / Sample</h2><p className="muted text-sm mt-1">Vendor payable plus optional financing receivable.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Field label="Sample Number (leave blank to auto-generate)" k="sample_no" obj={purchase} setObj={setPurchase}/><Field label="Description of Goods" k="goods_description" obj={purchase} setObj={setPurchase}/><Field label="Bags / Packages" k="bags_qty" obj={purchase} setObj={setPurchase} type="number"/><Field label="Bill / Purchase Date" k="purchase_date" obj={purchase} setObj={setPurchase} type="date"/><div><PartyPicker parties={(data.parties||[]).filter((p:any)=>p.party_type!=='BROKER')} value={purchase.party_id} onChange={id=>setPurchase({...purchase,party_id:id})}/>{selectedParty&&<PartyDetails party={selectedParty}/>}</div><label className="text-sm font-medium block">Broker (optional)<select value={purchase.broker_party_id||''} onChange={e=>setPurchase({...purchase,broker_party_id:e.target.value?Number(e.target.value):''})}><option value="">No broker</option>{(data.parties||[]).filter((p:any)=>p.party_type==='BROKER').map((b:any)=><option key={b.id} value={b.id}>{b.name}{b.contact?` • ${b.contact}`:''}</option>)}</select>{(data.parties||[]).find((b:any)=>Number(b.id)===Number(purchase.broker_party_id))&&<p className="mt-1 text-xs text-slate-500">{(data.parties||[]).find((b:any)=>Number(b.id)===Number(purchase.broker_party_id))?.email||'Email not set'}</p>}</label><Field label="Payment After (Days)" k="payment_due_days" obj={purchase} setObj={setPurchase} type="number"/><Field label="Gross Weight (kg)" k="gross_weight" obj={purchase} setObj={setPurchase} type="number"/><Field label="Net Weight (kg)" k="net_weight" obj={purchase} setObj={setPurchase} type="number"/><Field label="Rate / kg" k="rate" obj={purchase} setObj={setPurchase} type="number"/><Field label="Freight" k="freight" obj={purchase} setObj={setPurchase} type="number"/><Field label="Unload Charge" k="unload_charge" obj={purchase} setObj={setPurchase} type="number"/><Field label="Moisture" k="moisture" obj={purchase} setObj={setPurchase} type="number"/><Field label="Discount %" k="discount_pct" obj={purchase} setObj={setPurchase} type="number"/><Field label="Driver Rokdi" k="driver_rokdi" obj={purchase} setObj={setPurchase} type="number"/><Field label="Other Charges" k="other_charges" obj={purchase} setObj={setPurchase} type="number"/><Field label="Quality Deduct / MT" k="quality_deduct_per_mt" obj={purchase} setObj={setPurchase} type="number"/><Field label="Supplier Bill No" k="invoice_no" obj={purchase} setObj={setPurchase}/><Field label="HSN/SAC" k="hsn" obj={purchase} setObj={setPurchase}/><Field label="GST Taxable Value" k="gst_taxable" obj={purchase} setObj={setPurchase} type="number"/><Field label="GST Rate %" k="gst_rate" obj={purchase} setObj={setPurchase} type="number"/><SelectField label="GST Type" k="gst_type" obj={purchase} setObj={setPurchase} options={{NONE:'None',CGST_SGST:'CGST + SGST',IGST:'IGST'}}/></div><div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4"><div className="font-bold text-sm">Create financing receivable</div><p className="text-xs text-indigo-800 mt-1">Receivable = Net Payable + Discount + Other Charges. Discount and Other Charges are tracked as financing profit/commission.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><PartyPicker parties={data.parties||[]} value={purchase.receivable_party_id} onChange={id=>setPurchase({...purchase,receivable_party_id:id})}/><div className="text-[11px] text-slate-500 mt-1">This can be the same party or another party.</div></div><Field label="Receivable After (Days)" k="receivable_due_days" obj={purchase} setObj={setPurchase} type="number"/><Field label="Receivable Due Date (optional)" k="receivable_due_date" obj={purchase} setObj={setPurchase} type="date"/><Field label="Receivable Notes" k="receivable_notes" obj={purchase} setObj={setPurchase}/></div>{purchase.receivable_party_id&&<div className="mt-3 grid grid-cols-3 gap-2"><KPI label="Cost" value={money(calc.netPay)}/><KPI label="Profit" value={money(calc.profit)}/><KPI label="Receivable" value={money(calc.receivable)}/></div>}</div><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-3"><KPI label="Gross Amount" value={money(calc.gross)}/><KPI label="Discount" value={money(calc.disc)}/><KPI label="Quality Deduct" value={money(calc.quality)}/><KPI label="Other Charges → Profit" value={money(calc.other)}/><KPI label="Total Deduction" value={money(calc.total)}/><KPI label="NET PAYABLE" value={money(calc.netPay)}/></div><InlineFeedback/><button className="primary btn mt-5 w-full sm:w-auto" onClick={save}>{purchase.id?'UPDATE PURCHASE':'SAVE & POST PURCHASE'}</button></div><div className="card min-w-0 overflow-hidden p-4 sm:p-5"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><h3 className="font-bold text-base sm:text-lg">Recent Purchases</h3><p className="text-xs text-slate-500">Latest 15 records · swipe horizontally to view all columns</p></div><div className="mt-3 min-w-0 overflow-x-auto overscroll-x-contain"><Table rows={(data.purchases||[]).slice(0,15)} cols={['sample_no','purchase_date','party_name','invoice_no','net_payable','status']} action={(r:any)=><div className="flex gap-2"><button className="secondary btn text-xs" onClick={()=>setPurchase({...r,receivable_party_id:r.receivable_party_id||'',receivable_due_days:r.receivable_due_days??0,receivable_due_date:r.receivable_due_date||'',receivable_notes:r.receivable_notes||''})}>Edit</button><a aria-label="Commercial Bill PDF" title="Commercial Bill PDF" className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-red-600" target="_blank" href={`/api/purchase-bill?mode=${mode}&company_id=${Number(sessionStorage.getItem('aksh-company-id')||1)}&id=${r.id}`}><FaFilePdf/></a><a title="Email bill details" aria-label="Email bill details" className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2" href={`mailto:${encodeURIComponent(r.party_email||'')}?subject=${encodeURIComponent(`Purchase Bill ${r.invoice_no||r.sample_no}`)}&body=${encodeURIComponent(`Bill ${r.invoice_no||r.sample_no}
+const LOCKED_MODULE_INFO: Record<string, { summary: string; features: string[]; previewLabels: string[] }> = {
+  accounts: {
+    summary: "Keep your company bank and cash accounts in one place, with opening balances and current balances.",
+    features: ["View bank and cash accounts", "Track opening and running balances", "Know which account money moves through"],
+    previewLabels: ["Bank / Cash", "Opening balance", "Current balance"],
+  },
+  "account-movements": {
+    summary: "Record money withdrawn from an account or transferred between company accounts, with a date and reference.",
+    features: ["Record withdrawals", "Transfer between accounts", "Keep a searchable movement history"],
+    previewLabels: ["Movement type", "From / To account", "Amount"],
+  },
+  parties: {
+    summary: "Maintain supplier, customer and broker details once, then reuse them in purchases, payments and ledgers.",
+    features: ["Save contact and tax details", "Keep bank details with each party", "Use the same party across transactions"],
+    previewLabels: ["Party directory", "Contact details", "Outstanding"],
+  },
+  purchase: {
+    summary: "Enter purchase or sample details and calculate the payable amount after freight, deductions and other charges.",
+    features: ["Record weight, rate and sample number", "Calculate deductions and net payable", "Link purchases to the vendor ledger"],
+    previewLabels: ["Purchase entry", "Net weight", "Net payable"],
+  },
+  payments: {
+    summary: "Record vendor payments, allocate them to purchase bills and review TDS and the final bank-paid amount.",
+    features: ["Record bank or cash payments", "Allocate payment against bills", "Calculate TDS and net payment"],
+    previewLabels: ["Payment entry", "Bill allocation", "Net paid"],
+  },
+  "money-in": {
+    summary: "Record money received into a bank or cash account and keep the receipt linked to its source.",
+    features: ["Record date and amount received", "Choose the receiving account", "Keep receipt references and notes"],
+    previewLabels: ["Money received", "Account", "Reference"],
+  },
+  interest: {
+    summary: "Track interest paid to lenders and reflect it in your finance profit calculations.",
+    features: ["Record interest payments", "Link payments to accounts and parties", "Review interest cost over time"],
+    previewLabels: ["Interest paid", "Payee", "Payment date"],
+  },
+  funding: {
+    summary: "Manage loans and funding, including principal, interest rules and upcoming payment schedules.",
+    features: ["Save lender and loan details", "Set interest rate and frequency", "See upcoming interest due"],
+    previewLabels: ["Active funding", "Principal", "Next due"],
+  },
+  import: {
+    summary: "Upload a spreadsheet or CSV, preview the records, and import supported finance data in batches.",
+    features: ["Choose the type of data", "Validate a preview before importing", "Skip duplicate records where supported"],
+    previewLabels: ["CSV import", "Rows validated", "Ready to import"],
+  },
+  ledger: {
+    summary: "Review vendor-wise purchases, payments and the balance still payable to each supplier.",
+    features: ["See purchases and payments together", "Review outstanding balances", "Trace transactions by vendor"],
+    previewLabels: ["Vendor ledger", "Purchases", "Balance due"],
+  },
+  receivables: {
+    summary: "Track money customers or parties still owe, including due dates and receipts against bills.",
+    features: ["Review unpaid receivables", "Monitor due and overdue bills", "Record amounts received"],
+    previewLabels: ["Receivables", "Due date", "Outstanding"],
+  },
+  reports: {
+    summary: "Turn transaction data into summaries that help you understand cash flow, payments and finance performance.",
+    features: ["Review financial summaries", "Compare transactions across periods", "Use reports to support decisions"],
+    previewLabels: ["Finance report", "This month", "Total"],
+  },
+  bank: {
+    summary: "Compare transactions in SOLIVY Finance with your bank statement and identify entries that need attention.",
+    features: ["Match statement entries", "Spot unmatched transactions", "Review differences before reconciliation"],
+    previewLabels: ["Bank matching", "Matched", "Needs review"],
+  },
+  backup: {
+    summary: "Create and restore backups of your finance data to help protect records during maintenance or migration.",
+    features: ["Create a data backup", "Restore a suitable backup", "Check backup status before proceeding"],
+    previewLabels: ["Backup & restore", "Last backup", "Data status"],
+  },
+  gst: {
+    summary: "Organise GST-related sales and purchase information to help prepare records for filing and review.",
+    features: ["Review GST-related transactions", "Prepare supporting summaries", "Check records before filing"],
+    previewLabels: ["GST summary", "Taxable value", "GST amount"],
+  },
+  "commercial-bills": {
+    summary: "Prepare and manage commercial bills with the relevant parties, amounts and supporting details.",
+    features: ["Create commercial bill records", "Keep third-party details organised", "Review bill history"],
+    previewLabels: ["Commercial bills", "Bill details", "Total amount"],
+  },
+  "document-settings": {
+    summary: "Set up the business details and document preferences used when generating finance documents.",
+    features: ["Manage document information", "Configure available print details", "Keep generated documents consistent"],
+    previewLabels: ["Document settings", "Business details", "Print preferences"],
+  },
+  settings: {
+    summary: "Manage company-level preferences and tax-related settings used by supported finance workflows.",
+    features: ["Review company settings", "Configure supported TDS preferences", "Keep company details organised"],
+    previewLabels: ["Company settings", "TDS settings", "Preferences"],
+  },
+};
+function LockedModulePreview({ moduleKey, moduleLabel, onClose }: { moduleKey: string; moduleLabel: string; onClose: () => void }) {
+  const info = LOCKED_MODULE_INFO[moduleKey] || {
+    summary: "This module provides additional tools for your finance workflow.",
+    features: ["Organise related records", "Review important information", "Support day-to-day finance work"],
+    previewLabels: ["Module overview", "Records", "Status"],
+  };
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="locked-module-title"
+      onClick={onClose}
+    >
+      <div className="my-auto w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 sm:p-6">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">
+              <FiLock size={13} /> Module access needs enabling
+            </div>
+            <h2 id="locked-module-title" className="mt-3 text-xl font-black text-slate-950 sm:text-2xl">
+              {moduleLabel}
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{info.summary}</p>
+          </div>
+          <button type="button" className="secondary btn shrink-0" onClick={onClose} aria-label="Close module preview">
+            Close
+          </button>
+        </div>
+        <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[1.15fr_.85fr]">
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Module screenshot preview</span>
+              <span className="rounded bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">ID: {moduleKey}</span>
+            </div>
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
+              <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-3">
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                <span className="ml-2 truncate text-xs font-bold text-slate-600">SOLIVY Finance / {moduleLabel}</span>
+              </div>
+              <div className="grid gap-3 p-3 sm:p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Workspace preview</div>
+                    <div className="mt-1 text-sm font-black text-slate-800">{moduleLabel}</div>
+                  </div>
+                  <span className="rounded-lg bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500">PREVIEW</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {info.previewLabels.map((label, i) => (
+                    <div key={label} className="min-w-0 rounded-xl border border-slate-200 bg-white p-2 sm:p-3">
+                      <div className="truncate text-[9px] font-semibold text-slate-400 sm:text-[10px]">{label}</div>
+                      <div className="mt-2 h-2 w-3/4 rounded bg-slate-200" />
+                      <div className="mt-1.5 h-1.5 w-1/2 rounded bg-slate-100" />
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="h-2 w-24 rounded bg-slate-300" />
+                    <div className="h-5 w-16 rounded-md bg-slate-100" />
+                  </div>
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="grid grid-cols-3 items-center gap-3 border-t border-slate-100 py-3">
+                      <div className="h-2 rounded bg-slate-200" />
+                      <div className="h-2 rounded bg-slate-100" />
+                      <div className="ml-auto h-2 w-10 rounded bg-slate-200" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-slate-400">Illustrative preview of the module layout; actual records and available actions depend on your plan and permissions.</p>
+          </div>
+          <div className="flex flex-col">
+            <h3 className="text-base font-black text-slate-900">What this module helps you do</h3>
+            <ul className="mt-3 space-y-3">
+              {info.features.map((feature, i) => (
+                <li key={feature} className="flex gap-3 text-sm leading-5 text-slate-600">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xs font-black text-teal-700">{i + 1}</span>
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start gap-3">
+                <FiShield className="mt-0.5 shrink-0 text-amber-700" size={19} />
+                <div>
+                  <p className="text-sm font-black text-amber-950">This module is not included in your current plan.</p>
+                  <p className="mt-1 text-sm leading-5 text-amber-900">
+                    This menu is not enabled for your current user access in this organization. Ask your SOLIVY administrator to enable the module in User Management → Menu access. If the organization
+                    has already enabled it, refresh your session and verify the selected company.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <button type="button" className="primary btn mt-4 w-full" onClick={onClose}>
+              Back to Finance
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="brand-shell mb-7 px-2">
+      <img src="/solivy-logo.png" alt="SOLIVY" className="brand-logo" />
+      <div className="min-w-0">
+        <div className="brand-sub">Finance Management</div>
+      </div>
+    </div>
+  );
+}
+const NAV_ICONS: Record<string, React.ComponentType<any>> = {
+  dashboard: FiGrid,
+  administration: FiShield,
+  accounts: FiBriefcase,
+  "account-movements": FiRepeat,
+  parties: FiUsers,
+  purchase: FiShoppingCart,
+  payments: FiCreditCard,
+  "money-in": FiDollarSign,
+  interest: FiPercent,
+  funding: FiTrendingUp,
+  import: FiUpload,
+  ledger: FiBookOpen,
+  receivables: FiClock,
+  reports: FiBarChart2,
+  bank: FiRefreshCw,
+  backup: FiDatabase,
+  gst: FiFileText,
+  "commercial-bills": FiLayers,
+  "document-settings": FiSettings,
+  settings: FiSettings,
+  license: FiShield,
+  transfers: FiRepeat,
+  sync: FiRefreshCw,
+};
+function NavButton({ k, l, active, onClick, locked = false }: { k: string; l: string; active: boolean; onClick: () => void; locked?: boolean }) {
+  const Icon = NAV_ICONS[k] || FiGrid;
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      aria-disabled={locked}
+      title={`Menu ID: ${k}${locked ? " • Access locked" : ""}`}
+      className={`nav-item ${active ? "nav-item-active" : ""} ${locked ? "opacity-60" : ""}`}
+    >
+      <span className="nav-label">
+        <span className="nav-icon-wrap">
+          <Icon aria-hidden="true" size={17} />
+        </span>
+        <span className="nav-item-text min-w-0">
+          <span className="block truncate">{l}</span>
+          <span className="block text-[9px] font-medium opacity-50">ID: {k}</span>
+        </span>
+      </span>
+      {locked ? <FiLock className="nav-chevron" size={14} /> : active && <FiChevronRight className="nav-chevron" size={16} />}
+    </button>
+  );
+}
+const DASHBOARD_CARDS = [
+  ["kpi-parties", "Parties KPI"],
+  ["kpi-purchase-cost", "Purchase Cost KPI"],
+  ["kpi-paid", "Paid KPI"],
+  ["kpi-vendor-outstanding", "Vendor Outstanding KPI"],
+  ["kpi-finance-profit", "Finance Profit KPI"],
+  ["kpi-average-earning", "Average Monthly Earning KPI"],
+  ["business-pulse", "Business Pulse"],
+  ["due-pay-today", "Pay Today"],
+  ["due-pay-tomorrow", "Pay Tomorrow"],
+  ["due-receive-today", "Receive Today"],
+  ["due-receive-tomorrow", "Receive Tomorrow"],
+  ["due-interest-today", "Interest Today"],
+  ["due-interest-tomorrow", "Interest Tomorrow"],
+  ["due-this-week", "This Week"],
+  ["overdue-receivables", "Overdue Receivables"],
+  ["overdue-payables", "Overdue Payables"],
+  ["bank-cash", "Bank / Cash"],
+  ["realised-profit", "Realised Profit"],
+  ["charts", "Dashboard Charts"],
+];
+function TallyExportPage({ mode, companyId, api }: { mode: Mode; companyId: number; api: any }) {
+  const [types, setTypes] = useState(["purchases", "payments", "sales", "interest", "money-in"]);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [mappings, setMappings] = useState<any>({});
+  const [mappingBusy, setMappingBusy] = useState(false);
+  const fields: [string, string][] = [
+    ["purchase_account", "Purchase ledger"],
+    ["sales_account", "Sales ledger"],
+    ["output_cgst", "Output CGST ledger"],
+    ["output_sgst", "Output SGST ledger"],
+    ["output_igst", "Output IGST ledger"],
+    ["tds_payable", "TDS payable ledger"],
+    ["interest_expense", "Interest expense ledger"],
+    ["default_bank", "Default bank ledger"],
+    ["default_cash", "Default cash ledger"],
+  ];
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/tally-mapping")
+      .then((r) => r.json())
+      .then((j) => {
+        if (alive && j.mappings) setMappings(j.mappings);
+        if (alive && j.error) setNotice(j.error);
+      })
+      .catch(() => {
+        if (alive) setNotice("Could not load ledger mappings");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [mode, companyId]);
+  const toggle = (v: string) => setTypes((p) => (p.includes(v) ? p.filter((x) => x !== v) : p.concat(v)));
+  const saveMappings = async () => {
+    setMappingBusy(true);
+    try {
+      const r = await fetch("/api/tally-mapping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mappings }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Could not save mappings");
+      setNotice(j.message || "Ledger mappings saved.");
+    } catch (e: any) {
+      setNotice(e.message || "Could not save mappings");
+    } finally {
+      setMappingBusy(false);
+    }
+  };
+  const exportFile = async (format: "xml" | "xlsx") => {
+    setBusy(true);
+    setNotice("Preparing export…");
+    try {
+      const r = await fetch(`/api/tally-export?mode=${mode}&company_id=${companyId}&format=${format}&types=${encodeURIComponent(types.join(","))}`);
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error || `Export failed (${r.status})`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `SOLIVY-Tally-${mode}-${new Date().toISOString().slice(0, 10)}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setNotice("Export generated. Review the Excel file and test the XML in a Tally company backup. Confirm the ledger masters and voucher balances before LIVE import.");
+    } catch (e: any) {
+      setNotice(e.message || "Export failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-5">
+      <div className="card p-5 sm:p-6">
+        <div className="text-xs font-black uppercase tracking-widest text-teal-700">Accounting integration</div>
+        <h2 className="mt-1 text-2xl font-black">TallyPrime Export</h2>
+        <p className="muted mt-2 text-sm">
+          Generate review Excel and voucher XML from posted SOLIVY transactions. Export currently covers purchase, supplier payment, sales, interest-payment and other money-in vouchers. Financing
+          receivable receipt history is not complete enough to export every receipt safely as an individual voucher.
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {[
+            ["purchases", "Purchase vouchers"],
+            ["payments", "Supplier payment vouchers"],
+            ["sales", "Sales invoices"],
+            ["interest", "Interest payment vouchers"],
+            ["money-in", "Other money-in vouchers"],
+          ].map(([k, label]) => (
+            <label key={k} className="flex items-center gap-3 rounded-xl border p-3">
+              <input type="checkbox" checked={types.includes(k)} onChange={() => toggle(k)} />
+              <span className="text-sm font-semibold">{label}</span>
+            </label>
+          ))}
+        </div>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button disabled={busy || !types.length} className="primary btn" onClick={() => exportFile("xml")}>
+            {busy ? "Preparing…" : "DOWNLOAD TALLY XML"}
+          </button>
+          <button disabled={busy || !types.length} className="secondary btn" onClick={() => exportFile("xlsx")}>
+            DOWNLOAD REVIEW EXCEL
+          </button>
+        </div>
+        {notice && <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">{notice}</div>}
+        <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+          Tally XML compatibility depends on TallyPrime release and company configuration. Required ledgers must exist in Tally. Always test on a backup company first; this export does not certify
+          GST/TDS statutory treatment or successful import.
+        </div>
+      </div>
+      <div className="card p-5 sm:p-6">
+        <div className="text-xs font-black uppercase tracking-widest text-indigo-700">Company-specific ledger mapping</div>
+        <h3 className="mt-1 text-xl font-black">Map SOLIVY ledgers to Tally</h3>
+        <p className="muted mt-2 text-sm">Set exact ledger names that already exist in the selected Tally company. Mappings are saved separately for this SOLIVY company and environment.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {fields.map(([key, label]) => (
+            <label key={key} className="text-sm font-semibold">
+              {label}
+              <input
+                className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm"
+                maxLength={120}
+                value={mappings[key] || ""}
+                onChange={(e) => setMappings((m: any) => ({ ...m, [key]: e.target.value }))}
+              />
+              <span className="mt-1 block break-all font-mono text-[10px] text-slate-500">ID: {key}</span>
+            </label>
+          ))}
+        </div>
+        <button className="primary btn mt-4" disabled={mappingBusy} onClick={saveMappings}>
+          {mappingBusy ? "Saving…" : "SAVE LEDGER MAPPINGS"}
+        </button>
+      </div>
+    </div>
+  );
+}
+function BankStatementImportPage({ mode, companyId }: { mode: Mode; companyId: number }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [rows, setRows] = useState<any[]>([]);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [mapping, setMapping] = useState<any>({});
+  const [filename, setFilename] = useState("");
+  const fields: [string, string][] = [
+    ["date", "Transaction date"],
+    ["narration", "Narration / description"],
+    ["reference", "Reference / UTR"],
+    ["debit", "Debit / withdrawal"],
+    ["credit", "Credit / deposit"],
+    ["amount", "Single amount column"],
+    ["type", "Debit-credit indicator"],
+    ["balance", "Running balance"],
+  ];
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const upload = async () => {
+    if (!file) {
+      setNotice("Choose a bank statement first.");
+      return;
+    }
+    setBusy(true);
+    setNotice("Reading statement…");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("mode", mode);
+      fd.append("company_id", String(companyId));
+      fd.append("mapping", JSON.stringify(mapping));
+      const r = await fetch("/api/bank-statement-import", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Import failed");
+      setRows(j.rows || []);
+      setHeaders(j.headers || []);
+      setFilename(j.filename || file.name);
+      setMapping(j.mapping || mapping);
+      setNotice(j.message || `Preview ready: ${(j.rows || []).length} rows. Nothing was posted to accounts.`);
+    } catch (e: any) {
+      setNotice(e.message || "Could not read statement");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/bank-statement-import?mode=${mode}&company_id=${companyId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows, filename }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Save failed");
+      setNotice(j.message || "Statement rows saved for reconciliation.");
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-5">
+      <div className="card p-5 sm:p-6">
+        <div className="text-xs font-black uppercase tracking-widest text-indigo-700">Multi-bank statement intake</div>
+        <h2 className="mt-1 text-2xl font-black">Bank Statement Import</h2>
+        <p className="muted mt-2 text-sm">Upload original CSV, XLS/XLSX or MT940 statement downloaded from the bank portal. PDF and PDF-converted sheets are intentionally not supported.</p>
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            type="file"
+            accept=".csv,.xls,.xlsx,.mt940,.sta,.txt"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] || null);
+              setRows([]);
+            }}
+            className="w-full rounded-xl border p-3"
+          />
+          <button className="primary btn" disabled={busy || !file} onClick={upload}>
+            {busy ? "Processing…" : "PREVIEW STATEMENT"}
+          </button>
+        </div>
+        {notice && <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">{notice}</div>}
+        {headers.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+            <div className="font-bold">Column mapping</div>
+            <p className="muted mt-1 text-xs">If automatic detection is wrong, select the exact source column for each field and preview again. Mapping changes never post accounting entries.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {fields.map(([key, label]) => (
+                <label key={key} className="text-xs font-semibold">
+                  {label}
+                  <select
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs"
+                    value={mapping[key] || ""}
+                    onChange={(e) => setMapping((m: any) => ({ ...m, [key]: e.target.value }))}
+                  >
+                    <option value="">Auto detect</option>
+                    {headers.map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+            <button className="secondary btn mt-3 text-xs" disabled={busy || !file} onClick={upload}>
+              RE-PREVIEW WITH MAPPING
+            </button>
+          </div>
+        )}
+        {rows.length > 0 && (
+          <>
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold">Preview ({rows.length} rows)</h3>
+                <p className="muted text-xs">Review normalized date, narration, reference, debit, credit and balance before saving.</p>
+              </div>
+              <button disabled={busy} className="secondary btn" onClick={save}>
+                SAVE FOR RECONCILIATION
+              </button>
+            </div>
+            <div className="mt-3 overflow-auto rounded-xl border">
+              <table className="min-w-[900px] w-full text-left text-xs">
+                <thead className="bg-slate-100">
+                  <tr>
+                    {["Date", "Narration", "Reference", "Debit", "Credit", "Balance"].map((x) => (
+                      <th key={x} className="p-3">
+                        {x}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, 300).map((r: any, i: number) => (
+                    <tr key={i} className="border-t">
+                      <td className="p-3">{r.date}</td>
+                      <td className="p-3">{r.narration}</td>
+                      <td className="p-3">{r.reference}</td>
+                      <td className="p-3">{r.debit}</td>
+                      <td className="p-3">{r.credit}</td>
+                      <td className="p-3">{r.balance ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+      <div className="card p-4 text-xs text-slate-600">
+        Supported statement formats depend on the bank's export headers. Unrecognized files return an error instead of guessing amounts. Importing here stages statement rows; it does not create or
+        alter payments automatically.
+      </div>
+    </div>
+  );
+}
+function SecondaryBackupPage() {
+  const [path, setPath] = useState("");
+  const [enabled, setEnabled] = useState(true);
+  const [time, setTime] = useState("18:00");
+  const [status, setStatus] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const refresh = async () => {
+    try {
+      const r = await fetch("/api/secondary-backup");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Status check failed");
+      setStatus(j);
+      setPath(j.path || "");
+      setEnabled(j.enabled !== false);
+      setTime(j.time || "18:00");
+    } catch (e: any) {
+      setNotice(e.message);
+    }
+  };
+  useEffect(() => {
+    refresh();
+  }, []);
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/secondary-backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, enabled, time }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Save failed");
+      setNotice(j.message || "Settings saved");
+      await refresh();
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/secondary-backup", { method: "PUT" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Backup failed");
+      setNotice(j.message || "Backup completed");
+      await refresh();
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-5">
+      <div className="card p-5 sm:p-6">
+        <div className="text-xs font-black uppercase tracking-widest text-indigo-700">Offline disaster recovery</div>
+        <h2 className="mt-1 text-2xl font-black">Secondary Backup Location</h2>
+        <p className="muted mt-2 text-sm">
+          Set a local drive, external drive or reachable network share on the machine running SOLIVY Finance. The server must remain running for scheduled checks. Status checks run every five minutes
+          while an administrator is signed in.
+        </p>
+        <label className="mt-5 block text-sm font-bold">Destination folder (absolute server path)</label>
+        <input className="mt-2 w-full rounded-xl border p-3" value={path} onChange={(e) => setPath(e.target.value)} placeholder="E:\\SOLIVY-Backups or \\\\NAS\\FinanceBackups" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm font-semibold">
+            Daily backup time (server local time)
+            <input className="mt-2 block w-full rounded-xl border p-3" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+          </label>
+          <label className="flex items-center gap-3 rounded-xl border p-3 text-sm font-semibold">
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Enable daily secondary backup
+          </label>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button className="primary btn" disabled={busy} onClick={save}>
+            SAVE BACKUP SETTINGS
+          </button>
+          <button className="secondary btn" disabled={busy || !path} onClick={run}>
+            RUN BACKUP NOW
+          </button>
+          <button className="btn border bg-white" disabled={busy} onClick={refresh}>
+            CHECK LOCATION
+          </button>
+        </div>
+        {notice && <div className="mt-4 rounded-xl border p-3 text-sm">{notice}</div>}
+        <div className="mt-5 rounded-xl border p-4">
+          <h3 className="font-bold">Latest backup status</h3>
+          <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              Status: <b>{status?.lastStatus || "Not run yet"}</b>
+            </div>
+            <div>
+              Last success: <b>{status?.lastSuccess || "Never"}</b>
+            </div>
+            <div>
+              Next due: <b>{status?.nextDue || "—"}</b>
+            </div>
+            <div>
+              Destination: <b className="break-all">{status?.path || "Not configured"}</b>
+            </div>
+          </div>
+          {status?.lastError && (
+            <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
+              <b>Backup error:</b> {status.lastError}
+            </div>
+          )}
+          {status?.lastMessage && <p className="muted mt-3 text-xs">{status.lastMessage}</p>}
+        </div>
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+          Backups are unencrypted SQLite snapshots. Restrict access to the destination. A disconnected drive/share will be retried on the next status check; the app/server must be running for
+          scheduled checks to occur.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RevenueDashboard({ data, money, onOpenTab }: { data: any; money: any; onOpenTab: (tab: string) => void }) {
+  const now = new Date();
+  const fyStart = new Date(now.getFullYear() - (now.getMonth() < 3 ? 1 : 0), 3, 1);
+  const fyEnd = new Date(fyStart.getFullYear() + 1, 3, 1);
+  const prevStart = new Date(fyStart.getFullYear() - 1, 3, 1);
+  const prevEnd = fyStart;
+  const dateIn = (v: any, start: Date, end: Date) => {
+    if (!v) return false;
+    const raw = String(v).slice(0, 10);
+    const d = new Date(raw + "T00:00:00");
+    return !Number.isNaN(d.getTime()) && d >= start && d < end;
+  };
+  const posted = (x: any) => String(x.status || "POSTED").toUpperCase() === "POSTED";
+  const sum = (rows: any[], k: string) => rows.reduce((a: number, r: any) => a + Number(r[k] || 0), 0);
+  const receivables = (data.receivables || []).filter((r: any) => String(r.purchase_status || "POSTED").toUpperCase() === "POSTED");
+  const thisBills = receivables.filter((r: any) => dateIn(r.bill_date, fyStart, fyEnd));
+  const lastBills = receivables.filter((r: any) => dateIn(r.bill_date, prevStart, prevEnd));
+  const billValue = (rows: any[]) => sum(rows, "receivable_amount");
+  const thisTurnover = billValue(thisBills),
+    lastTurnover = billValue(lastBills);
+  const growth = lastTurnover ? ((thisTurnover - lastTurnover) / Math.abs(lastTurnover)) * 100 : null;
+  const avgBill = thisBills.length ? thisTurnover / thisBills.length : 0;
+  const bookProfit = (rows: any[]) => rows.reduce((a: number, r: any) => a + Number(r.discount_amount || 0) + Number(r.other_charges_profit || 0), 0);
+  const bookProfitFY = bookProfit(thisBills),
+    bookMargin = thisTurnover ? (bookProfitFY / thisTurnover) * 100 : 0;
+  const realizedProfit = (rows: any[]) =>
+    rows.reduce((a: number, r: any) => {
+      const face = Math.max(0, Number(r.receivable_amount || 0));
+      const received = Math.max(0, Math.min(face, Number(r.received_amount || 0)));
+      const gross = Number(r.discount_amount || 0) + Number(r.other_charges_profit || 0);
+      return a + (face ? (gross * received) / face : 0);
+    }, 0);
+  const interest = (data.interestPayments || []).filter(posted);
+  const interestFY = sum(
+    interest.filter((r: any) => dateIn(r.payment_date, fyStart, fyEnd)),
+    "amount",
+  );
+  const receivedBillsFY = receivables.filter((r: any) => dateIn(r.received_date, fyStart, fyEnd) && Number(r.received_amount || 0) > 0);
+  const receivedFY = receivedBillsFY.reduce((a: number, r: any) => a + Number(r.net_received || r.received_amount || 0), 0);
+  const realizedGrossFY = realizedProfit(receivedBillsFY);
+  const realizedNetFY = realizedGrossFY - interestFY;
+  const realizedMargin = receivedFY ? (realizedNetFY / receivedFY) * 100 : 0;
+  const monthNames = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+  const monthly = monthNames.map((label, i) => {
+    const y = i < 9 ? fyStart.getFullYear() : fyStart.getFullYear() + 1;
+    const m = (i + 3) % 12;
+    const a = new Date(y, m, 1),
+      b = new Date(y, m + 1, 1);
+    const py = i < 9 ? prevStart.getFullYear() : prevStart.getFullYear() + 1;
+    const pa = new Date(py, m, 1),
+      pb = new Date(py, m + 1, 1);
+    return {
+      label,
+      current: billValue(thisBills.filter((x: any) => dateIn(x.bill_date, a, b))),
+      previous: billValue(lastBills.filter((x: any) => dateIn(x.bill_date, pa, pb))),
+      currentCount: thisBills.filter((x: any) => dateIn(x.bill_date, a, b)).length,
+      previousCount: lastBills.filter((x: any) => dateIn(x.bill_date, pa, pb)).length,
+    };
+  });
+  const parties = Object.entries(
+    thisBills.reduce((acc: any, r: any) => {
+      const name = String(r.party_name || "Unknown party");
+      acc[name] = (acc[name] || 0) + Number(r.receivable_amount || 0);
+      return acc;
+    }, {}),
+  )
+    .map(([name, value]) => ({ name, value: Number(value) }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+  const activeLoanPrincipal = sum(
+    (data.fundingLoans || []).filter((x: any) => String(x.status || "ACTIVE").toUpperCase() === "ACTIVE"),
+    "principal_amount",
+  );
+  const allReceivedProfit = realizedProfit(receivables);
+  const allInterest = sum(interest, "amount");
+  const netProfitToDate = allReceivedProfit - allInterest;
+  const fundingAvailable = activeLoanPrincipal + netProfitToDate;
+  const sales = (data.sales || []).filter(posted);
+  const thisSales = sales.filter((x: any) => dateIn(x.invoice_date, fyStart, fyEnd));
+  const paymentFY = sum(
+    (data.payments || []).filter((x: any) => posted(x) && dateIn(x.payment_date, fyStart, fyEnd)),
+    "amount",
+  );
+  const moneyInFY = sum(
+    (data.moneyIn || []).filter((x: any) => posted(x) && dateIn(x.receipt_date, fyStart, fyEnd)),
+    "amount",
+  );
+  const withdrawalsFY = sum(
+    (data.accountMovements || []).filter((x: any) => posted(x) && String(x.movement_type || "").toUpperCase() === "WITHDRAWAL" && dateIn(x.movement_date, fyStart, fyEnd)),
+    "amount",
+  );
+  const max = Math.max(1, ...monthly.flatMap((x) => [x.current, x.previous]));
+  const fmt = (n: number) => money(n);
+  const fyLabel = `FY ${fyStart.getFullYear()}–${String(fyEnd.getFullYear()).slice(-2)}`;
+  const lastLabel = `FY ${prevStart.getFullYear()}–${String(prevEnd.getFullYear()).slice(-2)}`;
+  const card = "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
+  return (
+    <section className="space-y-5">
+      <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[.2em] text-teal-300">Executive business intelligence · {fyLabel}</div>
+            <h3 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Business performance, at a glance</h3>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+              Turnover is measured from financing receivable bills. Profit is shown on both a book basis and a cash-realised basis; collections and supplier payments remain separate cash-flow
+              measures.
+            </p>
+          </div>
+          <button className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-bold text-white hover:bg-white/15" onClick={() => onOpenTab("reports")}>
+            Detailed reports ↗
+          </button>
+        </div>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-white/10 bg-white/[.08] p-4">
+            <div className="text-xs font-semibold text-slate-300">Book turnover · {fyLabel}</div>
+            <div className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">{fmt(thisTurnover)}</div>
+            <div className="mt-2 text-xs text-teal-200">{thisBills.length} posted receivable bills</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[.08] p-4">
+            <div className="text-xs font-semibold text-slate-300">Previous year · {lastLabel}</div>
+            <div className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">{fmt(lastTurnover)}</div>
+            <div className="mt-2 text-xs text-slate-300">{lastBills.length} posted receivable bills</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[.08] p-4">
+            <div className="text-xs font-semibold text-slate-300">Year-on-year growth</div>
+            <div className="mt-2 text-2xl font-black sm:text-3xl">{growth === null ? "—" : `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`}</div>
+            <div className="mt-2 text-xs text-slate-300">{growth === null ? "No previous-year turnover to compare" : "Compared with previous FY"}</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[.08] p-4">
+            <div className="text-xs font-semibold text-slate-300">Average billing value</div>
+            <div className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">{fmt(avgBill)}</div>
+            <div className="mt-2 text-xs text-slate-300">Book turnover ÷ posted bills</div>
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className={card}>
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Realised profit margin</div>
+          <div className="mt-2 text-2xl font-black text-emerald-700">{receivedFY ? `${realizedMargin.toFixed(2)}%` : "—"}</div>
+          <p className="mt-1 text-xs text-slate-500">Only profit earned on amounts actually received, less interest paid</p>
+          <div className="mt-3 border-t pt-3 text-sm">
+            <span className="text-slate-500">Net realised profit</span>
+            <strong className="float-right">{fmt(realizedNetFY)}</strong>
+          </div>
+        </div>
+        <div className={card}>
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Book profit margin</div>
+          <div className="mt-2 text-2xl font-black text-indigo-700">{thisTurnover ? `${bookMargin.toFixed(2)}%` : "—"}</div>
+          <p className="mt-1 text-xs text-slate-500">Expected profit on all posted receivable bills, whether collected or not</p>
+          <div className="mt-3 border-t pt-3 text-sm">
+            <span className="text-slate-500">Book profit</span>
+            <strong className="float-right">{fmt(bookProfitFY)}</strong>
+          </div>
+        </div>
+        <div className={`${card} sm:col-span-2`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Funding available · cumulative</div>
+              <div className="mt-2 text-3xl font-black tracking-tight text-slate-950">{fmt(fundingAvailable)}</div>
+              <p className="mt-1 text-xs text-slate-500">Total active loan principal taken + cumulative realised net profit to date</p>
+            </div>
+            <button className="secondary btn text-xs" onClick={() => onOpenTab("funding")}>
+              View funding ↗
+            </button>
+          </div>
+          <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-3">
+            <div>
+              <div className="text-xs text-slate-500">Active loan principal</div>
+              <div className="mt-1 font-extrabold">{fmt(activeLoanPrincipal)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Net realised profit to date</div>
+              <div className="mt-1 font-extrabold">{fmt(netProfitToDate)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Bank / cash balance (reference)</div>
+              <div className="mt-1 font-extrabold">{fmt(sum(data.accounts || [], "balance"))}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className={card}>
+          <div className="text-xs font-semibold text-slate-500">Sales invoices · {fyLabel}</div>
+          <div className="mt-2 text-xl font-black">{fmt(sum(thisSales, "total_value"))}</div>
+          <p className="mt-1 text-xs text-slate-500">{thisSales.length} posted sales invoices (separate from financing bills)</p>
+        </div>
+        <div className={card}>
+          <div className="text-xs font-semibold text-slate-500">Supplier payments · {fyLabel}</div>
+          <div className="mt-2 text-xl font-black">{fmt(paymentFY)}</div>
+          <p className="mt-1 text-xs text-slate-500">Cash outflow; not turnover</p>
+        </div>
+        <div className={card}>
+          <div className="text-xs font-semibold text-slate-500">Money received · {fyLabel}</div>
+          <div className="mt-2 text-xl font-black">{fmt(moneyInFY + receivedFY)}</div>
+          <p className="mt-1 text-xs text-slate-500">Receivable collections + other receipts</p>
+        </div>
+        <div className={card}>
+          <div className="text-xs font-semibold text-slate-500">Withdrawals · {fyLabel}</div>
+          <div className="mt-2 text-xl font-black">{fmt(withdrawalsFY)}</div>
+          <p className="mt-1 text-xs text-slate-500">Posted bank/cash withdrawals</p>
+        </div>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
+        <div className={`${card} min-w-0`}>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 className="font-black text-slate-900">Month-on-month turnover</h3>
+              <p className="mt-1 text-xs text-slate-500">Each financial-year month against the same month last year</p>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs font-semibold">
+              <span className="flex items-center gap-1.5">
+                <i className="h-2.5 w-2.5 rounded-sm bg-teal-600" />
+                Current FY
+              </span>
+              <span className="flex items-center gap-1.5">
+                <i className="h-2.5 w-2.5 rounded-sm bg-slate-300" />
+                Previous FY
+              </span>
+            </div>
+          </div>
+          <div className="mt-5 space-y-4">
+            {monthly.map((m: any) => (
+              <div key={m.label} className="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-3">
+                <div className="text-xs font-bold text-slate-500">{m.label}</div>
+                <div className="min-w-0 space-y-1.5">
+                  <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-teal-600 transition-all" style={{ width: `${m.current ? Math.max(1, (m.current / max) * 100) : 0}%` }} />
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-slate-300" style={{ width: `${m.previous ? Math.max(1, (m.previous / max) * 100) : 0}%` }} />
+                  </div>
+                  <div className="flex flex-wrap justify-between gap-1 text-[10px] text-slate-500">
+                    <span>
+                      This FY: {fmt(m.current)} · {m.currentCount} bills
+                    </span>
+                    <span>
+                      Last FY: {fmt(m.previous)} · {m.previousCount} bills
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className={`${card} min-w-0`}>
+          <div>
+            <h3 className="font-black text-slate-900">Top parties · {fyLabel}</h3>
+            <p className="mt-1 text-xs text-slate-500">Ranked by posted receivable billing value</p>
+          </div>
+          {parties.length ? (
+            <div className="mt-5 space-y-4">
+              {parties.map((p: any, i: number) => (
+                <div key={p.name} className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-xs font-black text-slate-600">{i + 1}</div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-slate-800">{p.name}</div>
+                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div className="h-full rounded-full bg-teal-600" style={{ width: `${Math.max(1, (p.value / Math.max(1, parties[0]?.value)) * 100)}%` }} />
+                    </div>
+                  </div>
+                  <div className="text-right text-sm font-black text-slate-900">{fmt(p.value)}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-8 text-center text-sm text-slate-500">No posted receivable bills found in this financial year.</div>
+          )}
+          <button className="secondary btn mt-5 w-full text-xs" onClick={() => onOpenTab("receivables")}>
+            Open receivables ↗
+          </button>
+        </div>
+      </div>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600">
+        <strong>Metric definitions:</strong> Turnover = posted financing receivable amount by bill date. Book profit = discount + other-charge profit. Realised profit = expected profit allocated
+        proportionately to received amounts, less posted interest paid. Funding available = active recorded loan principal + cumulative realised net profit; this is a management metric, not a bank
+        balance or cash solvency guarantee.
+      </div>
+    </section>
+  );
+}
+function Dashboard({ data, money, onReceive, onOpenTab, cardAccess, role }: { data: any; money: any; onReceive: () => void; onOpenTab: (tab: string) => void; cardAccess: string[]; role: string }) {
+  const showCard = (id: string) => role === "ADMIN" || cardAccess.includes(id);
+  const [showVendorOutstanding, setShowVendorOutstanding] = useState(false);
+  const pendingVendors = (data.outstanding || []).filter((r: any) => Number(r.outstanding) > 0);
+  const pendingBills = data.pendingPurchaseBills || [];
+  return (
+    <div className="space-y-5">
+      <section className="dashboard-welcome">
+        <div className="min-w-0">
+          <div className="dashboard-eyebrow">FINANCE OVERVIEW</div>
+          <h2>Good business starts with clarity.</h2>
+          <p>Review cash position, upcoming obligations, collections and realised finance performance.</p>
+        </div>
+        <div className="dashboard-actions">
+          <button className="primary btn" onClick={() => onOpenTab("purchase")}>
+            <FiShoppingCart size={15} /> New purchase
+          </button>
+          <button className="dashboard-action-secondary btn" onClick={() => onOpenTab("payments")}>
+            <FiCreditCard size={15} /> Record payment
+          </button>
+        </div>
+      </section>
+      <RevenueDashboard data={data} money={money} onOpenTab={onOpenTab} />
+      <section className="dashboard-quick-actions" aria-label="Quick actions">
+        <button onClick={() => onOpenTab("parties")}>
+          <FiUsers size={17} />
+          <span>Add party</span>
+          <FiChevronRight size={15} />
+        </button>
+        <button onClick={() => onOpenTab("money-in")}>
+          <FiDollarSign size={17} />
+          <span>Record receipt</span>
+          <FiChevronRight size={15} />
+        </button>
+        <button onClick={() => onOpenTab("receivables")}>
+          <FiClock size={17} />
+          <span>View receivables</span>
+          <FiChevronRight size={15} />
+        </button>
+        <button onClick={() => onOpenTab("reports")}>
+          <FiBarChart2 size={17} />
+          <span>Open reports</span>
+          <FiChevronRight size={15} />
+        </button>
+      </section>
+      <div className="dashboard-section-heading">
+        <div>
+          <h3>Key indicators</h3>
+          <p>Current company and environment totals</p>
+        </div>
+        <span className="dashboard-live-tag">
+          <span /> {data?.stats ? "Data loaded" : "Loading data"}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-6">
+        {showCard("kpi-parties") && <KPI label="Parties" value={data.stats?.parties || 0} />}
+        {showCard("kpi-purchase-cost") && <KPI label="Purchase Cost" value={money(data.stats?.purchases || 0)} />}
+        {showCard("kpi-paid") && <KPI label="Paid" value={money(data.stats?.payments || 0)} />}
+        {showCard("kpi-vendor-outstanding") && <KPI label="Vendor Outstanding" value={money(data.stats?.outstanding || 0)} onClick={() => setShowVendorOutstanding(true)} />}
+        {showCard("kpi-finance-profit") && <KPI label="Finance Profit" value={money(data.profit?.profit || 0)} />}
+        {showCard("kpi-average-earning") && <KPI label="Avg Profit / Bill Month" value={money(data.averageMonthlyProfit || 0)} />}
+      </div>
+      <div className="dashboard-section-heading mt-2">
+        <div>
+          <h3>Action centre</h3>
+          <p>Items that may need attention soon</p>
+        </div>
+        <button className="dashboard-text-link" onClick={() => onOpenTab("reports")}>
+          View reports <FiChevronRight size={14} />
+        </button>
+      </div>
+      {showCard("business-pulse") && (
+        <div className="business-pulse mb-4 rounded-2xl border p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[.18em] text-teal-700">Business Pulse</div>
+              <h2 className="mt-1 text-lg font-black">
+                Next scheduled payment:{" "}
+                {data.nextFunding
+                  ? `${data.nextFunding.lender_name} • ${money(data.nextFunding.interest_amount - data.nextFunding.paid_amount)} • ${data.nextFunding.due_date}`
+                  : "No funding payment scheduled"}
+              </h2>
+              <p className="muted mt-1 text-xs">Average uses months represented in receivable bill data; it is not a trailing-12-month forecast.</p>
+            </div>
+            <button className="secondary btn text-xs" onClick={() => onOpenTab("funding")}>
+              OPEN FUNDING
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+        {showCard("due-pay-today") && <DueCard title="PAY TODAY" rows={data.todayPayable || []} amountKey="due_amount" partyKey="party_name" billKey="invoice_no" dateKey="payment_due_date" />}
+        {showCard("due-pay-tomorrow") && (
+          <DueCard title="PAY TOMORROW" rows={data.tomorrowPayable || []} amountKey="due_amount" partyKey="party_name" billKey="invoice_no" dateKey="payment_due_date" />
+        )}
+        {showCard("due-receive-today") && <DueCard title="RECEIVE TODAY" rows={data.todayReceivable || []} amountKey="outstanding" partyKey="party_name" billKey="bill_no" dateKey="due_date" />}
+        {showCard("due-receive-tomorrow") && (
+          <DueCard title="RECEIVE TOMORROW" rows={data.tomorrowReceivable || []} amountKey="outstanding" partyKey="party_name" billKey="bill_no" dateKey="due_date" />
+        )}
+        {showCard("due-interest-today") && <DueCard title="INTEREST TODAY" rows={data.fundingToday || []} amountKey="interest_amount" partyKey="lender_name" billKey="loan_no" dateKey="due_date" />}
+        {showCard("due-interest-tomorrow") && (
+          <DueCard title="INTEREST TOMORROW" rows={data.fundingTomorrow || []} amountKey="interest_amount" partyKey="lender_name" billKey="loan_no" dateKey="due_date" />
+        )}
+        {showCard("due-this-week") && (
+          <DueCard
+            title="THIS WEEK"
+            rows={[
+              ...(data.duePayables || []).map((x: any) => ({
+                ...x,
+                _kind: "PAY",
+                _party: x.party_name,
+                _bill: x.invoice_no || x.sample_no,
+                _amount: Math.max(0, x.net_payable - x.paid),
+                _date: x.payment_due_date,
+              })),
+              ...(data.dueReceivables || []).map((x: any) => ({ ...x, _kind: "RECEIVE", _party: x.party_name, _bill: x.bill_no, _amount: x.outstanding, _date: x.due_date })),
+            ]}
+            amountKey="_amount"
+            partyKey="_party"
+            billKey="_bill"
+            dateKey="_date"
+          />
+        )}
+      </div>
+      {showCard("overdue-payables") && (
+        <div className="card overflow-hidden border-amber-200">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-100 bg-amber-50 p-4 sm:p-5">
+            <div>
+              <h2 className="font-black text-amber-950">Overdue Payables — Vendor Payments</h2>
+              <p className="mt-1 text-xs text-amber-800">Past-due purchase bills, outstanding balance and days overdue.</p>
+            </div>
+            <KPI label="Total Overdue" value={money((data.overduePayables || []).reduce((a: number, r: any) => a + Number(r.due_amount || 0), 0))} />
+          </div>
+          <div className="p-4 sm:p-5">
+            <Table rows={data.overduePayables || []} cols={["sample_no", "party_name", "invoice_no", "payment_due_date", "days_overdue", "due_amount"]} />
+          </div>
+        </div>
+      )}
+      {showCard("overdue-receivables") && (
+        <div className="card overflow-hidden border-rose-200">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rose-100 bg-rose-50 p-4 sm:p-5">
+            <div>
+              <h2 className="font-black text-rose-950">Overdue Receivables — Not Received</h2>
+              <p className="mt-1 text-xs text-rose-800">Sample number, overdue days and amount still receivable.</p>
+            </div>
+            <KPI label="Total Overdue" value={money((data.overdueReceivables || []).reduce((a: number, r: any) => a + Number(r.outstanding || 0), 0))} />
+          </div>
+          <div className="p-4 sm:p-5">
+            <Table rows={data.overdueReceivables || []} cols={["sample_no", "party_name", "bill_no", "due_date", "days_overdue", "outstanding"]} />
+          </div>
+        </div>
+      )}
+      <div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
+        {showCard("bank-cash") && (
+          <div className="card p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div>
+                <h2 className="font-bold">Bank / Cash</h2>
+                <p className="muted text-xs">Opening balance + receipts − payments</p>
+              </div>
+              <button className="secondary btn text-xs" onClick={() => onOpenTab("accounts")}>
+                Manage Accounts
+              </button>
+            </div>
+            <Table rows={data.accounts || []} cols={["account_name", "bank_name", "account_number", "balance"]} />
+          </div>
+        )}
+        {showCard("realised-profit") && (
+          <div className="card p-4 sm:p-6">
+            <h2 className="font-bold">Realised Finance Profit</h2>
+            <p className="muted text-sm mt-1">Discount + Other Charges − Interest Paid. Profit is realised as receivables are collected.</p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <KPI label="Receivable" value={money(data.profit?.sales || 0)} />
+              <KPI label="Cost" value={money(data.profit?.cost || 0)} />
+              <KPI label="Profit after Interest" value={money(data.profit?.profit || 0)} />
+              <KPI label="Margin" value={`${Number(data.profit?.margin || 0).toFixed(2)}%`} />
+            </div>
+            <button className="primary btn mt-5 w-full" onClick={onReceive}>
+              Open Receivables
+            </button>
+          </div>
+        )}
+      </div>
+      {showCard("charts") && (
+        <>
+          <div className="dashboard-section-heading mt-2">
+            <div>
+              <h3>Performance trends</h3>
+              <p>Trends from recorded finance data</p>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+            <ChartCard title="Profit by Bill Month (Estimated)" subtitle="Profit is allocated by receivable bill month; interest is grouped by payment month." data={data.monthlyProfit || []} />
+            <ChartCard title="Monthly Account Credits" subtitle="Credit transactions posted to bank/cash accounts, including internal transfers." data={data.monthlyCashIn || []} />
+            <ChartCard title="Upcoming Funding Interest" subtitle="Outstanding scheduled interest by due month." data={data.fundingUpcoming || []} />
+          </div>
+        </>
+      )}
+      {showVendorOutstanding && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-3 sm:p-6" onClick={() => setShowVendorOutstanding(false)}>
+          <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 sm:p-6">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[.18em] text-orange-600">Vendor Outstanding</div>
+                <h2 className="mt-1 text-xl font-black">Pending Vendor Payments</h2>
+                <p className="mt-1 text-xs text-slate-500">Only vendors and purchase bills with an unpaid balance are shown.</p>
+              </div>
+              <button className="secondary btn text-xs" onClick={() => setShowVendorOutstanding(false)}>
+                CLOSE
+              </button>
+            </div>
+            <div className="max-h-[calc(90vh-105px)] overflow-auto p-5 sm:p-6">
+              <div className="mb-5 grid gap-3 sm:grid-cols-3">
+                <KPI label="Pending Vendors" value={pendingVendors.length} />
+                <KPI label="Pending Bills" value={pendingBills.length} />
+                <KPI label="Total Pending" value={money(pendingVendors.reduce((a: number, r: any) => a + Math.max(0, Number(r.outstanding || 0)), 0))} />
+              </div>
+              <div className="card overflow-hidden">
+                <div className="border-b border-slate-200 p-4">
+                  <h3 className="font-bold">Vendor-wise Pending</h3>
+                </div>
+                <Table rows={pendingVendors} cols={["name", "purchases", "payments", "outstanding"]} />
+              </div>
+              <div className="card mt-4 overflow-hidden">
+                <div className="border-b border-slate-200 p-4">
+                  <h3 className="font-bold">Pending Purchase Bills</h3>
+                </div>
+                <Table rows={pendingBills} cols={["purchase_date", "party_name", "invoice_no", "sample_no", "net_payable", "paid_amount", "outstanding"]} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function ChartCard({ title, subtitle, data }: { title: string; subtitle?: string; data: any[] }) {
+  const vals = (data || []).map((x) => Number(x.value || 0));
+  const max = Math.max(...vals, 1);
+  return (
+    <div className="card p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="font-bold">{title}</h2>
+        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Trend</span>
+      </div>
+      {subtitle && <p className="mt-1 min-h-8 text-[10px] leading-4 text-slate-500">{subtitle}</p>}
+      <div className="mt-4 flex h-32 items-end gap-1 overflow-hidden">
+        {(data || []).slice(-12).map((x: any, i: number) => (
+          <div key={i} className="group flex h-full flex-1 flex-col justify-end">
+            <div
+              title={`${x.label}: ${money(x.value)}`}
+              className="chart-bar mx-auto w-full max-w-8 rounded-t-lg transition-all duration-200"
+              style={{ height: `${Math.max(4, (Number(x.value || 0) / max) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] text-slate-500">
+        {(data || []).slice(-3).map((x: any, i: number) => (
+          <div key={i} className="truncate text-center">
+            {x.label}
+            <br />
+            <b className="text-slate-800">{money(x.value)}</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Funding({ data, form, setForm, save, mode, api, load }: { data: any; form: any; setForm: any; save: any; mode: Mode; api: any; load: any }) {
+  const loans = data.fundingLoans || [];
+  const schedule = data.fundingSchedule || [];
+  const [pay, setPay] = useState<any>(null);
+  const postPay = async () => {
+    try {
+      const j = await api("/funding/pay", { method: "POST", body: JSON.stringify({ mode, ...pay }) });
+      setPay(null);
+      load();
+    } catch (e: any) {}
+  };
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-5 xl:grid-cols-[460px_minmax(0,1fr)]">
+        <div className="card p-5 sm:p-6">
+          <div className="mb-5">
+            <div className="text-xs font-black uppercase tracking-[.16em] text-indigo-600">Funding / Lenders</div>
+            <h2 className="mt-1 text-xl font-black">Add Loan / Funding</h2>
+            <p className="muted mt-1 text-sm">Track money borrowed, interest terms and the next scheduled payment.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <PartyPicker
+                parties={data.parties || []}
+                value={form.lender_party_id}
+                onChange={(id) => {
+                  const p = (data.parties || []).find((x: any) => x.id === id);
+                  setForm({
+                    ...form,
+                    lender_party_id: id,
+                    lender_name: p?.name || form.lender_name,
+                    bank_name: p?.bank_name || form.bank_name,
+                    account_number: p?.account_number || form.account_number,
+                    ifsc: p?.ifsc || form.ifsc,
+                  });
+                }}
+              />
+            </div>
+            <Field label="Lender Name" k="lender_name" obj={form} setObj={setForm} />
+            <Field label="Loan No" k="loan_no" obj={form} setObj={setForm} />
+            <Field label="Principal Amount" k="principal_amount" obj={form} setObj={setForm} type="number" />
+            <Field label="Loan Start Date" k="loan_start_date" obj={form} setObj={setForm} type="date" />
+            <SelectField label="Interest Type" k="interest_type" obj={form} setObj={setForm} options={{ PERCENT: "Percentage", FIXED: "Fixed Amount" }} />
+            {form.interest_type === "PERCENT" ? (
+              <Field label="Interest Rate %" k="interest_rate" obj={form} setObj={setForm} type="number" />
+            ) : (
+              <Field label="Interest / Period" k="fixed_interest_amount" obj={form} setObj={setForm} type="number" />
+            )}
+            <SelectField label="Frequency" k="frequency" obj={form} setObj={setForm} options={{ MONTHLY: "Monthly", QUARTERLY: "Quarterly", YEARLY: "Yearly" }} />
+            <Field label="First Payment Date (optional)" k="first_payment_date" obj={form} setObj={setForm} type="date" />
+            <Field label="Bank Name" k="bank_name" obj={form} setObj={setForm} />
+            <Field label="Account Number" k="account_number" obj={form} setObj={setForm} />
+            <Field label="IFSC" k="ifsc" obj={form} setObj={setForm} />
+            <div className="sm:col-span-2">
+              <Field label="Notes" k="notes" obj={form} setObj={setForm} />
+            </div>
+          </div>
+          <InlineFeedback />
+          <button className="primary btn mt-5 w-full" onClick={save}>
+            {form.id ? "UPDATE FUNDING" : "SAVE FUNDING"}
+          </button>
+        </div>
+        <div className="card overflow-hidden">
+          <div className="border-b border-slate-200 p-5 sm:p-6">
+            <h2 className="text-lg font-black">Active Funding</h2>
+            <p className="muted text-sm">Next interest due and outstanding scheduled interest.</p>
+          </div>
+          <Table
+            rows={loans}
+            cols={["loan_no", "lender_name", "principal_amount", "interest_type", "interest_rate", "fixed_interest_amount", "frequency", "next_due_date", "outstanding_interest", "status"]}
+            action={(r: any) => (
+              <button
+                className="secondary btn text-xs"
+                onClick={() => setForm({ ...r, lender_party_id: r.lender_party_id || "", loan_start_date: r.loan_start_date || today(), first_payment_date: r.first_payment_date || "" })}
+              >
+                Edit
+              </button>
+            )}
+          />
+        </div>
+      </div>
+      <div className="card p-5 sm:p-6">
+        <h2 className="text-lg font-black">Interest Schedule</h2>
+        <div className="mt-4">
+          <Table
+            rows={schedule}
+            cols={["loan_no", "lender_name", "due_date", "interest_amount", "paid_amount", "status"]}
+            action={(r: any) =>
+              r.status !== "PAID" ? (
+                <button
+                  className="primary btn text-xs"
+                  onClick={() =>
+                    setPay({
+                      schedule_id: r.id,
+                      amount: Math.max(0, Number(r.interest_amount) - Number(r.paid_amount || 0)),
+                      account_id: data.accounts?.[0]?.id || "",
+                      payment_date: today(),
+                      payee: r.lender_name,
+                    })
+                  }
+                >
+                  PAY INTEREST
+                </button>
+              ) : null
+            }
+          />
+        </div>
+        {pay && (
+          <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Amount" k="amount" obj={pay} setObj={setPay} type="number" />
+              <Field label="Payment Date" k="payment_date" obj={pay} setObj={setPay} type="date" />
+              <label className="text-sm font-semibold">
+                Pay From
+                <select value={pay.account_id || ""} onChange={(e) => setPay({ ...pay, account_id: Number(e.target.value) })}>
+                  <option value="">Select account</option>
+                  {(data.accounts || []).map((a: any) => (
+                    <option key={a.id} value={a.id}>
+                      {a.account_name} • {money(a.balance)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button className="primary btn" onClick={postPay}>
+                POST INTEREST
+              </button>
+              <button className="secondary btn" onClick={() => setPay(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CSVImport({ mode, companyId, api, load }: { mode: Mode; companyId: number; api: any; load: any }) {
+  const TYPES: any = {
+    PARTIES: {
+      label: "Parties",
+      desc: "Create/update your party master and opening balances.",
+      headers: [
+        "Name",
+        "Address",
+        "Contact",
+        "Email",
+        "GSTIN",
+        "PAN",
+        "Party Type",
+        "Entity Type",
+        "Resident Status",
+        "PAN Status",
+        "TDS Enabled",
+        "TDS Section",
+        "TDS Rate",
+        "TDS Exempt",
+        "Opening Balance",
+        "Opening Balance Type",
+        "Active",
+      ],
+      required: ["Name"],
+    },
+    THIRD_PARTIES: { label: "Third Parties", desc: "Register parties used only for commercial bills.", headers: ["Name", "Address", "Contact", "Email", "GSTIN", "PAN", "Active"], required: ["Name"] },
+    BANK_ACCOUNTS: {
+      label: "Party Bank Accounts",
+      desc: "Add bank details against existing parties.",
+      headers: ["Party Name", "Bank Name", "Account Holder", "Account Number", "IFSC", "Branch", "Is Primary"],
+      required: ["Party Name", "Bank Name", "Account Number"],
+    },
+    COMPANY_ACCOUNTS: {
+      label: "Company Bank / Cash Accounts",
+      desc: "Create your own bank/cash accounts and opening balances.",
+      headers: ["Account Name", "Bank Name", "Account Number", "IFSC", "Branch", "Account Type", "Opening Balance", "Opening Date", "Active"],
+      required: ["Account Name", "Bank Name"],
+    },
+    PURCHASES: {
+      label: "Purchases / Samples",
+      desc: "Import purchase/sample transactions into the vendor ledger.",
+      headers: [
+        "Sample No",
+        "Party Name",
+        "Purchase Date",
+        "Goods Description",
+        "Bags Qty",
+        "Invoice No",
+        "HSN",
+        "GST Type",
+        "GST Rate",
+        "GST Taxable",
+        "GST Amount",
+        "Gross Weight",
+        "Net Weight",
+        "Rate",
+        "Freight",
+        "Unload Charge",
+        "Moisture",
+        "Discount %",
+        "Driver Rokdi",
+        "Other Charges",
+        "Quality Deduct Per MT",
+        "Payment Due Days",
+        "Payment Due Date",
+        "Notes",
+      ],
+      required: ["Party Name", "Purchase Date", "Net Weight", "Rate"],
+    },
+    PAYMENTS: {
+      label: "Payments",
+      desc: "Import vendor payments. Bill No + Allocation Amount can allocate against a purchase.",
+      headers: [
+        "Payment No",
+        "Party Name",
+        "Payment Date",
+        "Amount",
+        "Mode",
+        "Company Account",
+        "UTR",
+        "Broker Name",
+        "Broker Email",
+        "Notes",
+        "Bill No",
+        "Allocation Amount",
+        "TDS Rate",
+        "TDS Amount",
+      ],
+      required: ["Party Name", "Payment Date", "Amount"],
+    },
+    MONEY_IN: {
+      label: "Money In / Receipts",
+      desc: "Record money received into a company bank/cash account.",
+      headers: ["Receipt No", "Receipt Date", "Account Name", "Amount", "Receipt Type", "Party Name", "Reference No", "Narration"],
+      required: ["Receipt Date", "Account Name", "Amount"],
+    },
+    INTEREST_PAYMENTS: {
+      label: "Interest Payments",
+      desc: "Import interest paid from a company bank/cash account.",
+      headers: ["Payment No", "Payment Date", "Account Name", "Amount", "Payee", "Party Name", "Reference No", "Narration"],
+      required: ["Payment Date", "Account Name", "Amount"],
+    },
+    FUNDING_LOANS: {
+      label: "Funding / Loans",
+      desc: "Register borrowed funds and generate the recurring interest schedule.",
+      headers: [
+        "Loan No",
+        "Lender Name",
+        "Loan Start Date",
+        "Principal Amount",
+        "Interest Type",
+        "Interest Rate",
+        "Fixed Interest Amount",
+        "Frequency",
+        "First Payment Date",
+        "Bank Name",
+        "Account Number",
+        "IFSC",
+        "Notes",
+      ],
+      required: ["Lender Name", "Loan Start Date", "Principal Amount"],
+    },
+    SALES: {
+      label: "Sales / Receivables",
+      desc: "Import sales invoices and their receivable calculation.",
+      headers: [
+        "Invoice No",
+        "Invoice Date",
+        "Customer Name",
+        "Customer GSTIN",
+        "Place of Supply",
+        "Invoice Type",
+        "HSN",
+        "Description",
+        "Taxable Value",
+        "Discount %",
+        "GST Rate",
+        "Due Days",
+        "Due Date",
+        "Cost Amount",
+      ],
+      required: ["Invoice No", "Invoice Date", "Customer Name", "Taxable Value"],
+    },
+    RECEIVABLES: {
+      label: "Financing Receivables",
+      desc: "Import historical cost/receivable records. Existing bills are skipped.",
+      headers: [
+        "Bill No",
+        "Bill Date",
+        "Party Name",
+        "Cost Amount",
+        "Discount Amount",
+        "Other Charges Profit",
+        "Receivable Amount",
+        "Due Days",
+        "Due Date",
+        "Received Amount",
+        "Received Date",
+        "Notes",
+      ],
+      required: ["Bill No", "Bill Date", "Party Name", "Cost Amount", "Receivable Amount"],
+    },
+  };
+  const [type, setType] = useState("PURCHASES"),
+    [file, setFile] = useState<File | null>(null),
+    [preview, setPreview] = useState<any[]>([]),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false),
+    [previewHeaders, setPreviewHeaders] = useState<string[]>([]);
+  const cfg = TYPES[type];
+  const downloadTemplate = () => {
+    const csv = cfg.headers.join(",") + "\n";
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `SOLIVY-${type}-TEMPLATE.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const read = async () => {
+    if (!file) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("mode", mode);
+      fd.append("company_id", String(companyId));
+      fd.append("transaction_type", type);
+      fd.append("action", "preview");
+      const r = await fetch("/api/import-finance", { method: "POST", headers: { "x-aksh-mode": mode, "x-aksh-company-id": String(companyId) }, body: fd });
+      const j = await r.json();
+      if (!r.ok) throw Error(j.error || "Import preview failed");
+      setPreview(j.rows || []);
+      setPreviewHeaders(j.headers || []);
+      setNotice(`${j.totalRows || j.rows?.length || 0} rows validated for ${cfg.label}.`);
+    } catch (e: any) {
+      setPreview([]);
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const commit = async () => {
+    if (!file || !preview.length) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("mode", mode);
+      fd.append("company_id", String(companyId));
+      fd.append("transaction_type", type);
+      fd.append("action", "import");
+      const r = await fetch("/api/import-finance", { method: "POST", headers: { "x-aksh-mode": mode, "x-aksh-company-id": String(companyId) }, body: fd });
+      const j = await r.json();
+      if (!r.ok) throw Error(j.error || "Import failed");
+      if (j.newLedgersReport) {
+        const a = document.createElement("a");
+        a.href = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + j.newLedgersReport;
+        a.download = `SOLIVY-new-ledgers-${new Date().toISOString().slice(0, 10)}.xlsx`;
+        a.click();
+      }
+      setNotice(
+        `Imported ${j.imported} ${cfg.label.toLowerCase()}. New ledgers created: ${j.partiesCreated || 0}. Existing/duplicate rows skipped: ${j.skippedExisting || 0}. ${j.partiesCreated ? "A downloadable new-ledgers Excel report was generated." : ""}`,
+      );
+      setPreview([]);
+      setFile(null);
+      load();
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-5">
+      <div className="card p-5 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[.16em] text-indigo-600">Migration Center</div>
+            <h2 className="mt-1 text-xl font-black">Import data by transaction type</h2>
+            <p className="muted mt-2 text-sm">Select exactly what you are uploading. SOLIVY will show the required CSV headers before you choose the file and will validate them before import.</p>
+          </div>
+          <button className="secondary btn" onClick={downloadTemplate}>
+            DOWNLOAD TEMPLATE
+          </button>
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <div>
+            <label className="text-sm font-semibold">
+              What type of data are you uploading?
+              <select
+                value={type}
+                onChange={(e) => {
+                  setType(e.target.value);
+                  setFile(null);
+                  setPreview([]);
+                  setNotice("");
+                }}
+              >
+                {Object.entries(TYPES).map(([k, v]: any) => (
+                  <option key={k} value={k}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="mt-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+              <div className="font-black text-indigo-950">{cfg.label}</div>
+              <p className="mt-1 text-sm text-indigo-900/80">{cfg.desc}</p>
+              <div className="mt-3 text-xs font-bold uppercase tracking-wider text-indigo-700">Required</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {cfg.required.map((h: string) => (
+                  <span key={h} className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-indigo-800 ring-1 ring-indigo-200">
+                    {h}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-black uppercase tracking-wider text-slate-500">CSV headers for this selection</div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {cfg.headers.map((h: string) => (
+                  <div
+                    key={h}
+                    className={`rounded-xl border bg-white px-3 py-2 text-xs font-semibold ${cfg.required.includes(h) ? "border-indigo-300 text-indigo-900" : "border-slate-200 text-slate-700"}`}
+                  >
+                    <span className="mr-1 text-slate-400">{cfg.required.includes(h) ? "Required" : "Optional"}</span>
+                    {h}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4">
+              <InlineFeedback />
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+                <input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+                <button className="secondary btn" disabled={!file || busy} onClick={read}>
+                  VALIDATE & PREVIEW
+                </button>
+                <button className="primary btn" disabled={!file || busy || !preview.length} onClick={commit}>
+                  IMPORT
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {notice && <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm font-semibold text-indigo-900">{notice}</div>}
+      </div>
+      {preview.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="border-b border-slate-200 p-5">
+            <h3 className="font-black">Preview — first {preview.length} rows</h3>
+            <p className="muted mt-1 text-xs">Headers detected: {previewHeaders.join(" • ")}</p>
+          </div>
+          <Table rows={preview.slice(0, 100)} cols={previewHeaders.filter((h) => Object.prototype.hasOwnProperty.call(preview[0], h))} />
+        </div>
+      )}
+      <div className="card p-5 sm:p-6">
+        <h3 className="font-black">Import rules</h3>
+        <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-600">
+          <li>Use the template for the selected transaction type; required headers cannot be missing.</li>
+          <li>Preview never writes to the database.</li>
+          <li>Duplicate parties, bills, payment numbers and receipt numbers are skipped where the module supports a unique reference.</li>
+          <li>Bank/account names must already exist for transaction imports that post money to an account.</li>
+          <li>Use TEST mode for historical cleanup/testing before importing into LIVE.</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+function DueCard({ title, rows, amountKey, partyKey, billKey, dateKey }: { title: string; rows: any[]; amountKey: string; partyKey: string; billKey: string; dateKey: string }) {
+  return (
+    <div className="card p-4 sm:p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-bold">{title}</h2>
+        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold">{rows.length}</span>
+      </div>
+      {rows.length ? (
+        <div className="space-y-2">
+          {rows.slice(0, 6).map((r: any) => (
+            <div key={r.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3">
+              <div className="min-w-0">
+                <div className="font-semibold truncate">{r[partyKey]}</div>
+                <div className="text-xs text-slate-500">
+                  {r._kind && <b className="mr-1">{r._kind}</b>}Bill {r[billKey] || r.sample_no || "—"} • {r[dateKey] || r.due_date || r.payment_due_date}
+                </div>
+              </div>
+              <div className="font-bold whitespace-nowrap">{money(r[amountKey])}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="py-7 text-center text-sm muted">Nothing due.</div>
+      )}
+    </div>
+  );
+}
+function KPI({ label, value, onClick }: { label: string; value: any; onClick?: () => void }) {
+  return (
+    <div
+      className={`kpi-card card p-4 sm:p-5 ${onClick ? "is-clickable cursor-pointer" : ""}`}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (onClick && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      <div className="kpi-accent" />
+      <div className="min-w-0">
+        <div className="kpi-label">{label}</div>
+        <div className="mt-2 max-w-full whitespace-nowrap text-lg font-extrabold tracking-tight text-slate-900 tabular-nums sm:text-xl lg:text-2xl">{value}</div>
+      </div>
+      {onClick && (
+        <div className="mt-3 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-teal-700">
+          View details <FiChevronRight size={13} />
+        </div>
+      )}
+    </div>
+  );
+}
+function Ledger({ data, mode }: { data: any; mode: Mode }) {
+  const [q, setQ] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [view, setView] = useState<"party" | "broker">("party");
+  const rows = (data.ledger || []).filter(
+    (r: any) =>
+      `${r.party_name} ${r.reference_no || ""} ${r.entry_type} ${r.narration || ""}`.toLowerCase().includes(q.toLowerCase()) && (!from || r.entry_date >= from) && (!to || r.entry_date <= to),
+  );
+  const brokerRows = (data.purchases || [])
+    .filter((r: any) => r.broker_party_id || r.broker_party_name)
+    .filter(
+      (r: any) =>
+        `${r.broker_party_name || ""} ${r.party_name || ""} ${r.sample_no || ""} ${r.invoice_no || ""}`.toLowerCase().includes(q.toLowerCase()) &&
+        (!from || r.purchase_date >= from) &&
+        (!to || r.purchase_date <= to),
+    );
+  return (
+    <div className="card p-4 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold">{view === "party" ? "Party-wise Ledger" : "Broker-wise Purchase Ledger"}</h2>
+          <p className="muted text-sm">
+            {view === "party"
+              ? "Opening balance + purchases − payments."
+              : "Purchases linked to each broker, including vendor, sample and payable amounts. Broker commissions are not inferred unless recorded separately."}
+          </p>
+        </div>
+        <a className="secondary btn text-xs" href={`/api/export/ledger?mode=${mode}&company_id=${Number(sessionStorage.getItem("aksh-company-id") || 1)}`}>
+          Excel
+        </a>
+      </div>
+      <div className="mb-4 inline-flex max-w-full flex-wrap gap-2 rounded-xl bg-slate-100 p-1">
+        <button className={`btn text-xs ${view === "party" ? "primary" : "secondary"}`} onClick={() => setView("party")}>
+          Party Ledger
+        </button>
+        <button className={`btn text-xs ${view === "broker" ? "primary" : "secondary"}`} onClick={() => setView("broker")}>
+          Broker Ledger
+        </button>
+      </div>
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <input placeholder={view === "party" ? "Search party / bill / entry…" : "Search broker / vendor / sample…"} value={q} onChange={(e) => setQ(e.target.value)} />
+        <input aria-label="From date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input aria-label="To date" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+      </div>
+      {view === "party" ? (
+        <Table
+          rows={rows}
+          cols={["entry_date", "party_name", "entry_type", "reference_no", "debit", "credit", "narration"]}
+          action={(r: any) => (
+            <div className="flex gap-2">
+              <a
+                title="Email ledger entry"
+                aria-label="Email ledger entry"
+                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2"
+                href={`mailto:${encodeURIComponent(r.party_email || "")}?subject=${encodeURIComponent(`Ledger ${r.party_name}`)}&body=${encodeURIComponent(`Party: ${r.party_name}\nDate: ${r.entry_date}\nType: ${r.entry_type}\nReference: ${r.reference_no || "—"}\nDebit: ${money(r.debit)}\nCredit: ${money(r.credit)}\n${r.narration || ""}`)}`}
+              >
+                <FaEnvelope />
+              </a>
+              <a
+                title="WhatsApp ledger entry"
+                aria-label="WhatsApp ledger entry"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-green-600"
+                href={`https://wa.me/?text=${encodeURIComponent(`Ledger Entry\nParty: ${r.party_name}\nDate: ${r.entry_date}\nType: ${r.entry_type}\nReference: ${r.reference_no || "—"}\nDebit: ${money(r.debit)}\nCredit: ${money(r.credit)}`)}`}
+              >
+                <FaWhatsapp />
+              </a>
+            </div>
+          )}
+        />
+      ) : (
+        <>
+          <div className="mb-3 grid gap-3 sm:grid-cols-3">
+            <KPI label="Linked Purchases" value={brokerRows.length} />
+            <KPI label="Net Payable" value={money(brokerRows.reduce((a: number, r: any) => a + Number(r.net_payable || 0), 0))} />
+            <KPI label="Outstanding" value={money(brokerRows.reduce((a: number, r: any) => a + Math.max(0, Number(r.outstanding || 0)), 0))} />
+          </div>
+          <Table rows={brokerRows} cols={["purchase_date", "broker_party_name", "party_name", "sample_no", "invoice_no", "net_payable", "paid_amount", "outstanding"]} />
+        </>
+      )}
+    </div>
+  );
+}
+function AccountMovements({ data, form, setForm, save, mode }: { data: any; form: any; setForm: any; save: any; mode: Mode }) {
+  const rows = data.accountMovements || [];
+  const isTransfer = form.movement_type === "TRANSFER";
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
+      <div className="card p-4 sm:p-6">
+        <div className="mb-5">
+          <div className="text-xs font-black uppercase tracking-[.16em] text-indigo-600">Bank / Cash Movement</div>
+          <h2 className="mt-1 text-xl font-black">Withdrawal / Transfer</h2>
+          <p className="muted mt-1 text-sm">Withdrawal removes money from an account. Transfer moves money between two company bank/cash accounts without changing total company funds.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SelectField label="Movement Type" k="movement_type" obj={form} setObj={setForm} options={{ WITHDRAWAL: "Withdrawal", TRANSFER: "Transfer" }} />
+          <Field label="Date" k="movement_date" obj={form} setObj={setForm} type="date" />
+          <Field label="Amount" k="amount" obj={form} setObj={setForm} type="number" />
+          <Field label="Movement No (optional)" k="movement_no" obj={form} setObj={setForm} />
+          <label className="text-sm font-semibold sm:col-span-2">
+            From Account
+            <select value={form.from_account_id || ""} onChange={(e) => setForm((p: any) => ({ ...p, from_account_id: Number(e.target.value) }))}>
+              <option value="">Select source account</option>
+              {(data.accounts || []).map((a: any) => (
+                <option key={a.id} value={a.id}>
+                  {a.account_name} • {a.bank_name} • Available {money(a.balance)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {isTransfer && (
+            <label className="text-sm font-semibold sm:col-span-2">
+              To Account
+              <select value={form.to_account_id || ""} onChange={(e) => setForm((p: any) => ({ ...p, to_account_id: Number(e.target.value) }))}>
+                <option value="">Select destination account</option>
+                {(data.accounts || []).map((a: any) => (
+                  <option key={a.id} value={a.id}>
+                    {a.account_name} • {a.bank_name} • Balance {money(a.balance)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <Field label="Reference No" k="reference_no" obj={form} setObj={setForm} />
+          <Field label="Narration" k="narration" obj={form} setObj={setForm} />
+        </div>
+        {form.from_account_id && (
+          <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-xs text-indigo-900">
+            <b>Source balance:</b> {money((data.accounts || []).find((a: any) => Number(a.id) === Number(form.from_account_id))?.balance || 0)}{" "}
+            {isTransfer ? " • Destination balance is unchanged in total company funds." : " • This amount will be deducted from the selected account."}
+          </div>
+        )}
+        <InlineFeedback />
+        <button className="primary btn mt-5 w-full" onClick={save}>
+          POST {isTransfer ? "TRANSFER" : "WITHDRAWAL"}
+        </button>
+      </div>
+      <div className="card overflow-hidden p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-lg">Withdrawal / Transfer History</h2>
+            <p className="muted text-sm">All account movements are shown here.</p>
+          </div>
+          <span className="badge">{mode} MODE</span>
+        </div>
+        <div className="mt-4">
+          <Table rows={rows} cols={["movement_no", "movement_type", "movement_date", "from_account_name", "to_account_name", "amount", "reference_no", "narration", "status"]} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Accounts({ data, account, setAccount, save, mode }: { data: any; account: any; setAccount: any; save: any; mode: Mode }) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[440px_minmax(0,1fr)]">
+      <div className="card p-4 sm:p-6">
+        <h2 className="font-bold text-lg">Add Bank / Cash Account</h2>
+        <p className="muted text-sm mt-1 mb-5">Set the opening balance first. Payments and customer receipts update the live balance.</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Account Name" k="account_name" obj={account} setObj={setAccount} />
+          <Field label="Bank Name" k="bank_name" obj={account} setObj={setAccount} />
+          <Field label="Account Number" k="account_number" obj={account} setObj={setAccount} />
+          <Field label="IFSC" k="ifsc" obj={account} setObj={setAccount} />
+          <Field label="Branch" k="branch" obj={account} setObj={setAccount} />
+          <label className="text-sm font-medium">
+            Account Type
+            <select value={account.account_type || "BANK"} onChange={(e) => setAccount({ ...account, account_type: e.target.value })}>
+              <option>BANK</option>
+              <option>CASH</option>
+              <option>OD</option>
+              <option>OTHER</option>
+            </select>
+          </label>
+          <Field label="Opening Balance" k="opening_balance" obj={account} setObj={setAccount} type="number" />
+          <Field label="Opening Date" k="opening_date" obj={account} setObj={setAccount} type="date" />
+        </div>
+        <InlineFeedback />
+        <button className="primary btn mt-5 w-full" onClick={save}>
+          SAVE ACCOUNT + OPENING BALANCE
+        </button>
+      </div>
+      <div className="card p-4 sm:p-6">
+        <h2 className="font-bold text-lg mb-3">My Bank / Cash Accounts</h2>
+        <Table
+          rows={data.accounts || []}
+          cols={["account_name", "bank_name", "account_number", "ifsc", "opening_balance", "balance"]}
+          action={(r: any) => (
+            <div className="flex gap-2">
+              <button className="secondary btn text-xs" onClick={() => setAccount(r)}>
+                Edit
+              </button>
+              <button
+                className="btn danger-outline text-xs"
+                onClick={async () => {
+                  if (confirm(`Deactivate ${r.account_name}?`)) {
+                    await fetch(`/api/accounts?mode=${mode}&id=${r.id}`, { method: "DELETE" });
+                    location.reload();
+                  }
+                }}
+              >
+                Deactivate
+              </button>
+            </div>
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+function Parties({ data, party, setParty, save, setMsg, mode }: { data: any; party: any; setParty: any; save: any; setMsg: any; mode: Mode }) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[430px_minmax(0,1fr)]">
+      <div className="card p-4 sm:p-6">
+        <h2 className="font-bold text-lg">{party.id ? "Edit Party" : "Add Party"}</h2>
+        <div className="mt-4 grid gap-3">
+          <Field label="Party Name" k="name" obj={party} setObj={setParty} />
+          <Field label="Address" k="address" obj={party} setObj={setParty} />
+          <Field label="Contact Number" k="contact" obj={party} setObj={setParty} />
+          <Field label="Email" k="email" obj={party} setObj={setParty} />
+          <Field label="GST Number" k="gst" obj={party} setObj={setParty} />
+          <Field label="PAN" k="pan" obj={party} setObj={setParty} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SelectField
+              label="Party Type"
+              k="party_type"
+              obj={party}
+              setObj={setParty}
+              options={{
+                GOODS_VENDOR: "Goods Vendor",
+                CONTRACTOR: "Contractor",
+                PROFESSIONAL: "Professional",
+                COMMISSION: "Commission / Brokerage",
+                BROKER: "Broker",
+                INTEREST: "Interest Payment",
+                RENT: "Rent",
+                OTHER: "Other",
+              }}
+            />
+            <SelectField
+              label="Entity Type"
+              k="entity_type"
+              obj={party}
+              setObj={setParty}
+              options={{ INDIVIDUAL: "Individual", HUF: "HUF", COMPANY: "Company", FIRM: "Firm", LLP: "LLP", OTHER: "Other" }}
+            />
+            <SelectField label="PAN Status" k="pan_status" obj={party} setObj={setParty} options={{ VALID: "Valid / Available", NOT_AVAILABLE: "Not Available", INOPERATIVE: "Inoperative" }} />
+          </div>
+          <div className="rounded-xl bg-blue-50 p-3 text-xs text-blue-800">
+            TDS is decided server-side from party type, payer settings, thresholds and PAN status. Use manual TDS only when your CA gives a special instruction.
+          </div>
+          <label className="text-sm font-medium">
+            <input type="checkbox" className="mr-2" checked={!!party.tds_exempt} onChange={(e) => setParty({ ...party, tds_exempt: e.target.checked })} /> TDS exempt / lower deduction certificate
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Manual TDS Section (CA)" k="tds_section" obj={party} setObj={setParty} />
+            <Field label="Manual TDS Rate % (CA)" k="tds_rate" obj={party} setObj={setParty} type="number" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Opening Balance" k="opening_balance" obj={party} setObj={setParty} type="number" />
+            <SelectField label="Opening Type" k="opening_balance_type" obj={party} setObj={setParty} options={{ PAYABLE: "Payable to Party", RECEIVABLE: "Receivable from Party" }} />
+          </div>
+          <div className="border-t pt-4">
+            <div className="font-semibold text-sm mb-3">Party Bank Account</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Bank Name" k="bank_name" obj={party} setObj={setParty} />
+              <Field label="Account Holder" k="account_holder" obj={party} setObj={setParty} />
+              <Field label="Account Number" k="account_number" obj={party} setObj={setParty} />
+              <Field label="IFSC" k="ifsc" obj={party} setObj={setParty} />
+              <Field label="Branch" k="branch" obj={party} setObj={setParty} />
+            </div>
+          </div>
+          <InlineFeedback />
+          <button className="primary btn w-full mt-2" onClick={save}>
+            {party.id ? "UPDATE PARTY" : "SAVE PARTY"}
+          </button>
+        </div>
+      </div>
+      <div className="card p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="font-bold text-lg">Party Master</h2>
+            <p className="muted text-xs">Financial parties with transactions are deactivated instead of deleted.</p>
+          </div>
+        </div>
+        <Table
+          rows={data.parties || []}
+          cols={["name", "contact", "gst", "active", "opening_balance"]}
+          action={(r: any) => (
+            <div className="flex gap-2">
+              <button className="secondary btn text-xs" onClick={() => setParty(r)}>
+                Edit
+              </button>
+              <button
+                className="danger-outline btn text-xs"
+                onClick={async () => {
+                  if (confirm(`Deactivate/delete ${r.name}?`)) {
+                    await fetch("/api/parties-delete", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ mode, company_id: Number(sessionStorage.getItem("aksh-company-id") || 1), id: r.id }),
+                    });
+                    setMsg("Party deactivated/deleted");
+                    location.reload();
+                  }
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+function PartyDetails({ party, outstanding = 0 }: { party: any; outstanding?: number }) {
+  if (!party) return null;
+  return (
+    <div className="party-detail mt-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-bold">{party.name}</div>
+          <div className="text-xs text-slate-500 mt-1">{party.address || "Address not added"}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] font-bold uppercase text-slate-500">Vendor Outstanding</div>
+          <div className="font-black">{money(outstanding)}</div>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-1 text-xs sm:grid-cols-2">
+        <span>GST: {party.gst || "—"}</span>
+        <span>PAN: {party.pan || "—"}</span>
+        <span>Bank: {party.bank_name || "—"}</span>
+        <span>A/C: {party.account_number || "—"}</span>
+        <span>IFSC: {party.ifsc || "—"}</span>
+        <span>TDS: {party.tds_exempt ? "Exempt/certificate" : "Automatic rule check"}</span>
+      </div>
+    </div>
+  );
+}
+function PartyPicker({ parties, value, onChange }: { parties: any[]; value: any; onChange: (id: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const current = parties.find((p: any) => p.id === Number(value));
+  const filtered = parties.filter((p: any) => p.active && `${p.name} ${p.gst || ""} ${p.pan || ""} ${p.contact || ""}`.toLowerCase().includes(q.toLowerCase())).slice(0, 30);
+  return (
+    <div className="relative">
+      <label className="text-sm font-medium block">
+        Party / Search
+        <div className="relative mt-1.5">
+          <input
+            value={open ? q : current?.name || ""}
+            placeholder="Search party, GST, PAN…"
+            onFocus={() => {
+              setOpen(true);
+              setQ("");
+            }}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setOpen(true);
+            }}
+          />
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">⌄</span>
+        </div>
+      </label>
+      {open && (
+        <>
+          <button className="fixed inset-0 z-40 cursor-default bg-transparent" aria-label="Close party picker" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 right-0 top-[76px] z-50 max-h-80 overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+            {filtered.length ? (
+              filtered.map((p: any) => (
+                <button
+                  type="button"
+                  key={p.id}
+                  onClick={() => {
+                    onChange(p.id);
+                    setQ("");
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left hover:bg-slate-50"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-orange-50 text-xs font-black text-orange-600">{p.name.slice(0, 1).toUpperCase()}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-slate-800">{p.name}</span>
+                    <span className="mt-0.5 block truncate text-xs text-slate-500">
+                      {p.gst || "No GST"} • {p.contact || "No contact"}
+                    </span>
+                  </span>
+                </button>
+              ))
+            ) : (
+              <div className="p-5 text-center text-sm text-slate-500">No matching party</div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+async function reverseFromUI(mode: Mode, type: string, id: number) {
+  const reason = prompt(`Reason for reversing ${type.toLowerCase()}?`, "Wrong entry");
+  if (reason === null) return;
+  const rr = await fetch("/api/reverse", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode, company_id: Number(sessionStorage.getItem("aksh-company-id") || 1), type, id, reason }),
+  });
+  const j = await rr.json();
+  if (!rr.ok) throw Error(j.error || "Reverse failed");
+  location.reload();
+}
+function Purchase({ data, purchase, setPurchase, selectedParty, calc, save, mode }: { data: any; purchase: any; setPurchase: any; selectedParty: any; calc: any; save: any; mode: Mode }) {
+  return (
+    <div className="space-y-4">
+      <div className="card min-w-0 p-4 sm:p-6">
+        <h2 className="font-bold text-lg">Purchase / Sample</h2>
+        <p className="muted text-sm mt-1">Vendor payable plus optional financing receivable.</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <Field label="Sample Number (leave blank to auto-generate)" k="sample_no" obj={purchase} setObj={setPurchase} />
+          <Field label="Description of Goods" k="goods_description" obj={purchase} setObj={setPurchase} />
+          <Field label="Bags / Packages" k="bags_qty" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Bill / Purchase Date" k="purchase_date" obj={purchase} setObj={setPurchase} type="date" />
+          <div>
+            <PartyPicker parties={(data.parties || []).filter((p: any) => p.party_type !== "BROKER")} value={purchase.party_id} onChange={(id) => setPurchase({ ...purchase, party_id: id })} />
+            {selectedParty && <PartyDetails party={selectedParty} />}
+          </div>
+          <label className="text-sm font-medium block">
+            Broker (optional)
+            <select value={purchase.broker_party_id || ""} onChange={(e) => setPurchase({ ...purchase, broker_party_id: e.target.value ? Number(e.target.value) : "" })}>
+              <option value="">No broker</option>
+              {(data.parties || [])
+                .filter((p: any) => p.party_type === "BROKER")
+                .map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                    {b.contact ? ` • ${b.contact}` : ""}
+                  </option>
+                ))}
+            </select>
+            {(data.parties || []).find((b: any) => Number(b.id) === Number(purchase.broker_party_id)) && (
+              <p className="mt-1 text-xs text-slate-500">{(data.parties || []).find((b: any) => Number(b.id) === Number(purchase.broker_party_id))?.email || "Email not set"}</p>
+            )}
+          </label>
+          <Field label="Payment After (Days)" k="payment_due_days" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Gross Weight (kg)" k="gross_weight" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Net Weight (kg)" k="net_weight" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Rate / kg" k="rate" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Freight" k="freight" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Unload Charge" k="unload_charge" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Moisture" k="moisture" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Discount %" k="discount_pct" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Driver Rokdi" k="driver_rokdi" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Other Charges" k="other_charges" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Quality Deduct / MT" k="quality_deduct_per_mt" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="Supplier Bill No" k="invoice_no" obj={purchase} setObj={setPurchase} />
+          <Field label="HSN/SAC" k="hsn" obj={purchase} setObj={setPurchase} />
+          <Field label="GST Taxable Value" k="gst_taxable" obj={purchase} setObj={setPurchase} type="number" />
+          <Field label="GST Rate %" k="gst_rate" obj={purchase} setObj={setPurchase} type="number" />
+          <SelectField label="GST Type" k="gst_type" obj={purchase} setObj={setPurchase} options={{ NONE: "None", CGST_SGST: "CGST + SGST", IGST: "IGST" }} />
+        </div>
+        <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+          <div className="font-bold text-sm">Create financing receivable</div>
+          <p className="text-xs text-indigo-800 mt-1">Receivable = Net Payable + Discount + Other Charges. Discount and Other Charges are tracked as financing profit/commission.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <PartyPicker parties={data.parties || []} value={purchase.receivable_party_id} onChange={(id) => setPurchase({ ...purchase, receivable_party_id: id })} />
+              <div className="text-[11px] text-slate-500 mt-1">This can be the same party or another party.</div>
+            </div>
+            <Field label="Receivable After (Days)" k="receivable_due_days" obj={purchase} setObj={setPurchase} type="number" />
+            <Field label="Receivable Due Date (optional)" k="receivable_due_date" obj={purchase} setObj={setPurchase} type="date" />
+            <Field label="Receivable Notes" k="receivable_notes" obj={purchase} setObj={setPurchase} />
+          </div>
+          {purchase.receivable_party_id && (
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <KPI label="Cost" value={money(calc.netPay)} />
+              <KPI label="Profit" value={money(calc.profit)} />
+              <KPI label="Receivable" value={money(calc.receivable)} />
+            </div>
+          )}
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-3">
+          <KPI label="Gross Amount" value={money(calc.gross)} />
+          <KPI label="Discount" value={money(calc.disc)} />
+          <KPI label="Quality Deduct" value={money(calc.quality)} />
+          <KPI label="Other Charges → Profit" value={money(calc.other)} />
+          <KPI label="Total Deduction" value={money(calc.total)} />
+          <KPI label="NET PAYABLE" value={money(calc.netPay)} />
+        </div>
+        <InlineFeedback />
+        <button className="primary btn mt-5 w-full sm:w-auto" onClick={save}>
+          {purchase.id ? "UPDATE PURCHASE" : "SAVE & POST PURCHASE"}
+        </button>
+      </div>
+      <div className="card min-w-0 overflow-hidden p-4 sm:p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="font-bold text-base sm:text-lg">Recent Purchases</h3>
+          <p className="text-xs text-slate-500">Latest 15 records · swipe horizontally to view all columns</p>
+        </div>
+        <div className="mt-3 min-w-0 overflow-x-auto overscroll-x-contain">
+          <Table
+            rows={(data.purchases || []).slice(0, 15)}
+            cols={["sample_no", "purchase_date", "party_name", "invoice_no", "net_payable", "status"]}
+            action={(r: any) => (
+              <div className="flex gap-2">
+                <button
+                  className="secondary btn text-xs"
+                  onClick={() =>
+                    setPurchase({
+                      ...r,
+                      receivable_party_id: r.receivable_party_id || "",
+                      receivable_due_days: r.receivable_due_days ?? 0,
+                      receivable_due_date: r.receivable_due_date || "",
+                      receivable_notes: r.receivable_notes || "",
+                    })
+                  }
+                >
+                  Edit
+                </button>
+                <a
+                  aria-label="Commercial Bill PDF"
+                  title="Commercial Bill PDF"
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-red-600"
+                  target="_blank"
+                  href={`/api/purchase-bill?mode=${mode}&company_id=${Number(sessionStorage.getItem("aksh-company-id") || 1)}&id=${r.id}`}
+                >
+                  <FaFilePdf />
+                </a>
+                <a
+                  title="Email bill details"
+                  aria-label="Email bill details"
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2"
+                  href={`mailto:${encodeURIComponent(r.party_email || "")}?subject=${encodeURIComponent(`Purchase Bill ${r.invoice_no || r.sample_no}`)}&body=${encodeURIComponent(`Bill ${r.invoice_no || r.sample_no}
 Party: ${r.party_name}
 Date: ${r.purchase_date}
 Net Payable: ${money(r.net_payable)}
-Please attach the downloaded PDF if required.`)}`}><FaEnvelope/></a><a title="WhatsApp bill details" aria-label="WhatsApp bill details" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-green-600" href={`https://wa.me/?text=${encodeURIComponent(`Purchase Bill ${r.invoice_no||r.sample_no}
+Please attach the downloaded PDF if required.`)}`}
+                >
+                  <FaEnvelope />
+                </a>
+                <a
+                  title="WhatsApp bill details"
+                  aria-label="WhatsApp bill details"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-green-600"
+                  href={`https://wa.me/?text=${encodeURIComponent(`Purchase Bill ${r.invoice_no || r.sample_no}
 Party: ${r.party_name}
 Date: ${r.purchase_date}
-Net Payable: ${money(r.net_payable)}`)}`}><FaWhatsapp/></a>{r.status==='POSTED'&&<button className="danger-outline btn text-xs" onClick={()=>reverseFromUI(mode,'PURCHASE',r.id).catch((e:any)=>notifyFinance('error',e.message))}>Reverse</button>}</div>}/></div></div></div>}
-function Payments({data,payment,setPayment,selectedParty,save,mode,companyId,selectedOutstanding}:{data:any,payment:any,setPayment:any,selectedParty:any,save:any,mode:Mode,companyId:number,selectedOutstanding:number}){
- const [q,setQ]=useState(''); const [tds,setTds]=useState<any>(null); const [checking,setChecking]=useState(false);
- const rows=(data.payments||[]).filter((r:any)=>`${r.payment_no} ${r.party_name} ${r.utr||''}`.toLowerCase().includes(q.toLowerCase()));
- const bills=(data.purchases||[]).filter((r:any)=>Number(r.party_id)===Number(payment.party_id)&&Number(r.outstanding)>0);
- const allocations=Array.isArray(payment.allocations)?payment.allocations:[];
- const allocatedTotal=allocations.reduce((a:any,x:any)=>a+Number(x.amount||0),0);
- useEffect(()=>{let cancelled=false;if(!payment.party_id||Number(payment.amount||0)<=0){setTds(null);return}setChecking(true);const timer=setTimeout(async()=>{try{const r=await fetch('/api/tds-check',{method:'POST',headers:{'Content-Type':'application/json','x-aksh-company-id':String(companyId)},body:JSON.stringify({db_mode:mode,company_id:companyId,party_id:payment.party_id,payment_date:payment.payment_date,amount:Number(payment.amount||0)})});const j=await r.json();if(!cancelled)setTds(j.decision||null)}catch{if(!cancelled)setTds(null)}finally{if(!cancelled)setChecking(false)}},250);return()=>{cancelled=true;clearTimeout(timer)}},[payment.party_id,payment.amount,payment.payment_date,mode,companyId]);
- const toggleBill=(bill:any)=>setPayment((p:any)=>{const a=Array.isArray(p.allocations)?[...p.allocations]:[];const i=a.findIndex((x:any)=>Number(x.purchase_id)===Number(bill.id));if(i>=0)a.splice(i,1);else a.push({purchase_id:Number(bill.id),amount:Math.min(Math.max(0,Number(bill.outstanding||0)),Math.max(0,Number(p.amount||0)-a.reduce((sum:number,x:any)=>sum+Number(x.amount||0),0)))});return {...p,allocations:a}});
- const setBillAmount=(id:number,value:string)=>setPayment((p:any)=>({...p,allocations:(p.allocations||[]).map((x:any)=>Number(x.purchase_id)===id?{...x,amount:Math.max(0,Number(value)||0)}:x)}));
- const editPayment=(r:any)=>setPayment({...r,company_account_id:r.company_account_id||'',allocations:(r.allocations||[]).map((a:any)=>({purchase_id:Number(a.purchase_id),amount:Number(a.amount)}))});
- const reset=()=>setPayment({payment_date:today(),mode:'BANK',payment_no:'',amount:'',broker_name:'',broker_email:'',company_account_id:'',allocations:[]});
- const tdsAmount=Number(tds?.amount||payment.tds_amount||0);
- return <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,560px)_minmax(0,1fr)]">
-  <div className="card min-w-0 p-4 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold text-lg">{payment.id?'Edit Payment':'Make Payment'}</h2><p className="muted mt-1 text-sm">Select the party, choose the exact purchase bills this payment settles, and enter partial allocation where required.</p></div>{payment.id&&<button className="secondary btn text-xs" onClick={reset}>NEW PAYMENT</button>}</div>
-   <div className="mt-5 grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Payment Number" k="payment_no" obj={payment} setObj={setPayment}/><Field label={payment.id?'Payment Date (saved)':'Payment Date'} k="payment_date" obj={payment} setObj={setPayment} type="date"/>
-    <div className="sm:col-span-2"><PartyPicker parties={data.parties||[]} value={payment.party_id} onChange={id=>setPayment({...payment,party_id:id,allocations:[]})}/>{selectedParty&&<><PartyDetails party={selectedParty} outstanding={selectedOutstanding}/><div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs"><b>Party Bank:</b> {selectedParty.bank_name||'Not set'} • A/C {selectedParty.account_number||'Not set'} • IFSC {selectedParty.ifsc||'Not set'}</div></>}</div>
-    <Field label="Settlement Amount" k="amount" obj={payment} setObj={setPayment} type="number"/><SelectField label="Mode" k="mode" obj={payment} setObj={setPayment} options={{BANK:'Bank',CASH:'Cash',OTHER:'Other'}}/>
-    {['BANK','CASH'].includes(payment.mode)&&<label className="text-sm font-medium sm:col-span-2">Pay From My Account<select required value={payment.company_account_id||''} onChange={e=>setPayment((p:any)=>({...p,company_account_id:Number(e.target.value)}))}><option value="">Select your bank / cash account</option>{(data.accounts||[]).map((a:any)=><option key={a.id} value={a.id}>{a.account_name} • {a.bank_name} • Available {money(a.balance)}</option>)}</select></label>}
-    <Field label="UTR / Reference" k="utr" obj={payment} setObj={setPayment}/><Field label="Broker Name" k="broker_name" obj={payment} setObj={setPayment}/><Field label="Broker Email" k="broker_email" obj={payment} setObj={setPayment}/>
-   </div>
-   {selectedParty&&<div className="mt-5 overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 p-4"><div><h3 className="font-black text-indigo-950">Select Purchase Bills</h3><p className="mt-1 text-xs text-indigo-900/75">Tick the bills this payment is against. Partial amounts are allowed.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-indigo-800">Allocated {money(allocatedTotal)} / {money(Number(payment.amount||0))}</span></div><div className="max-h-80 overflow-auto p-3 sm:p-4">{bills.length?bills.map((b:any)=>{const a=allocations.find((x:any)=>Number(x.purchase_id)===Number(b.id));return <div key={b.id} className="mb-2 rounded-xl border border-white bg-white p-3 shadow-sm"><div className="flex items-start gap-3"><input type="checkbox" className="mt-1 shrink-0" checked={!!a} onChange={()=>toggleBill(b)}/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><b className="truncate">{b.invoice_no||b.sample_no}</b><span className="text-xs font-bold text-slate-500">Outstanding {money(b.outstanding)}</span></div><div className="mt-1 text-xs text-slate-500">Sample {b.sample_no} • {b.purchase_date} • Gross {money(b.gross_amount)} • Net Payable {money(b.net_payable)}</div>{a&&<div className="mt-2 max-w-xs"><Field label="Allocation Amount" k="amount" obj={a} setObj={(fn:any)=>{const next=typeof fn==='function'?fn(a):fn;setBillAmount(Number(b.id),String(next.amount??''))}} type="number"/></div>}</div></div></div>}) : <div className="rounded-xl bg-white p-5 text-center text-sm text-slate-500">No outstanding purchase bills for this party.</div>}</div>{allocatedTotal>Number(payment.amount||0)&&<div className="border-t border-red-200 bg-red-50 p-3 text-xs font-bold text-red-800">Allocation exceeds payment amount. Reduce one or more bill allocations.</div>}</div>}
-   {checking&&<div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">Checking TDS rules…</div>}{tds&&<div className={`mt-4 rounded-2xl border p-4 ${tds.applicable?'border-amber-200 bg-amber-50 text-amber-950':'border-emerald-200 bg-emerald-50 text-emerald-950'}`}><div className="flex items-center justify-between gap-3"><b>{tds.applicable?'TDS WILL BE DEDUCTED':'NO TDS TO DEDUCT'}</b><span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black">{tds.act}</span></div><div className="mt-2 text-sm">{tds.reason}</div>{tds.applicable&&<div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4"><div><span className="block text-[10px] uppercase text-slate-500">Section</span><b>{tds.section}</b></div><div><span className="block text-[10px] uppercase text-slate-500">TDS Base</span><b>{money(tds.base)}</b></div><div><span className="block text-[10px] uppercase text-slate-500">Rate</span><b>{tds.rate}%</b></div><div><span className="block text-[10px] uppercase text-slate-500">TDS</span><b>{money(tds.amount)}</b></div></div>}<div className="mt-2 text-xs opacity-80">{tds.rule}{tds.review?' • Review required for PAN/certificate/special-case compliance.':''}</div></div>}
-   <InlineFeedback/><button disabled={(['BANK','CASH'].includes(payment.mode)&&!data.accounts?.length)||checking||allocatedTotal>Number(payment.amount||0)} className="primary btn mt-5 w-full" onClick={save}>{payment.id?'SAVE PAYMENT + BILL ALLOCATIONS':'POST PAYMENT + BILL ALLOCATIONS'}</button>
-  </div>
-  <div className="card min-w-0 p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3 mb-3"><div><h2 className="font-bold">Payment History</h2><p className="muted text-xs">Search, edit bill allocations, or generate the payment advice.</p></div><input className="w-full max-w-sm" placeholder="Search payments…" value={q} onChange={e=>setQ(e.target.value)}/></div><Table rows={rows} cols={['payment_no','payment_date','party_name','amount','tds_amount','net_paid','company_account_name','broker_name','mode','status']} action={(r:any)=><div className="flex flex-wrap gap-2"><a aria-label="Open payment advice PDF" title="Payment Advice PDF" className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-red-600 hover:bg-red-50" target="_blank" href={`/api/payment-advice?mode=${mode}&company_id=${companyId}&id=${r.id}`}><FaFilePdf/></a><a aria-label="Email payment details" title="Email payment details" className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-50" href={`mailto:${encodeURIComponent(r.email||'')}?subject=${encodeURIComponent(`Payment Advice ${r.payment_no}`)}&body=${encodeURIComponent(`Payment ${r.payment_no} for ${r.party_name}. Date: ${r.payment_date}. Amount: ${money(r.net_paid||r.amount)}. UTR: ${r.utr||'—'}. Please attach the downloaded Payment Advice PDF if needed.`)}`}><FaEnvelope/></a><a aria-label="WhatsApp payment details" title="WhatsApp payment details" className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-green-600 hover:bg-green-50" target="_blank" rel="noreferrer" href={`https://wa.me/?text=${encodeURIComponent(`Payment Advice ${r.payment_no}
+Net Payable: ${money(r.net_payable)}`)}`}
+                >
+                  <FaWhatsapp />
+                </a>
+                {r.status === "POSTED" && (
+                  <button className="danger-outline btn text-xs" onClick={() => reverseFromUI(mode, "PURCHASE", r.id).catch((e: any) => notifyFinance("error", e.message))}>
+                    Reverse
+                  </button>
+                )}
+              </div>
+            )}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+function Payments({
+  data,
+  payment,
+  setPayment,
+  selectedParty,
+  save,
+  mode,
+  companyId,
+  selectedOutstanding,
+}: {
+  data: any;
+  payment: any;
+  setPayment: any;
+  selectedParty: any;
+  save: any;
+  mode: Mode;
+  companyId: number;
+  selectedOutstanding: number;
+}) {
+  const [q, setQ] = useState("");
+  const [tds, setTds] = useState<any>(null);
+  const [checking, setChecking] = useState(false);
+  const rows = (data.payments || []).filter((r: any) => `${r.payment_no} ${r.party_name} ${r.utr || ""}`.toLowerCase().includes(q.toLowerCase()));
+  const bills = (data.purchases || []).filter((r: any) => Number(r.party_id) === Number(payment.party_id) && Number(r.outstanding) > 0);
+  const allocations = Array.isArray(payment.allocations) ? payment.allocations : [];
+  const allocatedTotal = allocations.reduce((a: any, x: any) => a + Number(x.amount || 0), 0);
+  useEffect(() => {
+    let cancelled = false;
+    if (!payment.party_id || Number(payment.amount || 0) <= 0) {
+      setTds(null);
+      return;
+    }
+    setChecking(true);
+    const timer = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/tds-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-aksh-company-id": String(companyId) },
+          body: JSON.stringify({ db_mode: mode, company_id: companyId, party_id: payment.party_id, payment_date: payment.payment_date, amount: Number(payment.amount || 0) }),
+        });
+        const j = await r.json();
+        if (!cancelled) setTds(j.decision || null);
+      } catch {
+        if (!cancelled) setTds(null);
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [payment.party_id, payment.amount, payment.payment_date, mode, companyId]);
+  const toggleBill = (bill: any) =>
+    setPayment((p: any) => {
+      const a = Array.isArray(p.allocations) ? [...p.allocations] : [];
+      const i = a.findIndex((x: any) => Number(x.purchase_id) === Number(bill.id));
+      if (i >= 0) a.splice(i, 1);
+      else
+        a.push({
+          purchase_id: Number(bill.id),
+          amount: Math.min(Math.max(0, Number(bill.outstanding || 0)), Math.max(0, Number(p.amount || 0) - a.reduce((sum: number, x: any) => sum + Number(x.amount || 0), 0))),
+        });
+      return { ...p, allocations: a };
+    });
+  const setBillAmount = (id: number, value: string) =>
+    setPayment((p: any) => ({ ...p, allocations: (p.allocations || []).map((x: any) => (Number(x.purchase_id) === id ? { ...x, amount: Math.max(0, Number(value) || 0) } : x)) }));
+  const editPayment = (r: any) =>
+    setPayment({ ...r, company_account_id: r.company_account_id || "", allocations: (r.allocations || []).map((a: any) => ({ purchase_id: Number(a.purchase_id), amount: Number(a.amount) })) });
+  const reset = () => setPayment({ payment_date: today(), mode: "BANK", payment_no: "", amount: "", broker_name: "", broker_email: "", company_account_id: "", allocations: [] });
+  const tdsAmount = Number(tds?.amount || payment.tds_amount || 0);
+  return (
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,560px)_minmax(0,1fr)]">
+      <div className="card min-w-0 p-4 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-lg">{payment.id ? "Edit Payment" : "Make Payment"}</h2>
+            <p className="muted mt-1 text-sm">Select the party, choose the exact purchase bills this payment settles, and enter partial allocation where required.</p>
+          </div>
+          {payment.id && (
+            <button className="secondary btn text-xs" onClick={reset}>
+              NEW PAYMENT
+            </button>
+          )}
+        </div>
+        <div className="mt-5 grid min-w-0 gap-3 sm:grid-cols-2">
+          <Field label="Payment Number" k="payment_no" obj={payment} setObj={setPayment} />
+          <Field label={payment.id ? "Payment Date (saved)" : "Payment Date"} k="payment_date" obj={payment} setObj={setPayment} type="date" />
+          <div className="sm:col-span-2">
+            <PartyPicker parties={data.parties || []} value={payment.party_id} onChange={(id) => setPayment({ ...payment, party_id: id, allocations: [] })} />
+            {selectedParty && (
+              <>
+                <PartyDetails party={selectedParty} outstanding={selectedOutstanding} />
+                <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs">
+                  <b>Party Bank:</b> {selectedParty.bank_name || "Not set"} • A/C {selectedParty.account_number || "Not set"} • IFSC {selectedParty.ifsc || "Not set"}
+                </div>
+              </>
+            )}
+          </div>
+          <Field label="Settlement Amount" k="amount" obj={payment} setObj={setPayment} type="number" />
+          <SelectField label="Mode" k="mode" obj={payment} setObj={setPayment} options={{ BANK: "Bank", CASH: "Cash", OTHER: "Other" }} />
+          {["BANK", "CASH"].includes(payment.mode) && (
+            <label className="text-sm font-medium sm:col-span-2">
+              Pay From My Account
+              <select required value={payment.company_account_id || ""} onChange={(e) => setPayment((p: any) => ({ ...p, company_account_id: Number(e.target.value) }))}>
+                <option value="">Select your bank / cash account</option>
+                {(data.accounts || []).map((a: any) => (
+                  <option key={a.id} value={a.id}>
+                    {a.account_name} • {a.bank_name} • Available {money(a.balance)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <Field label="UTR / Reference" k="utr" obj={payment} setObj={setPayment} />
+          <Field label="Broker Name" k="broker_name" obj={payment} setObj={setPayment} />
+          <Field label="Broker Email" k="broker_email" obj={payment} setObj={setPayment} />
+        </div>
+        {selectedParty && (
+          <div className="mt-5 overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 p-4">
+              <div>
+                <h3 className="font-black text-indigo-950">Select Purchase Bills</h3>
+                <p className="mt-1 text-xs text-indigo-900/75">Tick the bills this payment is against. Partial amounts are allowed.</p>
+              </div>
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-indigo-800">
+                Allocated {money(allocatedTotal)} / {money(Number(payment.amount || 0))}
+              </span>
+            </div>
+            <div className="max-h-80 overflow-auto p-3 sm:p-4">
+              {bills.length ? (
+                bills.map((b: any) => {
+                  const a = allocations.find((x: any) => Number(x.purchase_id) === Number(b.id));
+                  return (
+                    <div key={b.id} className="mb-2 rounded-xl border border-white bg-white p-3 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <input type="checkbox" className="mt-1 shrink-0" checked={!!a} onChange={() => toggleBill(b)} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <b className="truncate">{b.invoice_no || b.sample_no}</b>
+                            <span className="text-xs font-bold text-slate-500">Outstanding {money(b.outstanding)}</span>
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            Sample {b.sample_no} • {b.purchase_date} • Gross {money(b.gross_amount)} • Net Payable {money(b.net_payable)}
+                          </div>
+                          {a && (
+                            <div className="mt-2 max-w-xs">
+                              <Field
+                                label="Allocation Amount"
+                                k="amount"
+                                obj={a}
+                                setObj={(fn: any) => {
+                                  const next = typeof fn === "function" ? fn(a) : fn;
+                                  setBillAmount(Number(b.id), String(next.amount ?? ""));
+                                }}
+                                type="number"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-xl bg-white p-5 text-center text-sm text-slate-500">No outstanding purchase bills for this party.</div>
+              )}
+            </div>
+            {allocatedTotal > Number(payment.amount || 0) && (
+              <div className="border-t border-red-200 bg-red-50 p-3 text-xs font-bold text-red-800">Allocation exceeds payment amount. Reduce one or more bill allocations.</div>
+            )}
+          </div>
+        )}
+        {checking && <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">Checking TDS rules…</div>}
+        {tds && (
+          <div className={`mt-4 rounded-2xl border p-4 ${tds.applicable ? "border-amber-200 bg-amber-50 text-amber-950" : "border-emerald-200 bg-emerald-50 text-emerald-950"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <b>{tds.applicable ? "TDS WILL BE DEDUCTED" : "NO TDS TO DEDUCT"}</b>
+              <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black">{tds.act}</span>
+            </div>
+            <div className="mt-2 text-sm">{tds.reason}</div>
+            {tds.applicable && (
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                <div>
+                  <span className="block text-[10px] uppercase text-slate-500">Section</span>
+                  <b>{tds.section}</b>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase text-slate-500">TDS Base</span>
+                  <b>{money(tds.base)}</b>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase text-slate-500">Rate</span>
+                  <b>{tds.rate}%</b>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase text-slate-500">TDS</span>
+                  <b>{money(tds.amount)}</b>
+                </div>
+              </div>
+            )}
+            <div className="mt-2 text-xs opacity-80">
+              {tds.rule}
+              {tds.review ? " • Review required for PAN/certificate/special-case compliance." : ""}
+            </div>
+          </div>
+        )}
+        <InlineFeedback />
+        <button
+          disabled={(["BANK", "CASH"].includes(payment.mode) && !data.accounts?.length) || checking || allocatedTotal > Number(payment.amount || 0)}
+          className="primary btn mt-5 w-full"
+          onClick={save}
+        >
+          {payment.id ? "SAVE PAYMENT + BILL ALLOCATIONS" : "POST PAYMENT + BILL ALLOCATIONS"}
+        </button>
+      </div>
+      <div className="card min-w-0 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div>
+            <h2 className="font-bold">Payment History</h2>
+            <p className="muted text-xs">Search, edit bill allocations, or generate the payment advice.</p>
+          </div>
+          <input className="w-full max-w-sm" placeholder="Search payments…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <Table
+          rows={rows}
+          cols={["payment_no", "payment_date", "party_name", "amount", "tds_amount", "net_paid", "company_account_name", "broker_name", "mode", "status"]}
+          action={(r: any) => (
+            <div className="flex flex-wrap gap-2">
+              <a
+                aria-label="Open payment advice PDF"
+                title="Payment Advice PDF"
+                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-red-600 hover:bg-red-50"
+                target="_blank"
+                href={`/api/payment-advice?mode=${mode}&company_id=${companyId}&id=${r.id}`}
+              >
+                <FaFilePdf />
+              </a>
+              <a
+                aria-label="Email payment details"
+                title="Email payment details"
+                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-50"
+                href={`mailto:${encodeURIComponent(r.email || "")}?subject=${encodeURIComponent(`Payment Advice ${r.payment_no}`)}&body=${encodeURIComponent(`Payment ${r.payment_no} for ${r.party_name}. Date: ${r.payment_date}. Amount: ${money(r.net_paid || r.amount)}. UTR: ${r.utr || "—"}. Please attach the downloaded Payment Advice PDF if needed.`)}`}
+              >
+                <FaEnvelope />
+              </a>
+              <a
+                aria-label="WhatsApp payment details"
+                title="WhatsApp payment details"
+                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-green-600 hover:bg-green-50"
+                target="_blank"
+                rel="noreferrer"
+                href={`https://wa.me/?text=${encodeURIComponent(`Payment Advice ${r.payment_no}
 Party: ${r.party_name}
 Date: ${r.payment_date}
-Amount: ${money(r.net_paid||r.amount)}
-UTR: ${r.utr||'—'}`)}`}><FaWhatsapp/></a>{r.status==='POSTED'&&<button className="secondary btn text-xs" onClick={()=>editPayment(r)}>EDIT / ADD BILL</button>}{r.status==='POSTED'&&<button className="danger-outline btn text-xs" onClick={()=>reverseFromUI(mode,'PAYMENT',r.id).catch((e:any)=>notifyFinance('error',e.message))}>Reverse</button>}</div>}/></div>
- </div>
+Amount: ${money(r.net_paid || r.amount)}
+UTR: ${r.utr || "—"}`)}`}
+              >
+                <FaWhatsapp />
+              </a>
+              {r.status === "POSTED" && (
+                <button className="secondary btn text-xs" onClick={() => editPayment(r)}>
+                  EDIT / ADD BILL
+                </button>
+              )}
+              {r.status === "POSTED" && (
+                <button className="danger-outline btn text-xs" onClick={() => reverseFromUI(mode, "PAYMENT", r.id).catch((e: any) => notifyFinance("error", e.message))}>
+                  Reverse
+                </button>
+              )}
+            </div>
+          )}
+        />
+      </div>
+    </div>
+  );
 }
-function Receivables({data,mode,load}:{data:any,mode:Mode,load:any}){const [q,setQ]=useState('');const rows=(data.receivables||[]).filter((r:any)=>`${r.bill_no} ${r.party_name} ${r.sample_no} ${r.supplier_invoice_no||''}`.toLowerCase().includes(q.toLowerCase()));const [edit,setEdit]=useState<any>(null);const [receive,setReceive]=useState<any>(null);const saveEdit=async()=>{const j=await fetch('/api/receivables',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,company_id:Number(sessionStorage.getItem('aksh-company-id')||1),...edit})}).then(r=>r.json());if(j.error){notifyFinance('error',j.error);return}setEdit(null);load()};const submitReceipt=async()=>{const j=await fetch('/api/receivables',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,company_id:Number(sessionStorage.getItem('aksh-company-id')||1),...receive})}).then(r=>r.json());if(j.error){notifyFinance('error',j.error);return}setReceive(null);load()};return <div className="space-y-4"><div className="card p-4 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold text-lg">Financing Receivables</h2><p className="muted text-sm mt-1">Gross amount received closes the receivable. TDS deducted by the payer reduces the bank credit, not the agreed receivable.</p></div><input className="max-w-sm" placeholder="Search bill / party / sample…" value={q} onChange={e=>setQ(e.target.value)}/></div><div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900"><b>Incoming TDS guidance:</b> TDS on a receipt is normally deducted by the payer. Do not invent a TDS rate. Enter the TDS amount actually shown on the payer's TDS advice/certificate/statement and record the applicable section if known. The software records gross settlement, TDS and net bank credit separately. Ask your CA where the nature of your financing/commission income requires withholding.</div>{edit&&<div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 grid gap-3 sm:grid-cols-3"><Field label="Bill No" k="bill_no" obj={edit} setObj={setEdit}/><Field label="Receivable Amount" k="receivable_amount" obj={edit} setObj={setEdit} type="number"/><Field label="Due Days" k="due_days" obj={edit} setObj={setEdit} type="number"/><button className="primary btn sm:col-span-3" onClick={saveEdit}>SAVE RECEIVABLE CHANGE</button></div>}{receive&&<div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold">Record Receipt</h3><p className="text-xs text-emerald-900">{receive.bill_no} • Outstanding {money(receive.outstanding)}</p></div><button className="secondary btn text-xs" onClick={()=>setReceive(null)}>Cancel</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Field label="Gross Amount Received" k="amount" obj={receive} setObj={setReceive} type="number"/><Field label="TDS Rate % (if known)" k="tds_rate" obj={receive} setObj={setReceive} type="number"/><Field label="TDS Amount Deducted" k="tds_amount" obj={receive} setObj={setReceive} type="number"/><Field label="TDS Section / Reference" k="tds_section" obj={receive} setObj={setReceive}/><Field label="TDS Certificate / Reference" k="tds_reference" obj={receive} setObj={setReceive}/><Field label="Receipt Date" k="received_date" obj={receive} setObj={setReceive} type="date"/><label className="text-sm font-medium block sm:col-span-2 lg:col-span-3">Receive Into<select value={receive.account_id||''} onChange={e=>setReceive((p:any)=>({...p,account_id:Number(e.target.value)}))}><option value="">Select bank / cash account</option>{(data.accounts||[]).map((a:any)=><option key={a.id} value={a.id}>{a.account_name} • {a.bank_name} • Balance {money(a.balance)}</option>)}</select></label></div><div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3"><KPI label="Gross Settlement" value={money(Number(receive.amount||0))}/><KPI label="TDS Deducted" value={money(Number(receive.tds_amount||0)||Number(receive.amount||0)*Number(receive.tds_rate||0)/100)}/><KPI label="Bank Credit" value={money(Math.max(0,Number(receive.amount||0)-(Number(receive.tds_amount||0)||Number(receive.amount||0)*Number(receive.tds_rate||0)/100)))}/></div><InlineFeedback/><button className="primary btn mt-4 w-full" onClick={submitReceipt}>MARK RECEIVED</button></div>}<div className="mt-4"><Table rows={rows} cols={['bill_no','bill_date','party_name','cost_amount','discount_amount','receivable_amount','received_amount','tds_amount','net_received','due_date','status']} action={(r:any)=><div className="flex flex-wrap gap-2">{r.status==='OPEN'&&<><button className="primary btn text-xs" onClick={()=>setReceive({id:r.id,bill_no:r.bill_no,amount:Math.max(0,Number(r.receivable_amount)-Number(r.received_amount||0)),tds_rate:0,tds_amount:0,tds_section:'',tds_reference:'',account_id:data.accounts?.[0]?.id||'',received_date:today(),outstanding:Math.max(0,Number(r.receivable_amount)-Number(r.received_amount||0))})}>Received</button><button className="btn danger-outline text-xs" onClick={()=>setEdit(r)}>Edit</button></>}{r.status==='RECEIVED'&&<button className="btn danger-outline text-xs" onClick={async()=>{const reason=prompt('Reason for receipt reversal?','Wrong receipt');if(reason===null)return;const j=await fetch('/api/reverse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,company_id:Number(sessionStorage.getItem('aksh-company-id')||1),type:'RECEIVABLE',id:r.id,reason})}).then(x=>x.json());if(j.error)return;else load()}}>Reverse Receipt</button>}</div>}/></div></div><div className="grid gap-4 md:grid-cols-3"><KPI label="Open Receivables" value={money((data.receivables||[]).filter((r:any)=>r.status==='OPEN').reduce((a:number,r:any)=>a+Number(r.receivable_amount)-Number(r.received_amount||0),0))}/><KPI label="Realised Profit" value={money(data.profit?.profit||0)}/><KPI label="Margin" value={`${Number(data.profit?.margin||0).toFixed(2)}%`}/></div></div>}
-function GST({data,sale,setSale,save,mode}:{data:any,sale:any,setSale:any,save:any,mode:Mode}){return <div className="grid gap-4 xl:grid-cols-[520px_minmax(0,1fr)]"><div className="card p-4 sm:p-6"><h2 className="font-bold text-lg">GST Filing Register</h2><p className="muted text-sm mb-4">Outward sales register for GST working. Validate against the current portal schema before filing.</p><div className="grid gap-3 sm:grid-cols-2"><Field label="Invoice No" k="invoice_no" obj={sale} setObj={setSale}/><Field label="Invoice Date" k="invoice_date" obj={sale} setObj={setSale} type="date"/><Field label="Customer Name" k="customer_name" obj={sale} setObj={setSale}/><Field label="Customer GSTIN" k="customer_gstin" obj={sale} setObj={setSale}/><Field label="Place of Supply" k="place_of_supply" obj={sale} setObj={setSale}/><Field label="HSN/SAC" k="hsn" obj={sale} setObj={setSale}/><Field label="Taxable Value" k="taxable_value" obj={sale} setObj={setSale} type="number"/><Field label="GST Rate %" k="gst_rate" obj={sale} setObj={setSale} type="number"/><SelectField label="GST Type" k="gst_type" obj={sale} setObj={setSale} options={{CGST_SGST:'CGST + SGST',IGST:'IGST'}}/></div><InlineFeedback/><button className="primary btn mt-5 w-full" onClick={save}>SAVE GST INVOICE</button></div><div className="card p-4 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-2 mb-3"><h2 className="font-bold">GST Register</h2><a className="secondary btn text-xs" href={`/api/export/gst?mode=${mode}&company_id=${Number(sessionStorage.getItem('aksh-company-id')||1)}`}>Download Excel</a></div><Table rows={data.sales||[]} cols={['invoice_no','invoice_date','customer_name','customer_gstin','taxable_value','gst_rate','cgst','sgst','igst','total_value']}/></div></div>}
-function MoneyIn({data,form,setForm,save,mode}:{data:any,form:any,setForm:any,save:any,mode:Mode}){const rows=data.moneyIn||[];return <div className="grid gap-4 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]"><div className="card p-4 sm:p-6"><div className="mb-5"><h2 className="text-lg font-black">Money In / General Receipt</h2><p className="muted mt-1 text-sm">Use this when money enters your bank/cash account for a reason other than a financing receivable.</p></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Receipt No (optional)" k="receipt_no" obj={form} setObj={setForm}/><Field label="Receipt Date" k="receipt_date" obj={form} setObj={setForm} type="date"/><Field label="Amount" k="amount" obj={form} setObj={setForm} type="number"/><SelectField label="Receipt Type" k="receipt_type" obj={form} setObj={setForm} options={{CAPITAL:'Capital / Initial Fund',LOAN_RECEIVED:'Loan Received',PARTY_ADVANCE:'Party Advance',INTEREST_RECEIVED:'Interest Received',REFUND:'Refund',OTHER_RECEIPT:'Other Receipt'}}/><div className="sm:col-span-2"><label className="text-sm font-semibold">Receive Into<select value={form.account_id||''} onChange={e=>setForm({...form,account_id:Number(e.target.value)})}><option value="">Select bank / cash account</option>{(data.accounts||[]).map((a:any)=><option key={a.id} value={a.id}>{a.account_name} • Balance {money(a.balance)}</option>)}</select></label></div><div className="sm:col-span-2"><PartyPicker parties={data.parties||[]} value={form.party_id} onChange={id=>setForm({...form,party_id:id})}/><p className="mt-1 text-[11px] text-slate-500">Optional. Leave blank for owner capital or a non-party receipt.</p></div><Field label="Reference No" k="reference_no" obj={form} setObj={setForm}/><Field label="Narration" k="narration" obj={form} setObj={setForm}/></div><InlineFeedback/><button className="primary btn mt-5 w-full" onClick={save}>POST MONEY RECEIVED</button></div><div className="card p-4 sm:p-6"><h2 className="font-bold text-lg">Money In History</h2><div className="mt-4"><Table rows={rows} cols={['receipt_no','receipt_date','receipt_type','party_name','amount','account_name','reference_no','status']} action={(r:any)=>r.status==='POSTED'?<button className="btn danger-outline text-xs" onClick={async()=>{const reason=prompt('Reason for reversal?','Wrong receipt');if(reason===null)return;const j=await fetch('/api/reverse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,type:'MONEY_IN',id:r.id,reason})}).then(x=>x.json());if(j.error)return;else location.reload()}}>Reverse</button>:null}/></div></div></div>}
-function InterestPaid({data,form,setForm,save,mode}:{data:any,form:any,setForm:any,save:any,mode:Mode}){const rows=data.interestPayments||[];return <div className="grid gap-4 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]"><div className="card p-4 sm:p-6"><div className="mb-5"><h2 className="text-lg font-black">Interest Paid</h2><p className="muted mt-1 text-sm">Record interest paid from a bank/cash account. Posted interest reduces realised finance profit.</p></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Payment No (optional)" k="payment_no" obj={form} setObj={setForm}/><Field label="Payment Date" k="payment_date" obj={form} setObj={setForm} type="date"/><Field label="Interest Amount" k="amount" obj={form} setObj={setForm} type="number"/><Field label="Payee / Lender" k="payee" obj={form} setObj={setForm}/><div className="sm:col-span-2"><label className="text-sm font-semibold">Pay From<select value={form.account_id||''} onChange={e=>setForm({...form,account_id:Number(e.target.value)})}><option value="">Select bank / cash account</option>{(data.accounts||[]).map((a:any)=><option key={a.id} value={a.id}>{a.account_name} • Balance {money(a.balance)}</option>)}</select></label></div><div className="sm:col-span-2"><PartyPicker parties={data.parties||[]} value={form.party_id} onChange={id=>setForm({...form,party_id:id})}/><p className="mt-1 text-[11px] text-slate-500">Optional party/lender link.</p></div><Field label="Reference No" k="reference_no" obj={form} setObj={setForm}/><Field label="Narration" k="narration" obj={form} setObj={setForm}/></div><InlineFeedback/><button className="primary btn mt-5 w-full" onClick={save}>POST INTEREST PAYMENT</button></div><div className="card p-4 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-lg">Interest Payment History</h2><p className="muted text-sm">Every posted amount is deducted from finance profit.</p></div><KPI label="Interest Paid" value={money(rows.filter((r:any)=>r.status==='POSTED').reduce((a:number,r:any)=>a+Number(r.amount||0),0))}/></div><div className="mt-4"><Table rows={rows} cols={['payment_no','payment_date','payee','party_name','amount','account_name','reference_no','status']} action={(r:any)=>r.status==='POSTED'?<button className="btn danger-outline text-xs" onClick={async()=>{const reason=prompt('Reason for reversal?','Wrong interest payment');if(reason===null)return;const j=await fetch('/api/reverse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,type:'INTEREST',id:r.id,reason})}).then(x=>x.json());if(j.error)return;else location.reload()}}>Reverse</button>:null}/></div></div></div>}
-const MIS_REPORTS=[['executive','Executive MIS'],['pnl','Profit & Loss'],['purchase','Purchase & Rate Analysis'],['sales','Sales & Receivables'],['payments','Payment & Payables'],['accounting','Accounting Registers'],['cashbank','Cash & Bank Book'],['ageing','Outstanding Ageing'],['gst','GST Output Filing'],['itc','GST Input / ITC'],['tds','TDS & Tax Working']] as const;
-const MIS_REPORT_DESCRIPTIONS:Record<string,string>={executive:'Period summary of purchases, taxable sales, weighted average buying rate, quantities, estimated margin, financing income, interest and outstanding balances.',pnl:'Month-wise management profit estimate: taxable sales less recorded sales cost, plus realised financing margin, less posted interest. It is not statutory accounts.',purchase:'Supplier-wise purchase register with weights, bags/quantity, entered rate, gross value, deductions, net payable, paid amount, outstanding and bill-level financing earnings. Receivable Profit is the agreed bill margin; Profit Earned as of Today is the proportional share supported by receipts recorded to date. Bills without a financing receivable show zero and are not assigned invented earnings.',sales:'Invoice-wise sales, GST split, cost recorded, gross margin excluding GST, receipts and outstanding customer balances.',payments:'Posted vendor payments, general money-in receipts and individual financing bank credits, with payment dates, references, account, TDS and net cash fields where available.',accounting:'Party ledger plus money-in and interest registers for review. This is a source-wise register, not a balanced double-entry journal or trial balance.',cashbank:'Posted bank/cash account movements sorted by transaction date, showing account, direction, reference, signed amount and narration for reconciliation.',ageing:'Outstanding vendor payables and financing receivables grouped into due-date ageing buckets using explicit due dates or due days.',gst:'Outward sales filing workpaper with invoice date/number, customer GSTIN, HSN/SAC, taxable value, GST rate, CGST, SGST, IGST and invoice total.',itc:'Purchase-side input GST/ITC workpaper using stored supplier invoice, taxable value, rate and input tax. Reconcile eligibility against invoices and portal data.',tds:'Recorded TDS deductions from vendor payments and financing receivables. Receivable TDS is cumulative in the current data model and must be reconciled to certificates.'};
-function Reports({mode,data}:{mode:Mode,data:any}){
- const [view,setView]=useState<string>('executive'); const [opened,setOpened]=useState(false); const [from,setFrom]=useState(''); const [to,setTo]=useState(''); const [query,setQuery]=useState(''); const [sortDir,setSortDir]=useState<'asc'|'desc'>('desc'); const [reportSort,setReportSort]=useState<{key:string;dir:'asc'|'desc'}>({key:'',dir:'asc'});
- const n=(v:any)=>v===null||v===undefined||v===''?0:Number(v); const dateKey=(v:any)=>{if(!v)return '';const raw=String(v).trim();const iso=raw.match(/^(\d{4}-\d{2}-\d{2})/);if(iso)return iso[1];const dmy=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);if(dmy)return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;return ''}; const dueDate=(explicit:any,base:any,days:any)=>{if(explicit)return dateKey(explicit);const baseKey=dateKey(base);if(!baseKey||!n(days))return '';const parts=baseKey.split('-').map(Number);const d=new Date(parts[0],parts[1]-1,parts[2]);if(!Number.isFinite(d.getTime()))return '';d.setDate(d.getDate()+n(days));return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}; const moneyFmt=(v:any)=>n(v).toLocaleString('en-IN',{maximumFractionDigits:2,minimumFractionDigits:2});
- const within=(date:any)=>{const d=dateKey(date);return !!d&&(!from||d>=from)&&(!to||d<=to)};
- const sorted=(rows:any[],dateField:string)=>rows.filter(r=>within(r[dateField])&&JSON.stringify(r).toLowerCase().includes(query.toLowerCase())).sort((a,b)=>sortDir==='asc'?dateKey(a[dateField]).localeCompare(dateKey(b[dateField])):dateKey(b[dateField]).localeCompare(dateKey(a[dateField])));
- const purchases=sorted((data.purchases||[]).filter((r:any)=>r.status==='POSTED'),'purchase_date');
- const sales=sorted((data.sales||[]).filter((r:any)=>r.status==='POSTED'),'invoice_date');
- const payments=sorted((data.payments||[]).filter((r:any)=>r.status==='POSTED'),'payment_date');
- const receipts=sorted((data.moneyIn||[]).filter((r:any)=>r.status==='POSTED'),'receipt_date');
- const interest=sorted((data.interestPayments||[]).filter((r:any)=>r.status==='POSTED'),'payment_date');
- const ledger=sorted(data.ledger||[],'entry_date'); const receivables=sorted(data.receivables||[],'bill_date'); const financingCashReceipts=sorted((data.accountTransactions||[]).filter((r:any)=>r.reference_type==='FINANCE_RECEIPT'&&r.transaction_type==='CREDIT'),'transaction_date'); const financeIncomeRows=(data.receivables||[]).filter((r:any)=>n(r.received_amount)>0&&within(r.received_date)&&JSON.stringify(r).toLowerCase().includes(query.toLowerCase())).sort((a:any,b:any)=>sortDir==='asc'?String(a.received_date||'').localeCompare(String(b.received_date||'')):String(b.received_date||'').localeCompare(String(a.received_date||''))); const tdsReceivables=(data.receivables||[]).filter((r:any)=>n(r.tds_amount)>0&&within(r.received_date||r.bill_date)&&JSON.stringify(r).toLowerCase().includes(query.toLowerCase()));
- const grossSales=sales.reduce((a:number,r:any)=>a+n(r.taxable_value),0), salesCost=sales.reduce((a:number,r:any)=>a+n(r.cost_amount),0), grossTrading=grossSales-salesCost;
- const purchaseCost=purchases.reduce((a:number,r:any)=>a+n(r.net_payable),0), netWeight=purchases.reduce((a:number,r:any)=>a+n(r.net_weight),0), grossWeight=purchases.reduce((a:number,r:any)=>a+n(r.gross_weight),0), qty=purchases.reduce((a:number,r:any)=>a+n(r.bags_qty),0);
- const financingIncome=financeIncomeRows.reduce((a:number,r:any)=>a+(n(r.received_amount)>0?(n(r.discount_amount)+n(r.other_charges_profit))*n(r.received_amount)/Math.max(1,n(r.receivable_amount)):0),0); const interestCost=interest.reduce((a:number,r:any)=>a+n(r.amount),0); const netProfit=grossTrading+financingIncome-interestCost;
- const outstandingPayables=purchases.reduce((a:number,r:any)=>a+Math.max(0,n(r.net_payable)-n(r.paid_amount)),0);
- const outstandingSales=sales.reduce((a:number,r:any)=>a+Math.max(0,n(r.total_value)-n(r.received_amount)),0);
- const outstandingFinance=receivables.reduce((a:number,r:any)=>a+Math.max(0,n(r.receivable_amount)-n(r.received_amount)),0);
- const avgRate=netWeight?purchaseCost/netWeight:0; const weightedBuyRate=netWeight?purchases.reduce((a:number,r:any)=>a+n(r.rate)*n(r.net_weight),0)/netWeight:0;
- const formatRows=()=>{
-  if(view==='purchase')return purchases.map((r:any)=>{const rec=(data.receivables||[]).find((x:any)=>Number(x.purchase_id)===Number(r.id));const agreedProfit=rec?Math.max(0,n(rec.receivable_amount)-n(rec.cost_amount)):0;const profitRate=rec&&n(rec.cost_amount)>0?agreedProfit/n(rec.cost_amount)*100:0;const receiptRatio=rec&&n(rec.receivable_amount)>0?Math.min(1,Math.max(0,n(rec.received_amount)/n(rec.receivable_amount))):0;const earnedProfit=agreedProfit*receiptRatio;return {'Purchase Date':r.purchase_date,'Sample No':r.sample_no,'Supplier':r.party_name,'Invoice No':r.invoice_no,'Description':r.goods_description,'Bags / Qty':n(r.bags_qty),'Gross Weight':n(r.gross_weight),'Net Weight':n(r.net_weight),'Entered Buying Rate (stored unit)':n(r.rate),'Gross Amount':n(r.gross_amount),'Discount':n(r.discount_amount),'Quality Deduction':n(r.quality_deduct_amount),'Freight':n(r.freight),'Other Charges':n(r.other_charges),'Net Payable':n(r.net_payable),'Paid':n(r.paid_amount),'Outstanding':Math.max(0,n(r.net_payable)-n(r.paid_amount)),'Financing Receivable':rec?n(rec.receivable_amount):0,'Receivable Profit':agreedProfit,'Receivable Profit % on Cost':profitRate,'Received Against Receivable':rec?n(rec.received_amount):0,'Profit Earned as of Today (receipt-based)':earnedProfit,'Profit Earned % on Cost':n(rec?.cost_amount)>0?earnedProfit/n(rec.cost_amount)*100:0,'Profit Yet to Realize':Math.max(0,agreedProfit-earnedProfit)}});
-  if(view==='sales')return sales.map((r:any)=>({'Invoice Date':r.invoice_date,'Invoice No':r.invoice_no,'Customer':r.customer_name,'GSTIN':r.customer_gstin,'Invoice Type':r.invoice_type,'HSN/SAC':r.hsn,'Taxable Value':n(r.taxable_value),'GST Rate %':n(r.gst_rate),'CGST':n(r.cgst),'SGST':n(r.sgst),'IGST':n(r.igst),'Invoice Total':n(r.total_value),'Cost Amount':n(r.cost_amount),'Gross Margin (excl. GST)':n(r.taxable_value)-n(r.cost_amount),'Received':n(r.received_amount),'Outstanding':Math.max(0,n(r.total_value)-n(r.received_amount))}));
-  if(view==='payments')return [
-   ...payments.map((r:any)=>({'Date':r.payment_date,'Type':'Vendor Payment','Reference':r.payment_no,'Party':r.party_name,'Account':r.company_account_name||'','Mode':r.mode,'Gross Amount':n(r.amount),'TDS Deducted':n(r.tds_amount),'Bank/Cash Amount':n(r.net_paid),'Status':r.status})),
-   ...receipts.map((r:any)=>({'Date':r.receipt_date,'Type':`Money In — ${r.receipt_type}`,'Reference':r.receipt_no,'Party':r.party_name||'','Account':r.account_name||'','Mode':'Receipt','Gross Amount':n(r.amount),'TDS Deducted':0,'Bank/Cash Amount':n(r.amount),'Status':r.status})),
-   ...financingCashReceipts.map((r:any)=>({'Date':r.transaction_date,'Type':'Financing Receipt — bank credit','Reference':r.reference_no||'','Party':'','Account':r.account_name||'','Mode':'Bank/Cash Credit','Gross Amount':null,'TDS Deducted':null,'Bank/Cash Amount':n(r.amount),'Status':'POSTED'}))
-  ].sort((a:any,b:any)=>sortDir==='asc'?String(a.Date||'').localeCompare(String(b.Date||'')):String(b.Date||'').localeCompare(String(a.Date||''))).filter((r:any)=>within(r.Date)&&JSON.stringify(r).toLowerCase().includes(query.toLowerCase()));
-  if(view==='accounting')return [...ledger.map((r:any)=>({'Date':r.entry_date,'Register':'Party Ledger','Party':r.party_name,'Entry Type':r.entry_type,'Reference':r.reference_no,'Debit':n(r.debit),'Credit':n(r.credit),'Narration':r.narration})),...receipts.map((r:any)=>({'Date':r.receipt_date,'Register':'Money In','Party':r.party_name||'','Entry Type':r.receipt_type,'Reference':r.receipt_no,'Debit':0,'Credit':n(r.amount),'Narration':r.narration})),...interest.map((r:any)=>({'Date':r.payment_date,'Register':'Interest Paid','Party':r.party_name||r.payee||'','Entry Type':'INTEREST','Reference':r.payment_no,'Debit':n(r.amount),'Credit':0,'Narration':r.narration}))].sort((a:any,b:any)=>sortDir==='asc'?String(a.Date).localeCompare(String(b.Date)):String(b.Date).localeCompare(String(a.Date)));
-  if(view==='cashbank')return sorted(data.accountTransactions||[],'transaction_date').map((r:any)=>({'Date':r.transaction_date,'Account':r.account_name,'Account Type':r.account_type,'Direction':r.transaction_type,'Reference Type':r.reference_type,'Reference No':r.reference_no,'Amount':n(r.amount),'Signed Amount':r.transaction_type==='CREDIT'?n(r.amount):-n(r.amount),'Narration':r.narration}));
-  if(view==='ageing'){const todayKey=today();const dayDiff=(d:any)=>{const dk=dateKey(d);if(!dk)return 0;const a=todayKey.split('-').map(Number),b=dk.split('-').map(Number);return Math.floor((Date.UTC(a[0],a[1]-1,a[2])-Date.UTC(b[0],b[1]-1,b[2]))/86400000)};return [...(data.purchases||[]).filter((r:any)=>r.status==='POSTED'&&JSON.stringify(r).toLowerCase().includes(query.toLowerCase())&&Math.max(0,n(r.net_payable)-n(r.paid_amount))>0).map((r:any)=>{const due=dueDate(r.payment_due_date,r.purchase_date,r.payment_due_days);const days=dayDiff(due);return {'Due Date':due,'Type':'Vendor Payable','Bill No':r.invoice_no||r.sample_no,'Party':r.party_name,'Outstanding':Math.max(0,n(r.net_payable)-n(r.paid_amount)),'Days Past Due':Math.max(0,days),'Ageing Bucket':days<=0?'Not due':days<=30?'1-30 days':days<=60?'31-60 days':days<=90?'61-90 days':'90+ days'}}),...(data.receivables||[]).filter((r:any)=>JSON.stringify(r).toLowerCase().includes(query.toLowerCase())&&Math.max(0,n(r.receivable_amount)-n(r.received_amount))>0).map((r:any)=>{const due=dueDate(r.due_date,r.bill_date,r.due_days);const days=dayDiff(due);return {'Due Date':due,'Type':'Financing Receivable','Bill No':r.bill_no,'Party':r.party_name,'Outstanding':Math.max(0,n(r.receivable_amount)-n(r.received_amount)),'Days Past Due':Math.max(0,days),'Ageing Bucket':days<=0?'Not due':days<=30?'1-30 days':days<=60?'31-60 days':days<=90?'61-90 days':'90+ days'}})].filter((r:any)=>within(r['Due Date'])&&JSON.stringify(r).toLowerCase().includes(query.toLowerCase())).sort((a:any,b:any)=>sortDir==='asc'?String(a['Due Date']).localeCompare(String(b['Due Date'])):String(b['Due Date']).localeCompare(String(a['Due Date'])))}
-  if(view==='gst')return sales.map((r:any)=>({'Invoice Date':r.invoice_date,'Invoice No':r.invoice_no,'Customer':r.customer_name,'GSTIN':r.customer_gstin,'Place of Supply':r.place_of_supply,'Invoice Type':r.invoice_type,'HSN/SAC':r.hsn,'Taxable Value':n(r.taxable_value),'Rate %':n(r.gst_rate),'CGST':n(r.cgst),'SGST':n(r.sgst),'IGST':n(r.igst),'Total Invoice Value':n(r.total_value)}));
-  if(view==='itc')return purchases.filter((r:any)=>n(r.gst_taxable)>0||n(r.gst_amount)>0).map((r:any)=>({'Purchase Date':r.purchase_date,'Supplier':r.party_name,'Supplier Invoice No':r.invoice_no,'Internal Sample No':r.sample_no,'GST Type':r.gst_type,'HSN/SAC':r.hsn,'Taxable Value':n(r.gst_taxable),'GST Rate %':n(r.gst_rate),'Input GST Amount':n(r.gst_amount),'Input Tax Credit Review':'CA / portal reconciliation required'}));
-  if(view==='tds')return [...payments.filter((r:any)=>n(r.tds_amount)>0).map((r:any)=>({'Date':r.payment_date,'Reference':r.payment_no,'Party':r.party_name,'TDS Section':r.tds_rule||'Not recorded','TDS Base':n(r.tds_base),'TDS Rate %':n(r.tds_rate),'TDS Amount':n(r.tds_amount),'Net Paid':n(r.net_paid)})),...tdsReceivables.filter((r:any)=>n(r.tds_amount)>0).map((r:any)=>({'Date':r.received_date||r.bill_date,'Reference':r.bill_no,'Party':r.party_name,'TDS Section':r.tds_section||'Not recorded','TDS Base':n(r.received_amount),'TDS Rate %':n(r.tds_rate),'TDS Amount':n(r.tds_amount),'Net Paid':n(r.net_received)}))].sort((a:any,b:any)=>sortDir==='asc'?String(a.Date).localeCompare(String(b.Date)):String(b.Date).localeCompare(String(a.Date)));
-  if(view==='pnl')return Object.entries(monthly).sort(([a],[b])=>sortDir==='asc'?a.localeCompare(b):b.localeCompare(a)).map(([month,v]:any)=>({'Month':month,'Taxable Sales':v.sales,'Sales Cost':v.cost,'Trading Gross Profit':v.sales-v.cost,'Financing Income':v.finance,'Interest Expense':v.interest,'Estimated Net Profit':v.sales-v.cost+v.finance-v.interest}));
-  return [];
- };
- const monthly:Record<string,any>={}; for(const r of sales){const k=dateKey(r.invoice_date).slice(0,7)||'Unknown';monthly[k]||={sales:0,cost:0,finance:0,interest:0};monthly[k].sales+=n(r.taxable_value);monthly[k].cost+=n(r.cost_amount)}for(const r of financeIncomeRows){const k=dateKey(r.received_date||r.bill_date).slice(0,7)||'Unknown';monthly[k]||={sales:0,cost:0,finance:0,interest:0};monthly[k].finance+=n(r.received_amount)>0?(n(r.discount_amount)+n(r.other_charges_profit))*n(r.received_amount)/Math.max(1,n(r.receivable_amount)):0}for(const r of interest){const k=dateKey(r.payment_date).slice(0,7)||'Unknown';monthly[k]||={sales:0,cost:0,finance:0,interest:0};monthly[k].interest+=n(r.amount)}
- const exportExcel=(name:string,rows:any[])=>{if(!rows.length){notifyFinance('error','No rows available for this report and date filter.');return}const sortedRows=[...rows].sort((a:any,b:any)=>{const keys=['Date','Bill Date','Due Date','Entry Date','Purchase Date','Invoice Date','Payment Date','Receipt Date','Month'];const ka=keys.find(k=>a[k]!==undefined&&a[k]!==null&&String(a[k])!=='')||'';const kb=keys.find(k=>b[k]!==undefined&&b[k]!==null&&String(b[k])!=='')||ka;const da=dateKey(a[ka])||String(a[ka]??'');const db=dateKey(b[kb])||String(b[kb]??'');return da.localeCompare(db)});const headers=Object.keys(sortedRows[0]||{});const dateHeaders=headers.filter(h=>/date/i.test(h)&&!/^month$/i.test(h));const exportRows=sortedRows.map((r:any)=>{const out={...r};for(const h of dateHeaders){const v=out[h];const dk=dateKey(v);if(dk)out[h]=new Date(`${dk}T12:00:00.000Z`)}return out});const ws=XLSX.utils.json_to_sheet(exportRows,{cellDates:true});for(let ri=1;ri<=exportRows.length;ri++){for(const h of dateHeaders){const ci=headers.indexOf(h);const cell=ws[XLSX.utils.encode_cell({r:ri,c:ci})];if(cell&&cell.t==='d')cell.z='dd-mmm-yyyy'}}ws['!cols']=headers.map(h=>({wch:Math.min(60,Math.max(12,h.length,...sortedRows.map((r:any)=>String(r[h]??'').length+2)))}));ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:sortedRows.length,c:Math.max(0,headers.length-1)}})};const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31));XLSX.writeFile(wb,`SOLIVY-${name.replace(/[^a-z0-9]+/gi,'-')}-${from||'all'}-to-${to||'all'}.xlsx`)};
- const currentRows=()=>{if(view==='purchase')return formatRows();if(view==='sales')return formatRows();if(view==='payments'||view==='accounting'||view==='cashbank'||view==='ageing'||view==='gst'||view==='itc'||view==='tds'||view==='pnl')return formatRows();return []};
- const tile=(label:string,value:any,sub?:string)=><div key={label} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</div><div className="mt-2 break-words text-xl font-black">{typeof value==='number'?'₹'+moneyFmt(value):value}</div>{sub&&<div className="mt-1 text-xs text-slate-500">{sub}</div>}</div>;
- const tableRows=currentRows();
- return <div className="space-y-5"><div className="card p-4 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-[.16em] text-indigo-700">Management Information System</div><h2 className="mt-1 text-xl font-black">MIS, Accounting & Filing Reports</h2><p className="muted mt-1 text-sm">Date-filtered operational and accounting working reports. Excel downloads are date-sorted with auto-fit column widths and filters.</p></div><span className="badge">{mode} MODE</span></div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><label className="text-xs font-bold">From date<input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></label><label className="text-xs font-bold">To date<input type="date" value={to} onChange={e=>setTo(e.target.value)}/></label><label className="text-xs font-bold">Search report rows<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Party, bill, reference…"/></label><button className="secondary btn self-end" onClick={()=>setSortDir(v=>v==='asc'?'desc':'asc')}>Date: {sortDir==='asc'?'Oldest first':'Newest first'}</button></div><p className="mt-4 text-xs text-slate-500">Each report is a separate module. Open a card to view its own filters, explanation, data table and Excel export.</p>{!opened&&<div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{MIS_REPORTS.map(([id,label])=><article key={id} className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><h3 className="font-black">{label}</h3><p className="mt-2 flex-1 text-sm text-slate-600">{MIS_REPORT_DESCRIPTIONS[id]}</p><button className="primary btn mt-4 w-full" onClick={()=>{setView(id);setOpened(true)}}>Open {label}</button></article>)}</div>}{opened&&<div className="mt-4 flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-bold">Current module: {MIS_REPORTS.find(x=>x[0]===view)?.[1]}</div><button className="secondary btn" onClick={()=>setOpened(false)}>← All report modules</button></div>}</div>
- {opened&&view==='executive'&&<><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{tile('Net purchase payable',purchaseCost,`${purchases.length} posted purchases; after recorded deductions/charges`)}{tile('Sales taxable value',grossSales,`${sales.length} posted invoices`)}{tile('Weighted average buying rate',`₹${moneyFmt(weightedBuyRate)} / stored weight unit`,'Σ(rate × net weight) ÷ Σ(net weight); confirm your unit (kg/quintal/MT)')}{tile('Net quantity purchased',moneyFmt(netWeight),`Gross weight ${moneyFmt(grossWeight)} • Bags / quantity ${moneyFmt(qty)}; units follow the purchase entry`)}{tile('Trading gross profit',grossTrading,'Taxable sales less recorded sales cost; GST excluded')}{tile('Finance income',financingIncome,'Discount + other charges on receivable records')}{tile('Interest expense',interestCost,'Posted interest payments')}{tile('Estimated net profit',netProfit,'Trading gross profit + finance income − interest; before unrecorded expenses/tax')}{tile('Vendor outstanding',outstandingPayables,'Outstanding on posted purchase bills in the selected date range')}{tile('Sales outstanding',outstandingSales,'Outstanding on posted sales invoices in the selected date range')}{tile('Financing receivable outstanding',outstandingFinance,'Outstanding on receivables billed in the selected date range')}{tile('Purchase cost / net weight',`₹${moneyFmt(avgRate)} / stored weight unit`,'Net payable ÷ net weight; this differs from the entered buying rate when deductions/charges apply')}</div><div className="card p-4 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black">Monthly management trend</h3><p className="muted text-xs">Month buckets follow transaction dates; accounting classification depends on your recorded entries.</p></div><div className="flex flex-wrap gap-2"><button className="secondary btn text-xs" onClick={()=>exportExcel('Executive-MIS',[{'Metric':'Net purchase payable','Value':purchaseCost},{'Metric':'Sales taxable value','Value':grossSales},{'Metric':'Weighted average buying rate per stored weight unit','Value':weightedBuyRate},{'Metric':'Net quantity purchased','Value':netWeight},{'Metric':'Trading gross profit','Value':grossTrading},{'Metric':'Financing income','Value':financingIncome},{'Metric':'Interest expense','Value':interestCost},{'Metric':'Estimated net profit','Value':netProfit},{'Metric':'Vendor outstanding on filtered bills','Value':outstandingPayables},{'Metric':'Sales outstanding on filtered invoices','Value':outstandingSales},{'Metric':'Financing receivable outstanding on filtered bills','Value':outstandingFinance}])}>Export Executive MIS</button><button className="primary btn text-xs" onClick={()=>exportExcel('Monthly-MIS',Object.entries(monthly).sort(([a],[b])=>sortDir==='asc'?a.localeCompare(b):b.localeCompare(a)).map(([month,v]:any)=>({'Month':month,'Taxable Sales':v.sales,'Sales Cost':v.cost,'Trading Gross Profit':v.sales-v.cost,'Financing Income':v.finance,'Interest Expense':v.interest,'Estimated Net Profit':v.sales-v.cost+v.finance-v.interest}))) }>Export Monthly MIS</button></div></div><div className="mt-4 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">Month</th><th className="p-2">Taxable Sales</th><th className="p-2">Sales Cost</th><th className="p-2">Trading GP</th><th className="p-2">Finance income</th><th className="p-2">Interest</th><th className="p-2">Est. net profit</th></tr></thead><tbody>{Object.entries(monthly).sort(([a],[b])=>sortDir==='asc'?a.localeCompare(b):b.localeCompare(a)).map(([m,v]:any)=><tr key={m} className="border-b"><td className="p-2 font-bold">{m}</td><td className="p-2">₹{moneyFmt(v.sales)}</td><td className="p-2">₹{moneyFmt(v.cost)}</td><td className="p-2">₹{moneyFmt(v.sales-v.cost)}</td><td className="p-2">₹{moneyFmt(v.finance)}</td><td className="p-2">₹{moneyFmt(v.interest)}</td><td className="p-2 font-black">₹{moneyFmt(v.sales-v.cost+v.finance-v.interest)}</td></tr>)}</tbody></table></div></div></>}
- {opened&&view==='purchase'&&<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{tile('Purchase net payable',purchaseCost,'Filtered posted purchases after recorded deductions and charges')}{tile('Receivable Profit',purchases.reduce((a:number,r:any)=>{const rec=(data.receivables||[]).find((x:any)=>Number(x.purchase_id)===Number(r.id));return a+(rec?Math.max(0,n(rec.receivable_amount)-n(rec.cost_amount)):0)},0),'Agreed bill-level profit on linked financing receivables')}{tile('Profit Earned as of Today',purchases.reduce((a:number,r:any)=>{const rec=(data.receivables||[]).find((x:any)=>Number(x.purchase_id)===Number(r.id));if(!rec||n(rec.receivable_amount)<=0)return a;const ratio=Math.min(1,Math.max(0,n(rec.received_amount)/n(rec.receivable_amount)));return a+Math.max(0,n(rec.receivable_amount)-n(rec.cost_amount))*ratio},0),'Receipt-based profit recognized to date; not time-accrued interest')}{tile('Trading gross profit',grossTrading,'Separate sales trading margin; taxable sales minus recorded sales cost, GST excluded')}</div>}{opened&&view!=='executive'&&<div className="card p-4 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-black">{MIS_REPORTS.find(x=>x[0]===view)?.[1]}</h3><p className="muted mt-1 text-xs">{MIS_REPORT_DESCRIPTIONS[view]||'Filtered operational register; download to Excel for review and reconciliation.'}</p></div><button className="primary btn text-xs" onClick={()=>exportExcel(MIS_REPORTS.find(x=>x[0]===view)?.[1]||'MIS-Report',tableRows)}>Download Excel</button></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-xs"><thead><tr>{Object.keys(tableRows[0]||{}).map(k=><th key={k} className="border-b bg-slate-50 px-3 py-3 text-left font-black whitespace-nowrap"><button type="button" className="inline-flex items-center gap-1" onClick={()=>setReportSort(p=>p.key===k?{key:k,dir:p.dir==='asc'?'desc':'asc'}:{key:k,dir:'asc'})} title={`Sort by ${k}`}>{k}<span className="text-[10px] text-slate-400">{reportSort.key===k?(reportSort.dir==='asc'?'▲':'▼'):'↕'}</span></button></th>)}</tr></thead><tbody>{[...tableRows].sort((a:any,b:any)=>{const k=reportSort.key||Object.keys(tableRows[0]||{}).find(x=>/date/i.test(x))||Object.keys(tableRows[0]||{})[0];if(!k)return 0;const av=a[k],bv=b[k];if(av==null&&bv==null)return 0;if(av==null)return 1;if(bv==null)return -1;const ad=/date/i.test(k)?dateKey(av):'',bd=/date/i.test(k)?dateKey(bv):'';let cmp=ad&&bd?ad.localeCompare(bd):(typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:'base'}));return reportSort.dir==='asc'?cmp:-cmp}).slice(0,500).map((r:any,i:number)=><tr key={i} className="odd:bg-white even:bg-slate-50">{Object.keys(tableRows[0]||{}).map(k=><td key={k} className="whitespace-nowrap border-b border-slate-100 px-3 py-2">{/date/i.test(k)&&dateKey(r[k])?new Date(`${dateKey(r[k])}T12:00:00.000Z`).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'}):typeof r[k]==='number'?(/%/.test(k)?`${moneyFmt(r[k])}%`:moneyFmt(r[k])):String(r[k]??'')}</td>)}</tr>)}</tbody></table>{tableRows.length>500&&<p className="mt-3 text-xs text-slate-500">Showing first 500 rows in the screen; Excel export includes all rows available in the report dataset.</p>}{!tableRows.length&&<p className="p-8 text-center text-sm text-slate-500">No rows found for the selected date range/search.</p>}</div></div>}
- <div className="card p-4 sm:p-5"><h3 className="font-black">Report scope & accounting safeguards</h3><div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 text-xs text-slate-600"><p>• P&L is a management estimate: it is not a statutory trial balance and excludes expenses that were not recorded.</p><p>• Weighted buying rate uses net-weight weighting; all rates/weights follow the unit stored in the purchase entry.</p><p>• GST/TDS exports are filing workpapers, not submitted returns or tax advice; reconcile before filing.</p><p>• Reconcile bank/cash movements and opening balances before closing a period.</p><p>• Reports respect the active company and LIVE/TEST database context.</p><p>• Exported workbooks use date sorting, filter headers and auto-fit column widths.</p></div></div></div>
+function Receivables({ data, mode, load }: { data: any; mode: Mode; load: any }) {
+  const [q, setQ] = useState("");
+  const rows = (data.receivables || []).filter((r: any) => `${r.bill_no} ${r.party_name} ${r.sample_no} ${r.supplier_invoice_no || ""}`.toLowerCase().includes(q.toLowerCase()));
+  const [edit, setEdit] = useState<any>(null);
+  const [receive, setReceive] = useState<any>(null);
+  const saveEdit = async () => {
+    const j = await fetch("/api/receivables", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, company_id: Number(sessionStorage.getItem("aksh-company-id") || 1), ...edit }),
+    }).then((r) => r.json());
+    if (j.error) {
+      notifyFinance("error", j.error);
+      return;
+    }
+    setEdit(null);
+    load();
+  };
+  const submitReceipt = async () => {
+    const j = await fetch("/api/receivables", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, company_id: Number(sessionStorage.getItem("aksh-company-id") || 1), ...receive }),
+    }).then((r) => r.json());
+    if (j.error) {
+      notifyFinance("error", j.error);
+      return;
+    }
+    setReceive(null);
+    load();
+  };
+  return (
+    <div className="space-y-4">
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-lg">Financing Receivables</h2>
+            <p className="muted text-sm mt-1">Gross amount received closes the receivable. TDS deducted by the payer reduces the bank credit, not the agreed receivable.</p>
+          </div>
+          <input className="max-w-sm" placeholder="Search bill / party / sample…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+          <b>Incoming TDS guidance:</b> TDS on a receipt is normally deducted by the payer. Do not invent a TDS rate. Enter the TDS amount actually shown on the payer's TDS
+          advice/certificate/statement and record the applicable section if known. The software records gross settlement, TDS and net bank credit separately. Ask your CA where the nature of your
+          financing/commission income requires withholding.
+        </div>
+        {edit && (
+          <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 grid gap-3 sm:grid-cols-3">
+            <Field label="Bill No" k="bill_no" obj={edit} setObj={setEdit} />
+            <Field label="Receivable Amount" k="receivable_amount" obj={edit} setObj={setEdit} type="number" />
+            <Field label="Due Days" k="due_days" obj={edit} setObj={setEdit} type="number" />
+            <button className="primary btn sm:col-span-3" onClick={saveEdit}>
+              SAVE RECEIVABLE CHANGE
+            </button>
+          </div>
+        )}
+        {receive && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold">Record Receipt</h3>
+                <p className="text-xs text-emerald-900">
+                  {receive.bill_no} • Outstanding {money(receive.outstanding)}
+                </p>
+              </div>
+              <button className="secondary btn text-xs" onClick={() => setReceive(null)}>
+                Cancel
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label="Gross Amount Received" k="amount" obj={receive} setObj={setReceive} type="number" />
+              <Field label="TDS Rate % (if known)" k="tds_rate" obj={receive} setObj={setReceive} type="number" />
+              <Field label="TDS Amount Deducted" k="tds_amount" obj={receive} setObj={setReceive} type="number" />
+              <Field label="TDS Section / Reference" k="tds_section" obj={receive} setObj={setReceive} />
+              <Field label="TDS Certificate / Reference" k="tds_reference" obj={receive} setObj={setReceive} />
+              <Field label="Receipt Date" k="received_date" obj={receive} setObj={setReceive} type="date" />
+              <label className="text-sm font-medium block sm:col-span-2 lg:col-span-3">
+                Receive Into
+                <select value={receive.account_id || ""} onChange={(e) => setReceive((p: any) => ({ ...p, account_id: Number(e.target.value) }))}>
+                  <option value="">Select bank / cash account</option>
+                  {(data.accounts || []).map((a: any) => (
+                    <option key={a.id} value={a.id}>
+                      {a.account_name} • {a.bank_name} • Balance {money(a.balance)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <KPI label="Gross Settlement" value={money(Number(receive.amount || 0))} />
+              <KPI label="TDS Deducted" value={money(Number(receive.tds_amount || 0) || (Number(receive.amount || 0) * Number(receive.tds_rate || 0)) / 100)} />
+              <KPI
+                label="Bank Credit"
+                value={money(Math.max(0, Number(receive.amount || 0) - (Number(receive.tds_amount || 0) || (Number(receive.amount || 0) * Number(receive.tds_rate || 0)) / 100)))}
+              />
+            </div>
+            <InlineFeedback />
+            <button className="primary btn mt-4 w-full" onClick={submitReceipt}>
+              MARK RECEIVED
+            </button>
+          </div>
+        )}
+        <div className="mt-4">
+          <Table
+            rows={rows}
+            cols={["bill_no", "bill_date", "party_name", "cost_amount", "discount_amount", "receivable_amount", "received_amount", "tds_amount", "net_received", "due_date", "status"]}
+            action={(r: any) => (
+              <div className="flex flex-wrap gap-2">
+                {r.status === "OPEN" && (
+                  <>
+                    <button
+                      className="primary btn text-xs"
+                      onClick={() =>
+                        setReceive({
+                          id: r.id,
+                          bill_no: r.bill_no,
+                          amount: Math.max(0, Number(r.receivable_amount) - Number(r.received_amount || 0)),
+                          tds_rate: 0,
+                          tds_amount: 0,
+                          tds_section: "",
+                          tds_reference: "",
+                          account_id: data.accounts?.[0]?.id || "",
+                          received_date: today(),
+                          outstanding: Math.max(0, Number(r.receivable_amount) - Number(r.received_amount || 0)),
+                        })
+                      }
+                    >
+                      Received
+                    </button>
+                    <button className="btn danger-outline text-xs" onClick={() => setEdit(r)}>
+                      Edit
+                    </button>
+                  </>
+                )}
+                {r.status === "RECEIVED" && (
+                  <button
+                    className="btn danger-outline text-xs"
+                    onClick={async () => {
+                      const reason = prompt("Reason for receipt reversal?", "Wrong receipt");
+                      if (reason === null) return;
+                      const j = await fetch("/api/reverse", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mode, company_id: Number(sessionStorage.getItem("aksh-company-id") || 1), type: "RECEIVABLE", id: r.id, reason }),
+                      }).then((x) => x.json());
+                      if (j.error) return;
+                      else load();
+                    }}
+                  >
+                    Reverse Receipt
+                  </button>
+                )}
+              </div>
+            )}
+          />
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <KPI
+          label="Open Receivables"
+          value={money((data.receivables || []).filter((r: any) => r.status === "OPEN").reduce((a: number, r: any) => a + Number(r.receivable_amount) - Number(r.received_amount || 0), 0))}
+        />
+        <KPI label="Realised Profit" value={money(data.profit?.profit || 0)} />
+        <KPI label="Margin" value={`${Number(data.profit?.margin || 0).toFixed(2)}%`} />
+      </div>
+    </div>
+  );
+}
+function GST({ data, sale, setSale, save, mode }: { data: any; sale: any; setSale: any; save: any; mode: Mode }) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[520px_minmax(0,1fr)]">
+      <div className="card p-4 sm:p-6">
+        <h2 className="font-bold text-lg">GST Filing Register</h2>
+        <p className="muted text-sm mb-4">Outward sales register for GST working. Validate against the current portal schema before filing.</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Invoice No" k="invoice_no" obj={sale} setObj={setSale} />
+          <Field label="Invoice Date" k="invoice_date" obj={sale} setObj={setSale} type="date" />
+          <Field label="Customer Name" k="customer_name" obj={sale} setObj={setSale} />
+          <Field label="Customer GSTIN" k="customer_gstin" obj={sale} setObj={setSale} />
+          <Field label="Place of Supply" k="place_of_supply" obj={sale} setObj={setSale} />
+          <Field label="HSN/SAC" k="hsn" obj={sale} setObj={setSale} />
+          <Field label="Taxable Value" k="taxable_value" obj={sale} setObj={setSale} type="number" />
+          <Field label="GST Rate %" k="gst_rate" obj={sale} setObj={setSale} type="number" />
+          <SelectField label="GST Type" k="gst_type" obj={sale} setObj={setSale} options={{ CGST_SGST: "CGST + SGST", IGST: "IGST" }} />
+        </div>
+        <InlineFeedback />
+        <button className="primary btn mt-5 w-full" onClick={save}>
+          SAVE GST INVOICE
+        </button>
+      </div>
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h2 className="font-bold">GST Register</h2>
+          <a className="secondary btn text-xs" href={`/api/export/gst?mode=${mode}&company_id=${Number(sessionStorage.getItem("aksh-company-id") || 1)}`}>
+            Download Excel
+          </a>
+        </div>
+        <Table rows={data.sales || []} cols={["invoice_no", "invoice_date", "customer_name", "customer_gstin", "taxable_value", "gst_rate", "cgst", "sgst", "igst", "total_value"]} />
+      </div>
+    </div>
+  );
+}
+function MoneyIn({ data, form, setForm, save, mode }: { data: any; form: any; setForm: any; save: any; mode: Mode }) {
+  const rows = data.moneyIn || [];
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
+      <div className="card p-4 sm:p-6">
+        <div className="mb-5">
+          <h2 className="text-lg font-black">Money In / General Receipt</h2>
+          <p className="muted mt-1 text-sm">Use this when money enters your bank/cash account for a reason other than a financing receivable.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Receipt No (optional)" k="receipt_no" obj={form} setObj={setForm} />
+          <Field label="Receipt Date" k="receipt_date" obj={form} setObj={setForm} type="date" />
+          <Field label="Amount" k="amount" obj={form} setObj={setForm} type="number" />
+          <SelectField
+            label="Receipt Type"
+            k="receipt_type"
+            obj={form}
+            setObj={setForm}
+            options={{
+              CAPITAL: "Capital / Initial Fund",
+              LOAN_RECEIVED: "Loan Received",
+              PARTY_ADVANCE: "Party Advance",
+              INTEREST_RECEIVED: "Interest Received",
+              REFUND: "Refund",
+              OTHER_RECEIPT: "Other Receipt",
+            }}
+          />
+          <div className="sm:col-span-2">
+            <label className="text-sm font-semibold">
+              Receive Into
+              <select value={form.account_id || ""} onChange={(e) => setForm({ ...form, account_id: Number(e.target.value) })}>
+                <option value="">Select bank / cash account</option>
+                {(data.accounts || []).map((a: any) => (
+                  <option key={a.id} value={a.id}>
+                    {a.account_name} • Balance {money(a.balance)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="sm:col-span-2">
+            <PartyPicker parties={data.parties || []} value={form.party_id} onChange={(id) => setForm({ ...form, party_id: id })} />
+            <p className="mt-1 text-[11px] text-slate-500">Optional. Leave blank for owner capital or a non-party receipt.</p>
+          </div>
+          <Field label="Reference No" k="reference_no" obj={form} setObj={setForm} />
+          <Field label="Narration" k="narration" obj={form} setObj={setForm} />
+        </div>
+        <InlineFeedback />
+        <button className="primary btn mt-5 w-full" onClick={save}>
+          POST MONEY RECEIVED
+        </button>
+      </div>
+      <div className="card p-4 sm:p-6">
+        <h2 className="font-bold text-lg">Money In History</h2>
+        <div className="mt-4">
+          <Table
+            rows={rows}
+            cols={["receipt_no", "receipt_date", "receipt_type", "party_name", "amount", "account_name", "reference_no", "status"]}
+            action={(r: any) =>
+              r.status === "POSTED" ? (
+                <button
+                  className="btn danger-outline text-xs"
+                  onClick={async () => {
+                    const reason = prompt("Reason for reversal?", "Wrong receipt");
+                    if (reason === null) return;
+                    const j = await fetch("/api/reverse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode, type: "MONEY_IN", id: r.id, reason }) }).then(
+                      (x) => x.json(),
+                    );
+                    if (j.error) return;
+                    else location.reload();
+                  }}
+                >
+                  Reverse
+                </button>
+              ) : null
+            }
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+function InterestPaid({ data, form, setForm, save, mode }: { data: any; form: any; setForm: any; save: any; mode: Mode }) {
+  const rows = data.interestPayments || [];
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
+      <div className="card p-4 sm:p-6">
+        <div className="mb-5">
+          <h2 className="text-lg font-black">Interest Paid</h2>
+          <p className="muted mt-1 text-sm">Record interest paid from a bank/cash account. Posted interest reduces realised finance profit.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Payment No (optional)" k="payment_no" obj={form} setObj={setForm} />
+          <Field label="Payment Date" k="payment_date" obj={form} setObj={setForm} type="date" />
+          <Field label="Interest Amount" k="amount" obj={form} setObj={setForm} type="number" />
+          <Field label="Payee / Lender" k="payee" obj={form} setObj={setForm} />
+          <div className="sm:col-span-2">
+            <label className="text-sm font-semibold">
+              Pay From
+              <select value={form.account_id || ""} onChange={(e) => setForm({ ...form, account_id: Number(e.target.value) })}>
+                <option value="">Select bank / cash account</option>
+                {(data.accounts || []).map((a: any) => (
+                  <option key={a.id} value={a.id}>
+                    {a.account_name} • Balance {money(a.balance)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="sm:col-span-2">
+            <PartyPicker parties={data.parties || []} value={form.party_id} onChange={(id) => setForm({ ...form, party_id: id })} />
+            <p className="mt-1 text-[11px] text-slate-500">Optional party/lender link.</p>
+          </div>
+          <Field label="Reference No" k="reference_no" obj={form} setObj={setForm} />
+          <Field label="Narration" k="narration" obj={form} setObj={setForm} />
+        </div>
+        <InlineFeedback />
+        <button className="primary btn mt-5 w-full" onClick={save}>
+          POST INTEREST PAYMENT
+        </button>
+      </div>
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-lg">Interest Payment History</h2>
+            <p className="muted text-sm">Every posted amount is deducted from finance profit.</p>
+          </div>
+          <KPI label="Interest Paid" value={money(rows.filter((r: any) => r.status === "POSTED").reduce((a: number, r: any) => a + Number(r.amount || 0), 0))} />
+        </div>
+        <div className="mt-4">
+          <Table
+            rows={rows}
+            cols={["payment_no", "payment_date", "payee", "party_name", "amount", "account_name", "reference_no", "status"]}
+            action={(r: any) =>
+              r.status === "POSTED" ? (
+                <button
+                  className="btn danger-outline text-xs"
+                  onClick={async () => {
+                    const reason = prompt("Reason for reversal?", "Wrong interest payment");
+                    if (reason === null) return;
+                    const j = await fetch("/api/reverse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode, type: "INTEREST", id: r.id, reason }) }).then(
+                      (x) => x.json(),
+                    );
+                    if (j.error) return;
+                    else location.reload();
+                  }}
+                >
+                  Reverse
+                </button>
+              ) : null
+            }
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+const MIS_REPORTS = [
+  ["executive", "Executive MIS"],
+  ["pnl", "Profit & Loss"],
+  ["purchase", "Purchase & Rate Analysis"],
+  ["sales", "Sales & Receivables"],
+  ["payments", "Payment & Payables"],
+  ["accounting", "Accounting Registers"],
+  ["cashbank", "Cash & Bank Book"],
+  ["ageing", "Outstanding Ageing"],
+  ["gst", "GST Output Filing"],
+  ["itc", "GST Input / ITC"],
+  ["tds", "TDS & Tax Working"],
+] as const;
+const MIS_REPORT_DESCRIPTIONS: Record<string, string> = {
+  executive: "Period summary of purchases, taxable sales, weighted average buying rate, quantities, estimated margin, financing income, interest and outstanding balances.",
+  pnl: "Month-wise management profit estimate: taxable sales less recorded sales cost, plus realised financing margin, less posted interest. It is not statutory accounts.",
+  purchase:
+    "Supplier-wise purchase register with weights, bags/quantity, entered rate, gross value, deductions, net payable, paid amount, outstanding and bill-level financing earnings. Receivable Profit is the agreed bill margin; Profit Earned as of Today is the proportional share supported by receipts recorded to date. Bills without a financing receivable show zero and are not assigned invented earnings.",
+  sales: "Invoice-wise sales, GST split, cost recorded, gross margin excluding GST, receipts and outstanding customer balances.",
+  payments: "Posted vendor payments, general money-in receipts and individual financing bank credits, with payment dates, references, account, TDS and net cash fields where available.",
+  accounting: "Party ledger plus money-in and interest registers for review. This is a source-wise register, not a balanced double-entry journal or trial balance.",
+  cashbank: "Posted bank/cash account movements sorted by transaction date, showing account, direction, reference, signed amount and narration for reconciliation.",
+  ageing: "Outstanding vendor payables and financing receivables grouped into due-date ageing buckets using explicit due dates or due days.",
+  gst: "Outward sales filing workpaper with invoice date/number, customer GSTIN, HSN/SAC, taxable value, GST rate, CGST, SGST, IGST and invoice total.",
+  itc: "Purchase-side input GST/ITC workpaper using stored supplier invoice, taxable value, rate and input tax. Reconcile eligibility against invoices and portal data.",
+  tds: "Recorded TDS deductions from vendor payments and financing receivables. Receivable TDS is cumulative in the current data model and must be reconciled to certificates.",
+};
+function Reports({ mode, data }: { mode: Mode; data: any }) {
+  const [view, setView] = useState<string>("executive");
+  const [opened, setOpened] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [query, setQuery] = useState("");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [reportSort, setReportSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "", dir: "asc" });
+  const n = (v: any) => (v === null || v === undefined || v === "" ? 0 : Number(v));
+  const dateKey = (v: any) => {
+    if (!v) return "";
+    const raw = String(v).trim();
+    const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (iso) return iso[1];
+    const dmy = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+    return "";
+  };
+  const dueDate = (explicit: any, base: any, days: any) => {
+    if (explicit) return dateKey(explicit);
+    const baseKey = dateKey(base);
+    if (!baseKey || !n(days)) return "";
+    const parts = baseKey.split("-").map(Number);
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    if (!Number.isFinite(d.getTime())) return "";
+    d.setDate(d.getDate() + n(days));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const moneyFmt = (v: any) => n(v).toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  const within = (date: any) => {
+    const d = dateKey(date);
+    return !!d && (!from || d >= from) && (!to || d <= to);
+  };
+  const sorted = (rows: any[], dateField: string) =>
+    rows
+      .filter((r) => within(r[dateField]) && JSON.stringify(r).toLowerCase().includes(query.toLowerCase()))
+      .sort((a, b) => (sortDir === "asc" ? dateKey(a[dateField]).localeCompare(dateKey(b[dateField])) : dateKey(b[dateField]).localeCompare(dateKey(a[dateField]))));
+  const purchases = sorted(
+    (data.purchases || []).filter((r: any) => r.status === "POSTED"),
+    "purchase_date",
+  );
+  const sales = sorted(
+    (data.sales || []).filter((r: any) => r.status === "POSTED"),
+    "invoice_date",
+  );
+  const payments = sorted(
+    (data.payments || []).filter((r: any) => r.status === "POSTED"),
+    "payment_date",
+  );
+  const receipts = sorted(
+    (data.moneyIn || []).filter((r: any) => r.status === "POSTED"),
+    "receipt_date",
+  );
+  const interest = sorted(
+    (data.interestPayments || []).filter((r: any) => r.status === "POSTED"),
+    "payment_date",
+  );
+  const ledger = sorted(data.ledger || [], "entry_date");
+  const receivables = sorted(data.receivables || [], "bill_date");
+  const financingCashReceipts = sorted(
+    (data.accountTransactions || []).filter((r: any) => r.reference_type === "FINANCE_RECEIPT" && r.transaction_type === "CREDIT"),
+    "transaction_date",
+  );
+  const financeIncomeRows = (data.receivables || [])
+    .filter((r: any) => n(r.received_amount) > 0 && within(r.received_date) && JSON.stringify(r).toLowerCase().includes(query.toLowerCase()))
+    .sort((a: any, b: any) =>
+      sortDir === "asc" ? String(a.received_date || "").localeCompare(String(b.received_date || "")) : String(b.received_date || "").localeCompare(String(a.received_date || "")),
+    );
+  const tdsReceivables = (data.receivables || []).filter((r: any) => n(r.tds_amount) > 0 && within(r.received_date || r.bill_date) && JSON.stringify(r).toLowerCase().includes(query.toLowerCase()));
+  const grossSales = sales.reduce((a: number, r: any) => a + n(r.taxable_value), 0),
+    salesCost = sales.reduce((a: number, r: any) => a + n(r.cost_amount), 0),
+    grossTrading = grossSales - salesCost;
+  const purchaseCost = purchases.reduce((a: number, r: any) => a + n(r.net_payable), 0),
+    netWeight = purchases.reduce((a: number, r: any) => a + n(r.net_weight), 0),
+    grossWeight = purchases.reduce((a: number, r: any) => a + n(r.gross_weight), 0),
+    qty = purchases.reduce((a: number, r: any) => a + n(r.bags_qty), 0);
+  const financingIncome = financeIncomeRows.reduce(
+    (a: number, r: any) => a + (n(r.received_amount) > 0 ? ((n(r.discount_amount) + n(r.other_charges_profit)) * n(r.received_amount)) / Math.max(1, n(r.receivable_amount)) : 0),
+    0,
+  );
+  const interestCost = interest.reduce((a: number, r: any) => a + n(r.amount), 0);
+  const netProfit = grossTrading + financingIncome - interestCost;
+  const outstandingPayables = purchases.reduce((a: number, r: any) => a + Math.max(0, n(r.net_payable) - n(r.paid_amount)), 0);
+  const outstandingSales = sales.reduce((a: number, r: any) => a + Math.max(0, n(r.total_value) - n(r.received_amount)), 0);
+  const outstandingFinance = receivables.reduce((a: number, r: any) => a + Math.max(0, n(r.receivable_amount) - n(r.received_amount)), 0);
+  const avgRate = netWeight ? purchaseCost / netWeight : 0;
+  const weightedBuyRate = netWeight ? purchases.reduce((a: number, r: any) => a + n(r.rate) * n(r.net_weight), 0) / netWeight : 0;
+  const formatRows = () => {
+    if (view === "purchase")
+      return purchases.map((r: any) => {
+        const rec = (data.receivables || []).find((x: any) => Number(x.purchase_id) === Number(r.id));
+        const agreedProfit = rec ? Math.max(0, n(rec.receivable_amount) - n(rec.cost_amount)) : 0;
+        const profitRate = rec && n(rec.cost_amount) > 0 ? (agreedProfit / n(rec.cost_amount)) * 100 : 0;
+        const receiptRatio = rec && n(rec.receivable_amount) > 0 ? Math.min(1, Math.max(0, n(rec.received_amount) / n(rec.receivable_amount))) : 0;
+        const earnedProfit = agreedProfit * receiptRatio;
+        return {
+          "Purchase Date": r.purchase_date,
+          "Sample No": r.sample_no,
+          Supplier: r.party_name,
+          "Invoice No": r.invoice_no,
+          Description: r.goods_description,
+          "Bags / Qty": n(r.bags_qty),
+          "Gross Weight": n(r.gross_weight),
+          "Net Weight": n(r.net_weight),
+          "Entered Buying Rate (stored unit)": n(r.rate),
+          "Gross Amount": n(r.gross_amount),
+          Discount: n(r.discount_amount),
+          "Quality Deduction": n(r.quality_deduct_amount),
+          Freight: n(r.freight),
+          "Other Charges": n(r.other_charges),
+          "Net Payable": n(r.net_payable),
+          Paid: n(r.paid_amount),
+          Outstanding: Math.max(0, n(r.net_payable) - n(r.paid_amount)),
+          "Financing Receivable": rec ? n(rec.receivable_amount) : 0,
+          "Receivable Profit": agreedProfit,
+          "Receivable Profit % on Cost": profitRate,
+          "Received Against Receivable": rec ? n(rec.received_amount) : 0,
+          "Profit Earned as of Today (receipt-based)": earnedProfit,
+          "Profit Earned % on Cost": n(rec?.cost_amount) > 0 ? (earnedProfit / n(rec.cost_amount)) * 100 : 0,
+          "Profit Yet to Realize": Math.max(0, agreedProfit - earnedProfit),
+        };
+      });
+    if (view === "sales")
+      return sales.map((r: any) => ({
+        "Invoice Date": r.invoice_date,
+        "Invoice No": r.invoice_no,
+        Customer: r.customer_name,
+        GSTIN: r.customer_gstin,
+        "Invoice Type": r.invoice_type,
+        "HSN/SAC": r.hsn,
+        "Taxable Value": n(r.taxable_value),
+        "GST Rate %": n(r.gst_rate),
+        CGST: n(r.cgst),
+        SGST: n(r.sgst),
+        IGST: n(r.igst),
+        "Invoice Total": n(r.total_value),
+        "Cost Amount": n(r.cost_amount),
+        "Gross Margin (excl. GST)": n(r.taxable_value) - n(r.cost_amount),
+        Received: n(r.received_amount),
+        Outstanding: Math.max(0, n(r.total_value) - n(r.received_amount)),
+      }));
+    if (view === "payments")
+      return [
+        ...payments.map((r: any) => ({
+          Date: r.payment_date,
+          Type: "Vendor Payment",
+          Reference: r.payment_no,
+          Party: r.party_name,
+          Account: r.company_account_name || "",
+          Mode: r.mode,
+          "Gross Amount": n(r.amount),
+          "TDS Deducted": n(r.tds_amount),
+          "Bank/Cash Amount": n(r.net_paid),
+          Status: r.status,
+        })),
+        ...receipts.map((r: any) => ({
+          Date: r.receipt_date,
+          Type: `Money In — ${r.receipt_type}`,
+          Reference: r.receipt_no,
+          Party: r.party_name || "",
+          Account: r.account_name || "",
+          Mode: "Receipt",
+          "Gross Amount": n(r.amount),
+          "TDS Deducted": 0,
+          "Bank/Cash Amount": n(r.amount),
+          Status: r.status,
+        })),
+        ...financingCashReceipts.map((r: any) => ({
+          Date: r.transaction_date,
+          Type: "Financing Receipt — bank credit",
+          Reference: r.reference_no || "",
+          Party: "",
+          Account: r.account_name || "",
+          Mode: "Bank/Cash Credit",
+          "Gross Amount": null,
+          "TDS Deducted": null,
+          "Bank/Cash Amount": n(r.amount),
+          Status: "POSTED",
+        })),
+      ]
+        .sort((a: any, b: any) => (sortDir === "asc" ? String(a.Date || "").localeCompare(String(b.Date || "")) : String(b.Date || "").localeCompare(String(a.Date || ""))))
+        .filter((r: any) => within(r.Date) && JSON.stringify(r).toLowerCase().includes(query.toLowerCase()));
+    if (view === "accounting")
+      return [
+        ...ledger.map((r: any) => ({
+          Date: r.entry_date,
+          Register: "Party Ledger",
+          Party: r.party_name,
+          "Entry Type": r.entry_type,
+          Reference: r.reference_no,
+          Debit: n(r.debit),
+          Credit: n(r.credit),
+          Narration: r.narration,
+        })),
+        ...receipts.map((r: any) => ({
+          Date: r.receipt_date,
+          Register: "Money In",
+          Party: r.party_name || "",
+          "Entry Type": r.receipt_type,
+          Reference: r.receipt_no,
+          Debit: 0,
+          Credit: n(r.amount),
+          Narration: r.narration,
+        })),
+        ...interest.map((r: any) => ({
+          Date: r.payment_date,
+          Register: "Interest Paid",
+          Party: r.party_name || r.payee || "",
+          "Entry Type": "INTEREST",
+          Reference: r.payment_no,
+          Debit: n(r.amount),
+          Credit: 0,
+          Narration: r.narration,
+        })),
+      ].sort((a: any, b: any) => (sortDir === "asc" ? String(a.Date).localeCompare(String(b.Date)) : String(b.Date).localeCompare(String(a.Date))));
+    if (view === "cashbank")
+      return sorted(data.accountTransactions || [], "transaction_date").map((r: any) => ({
+        Date: r.transaction_date,
+        Account: r.account_name,
+        "Account Type": r.account_type,
+        Direction: r.transaction_type,
+        "Reference Type": r.reference_type,
+        "Reference No": r.reference_no,
+        Amount: n(r.amount),
+        "Signed Amount": r.transaction_type === "CREDIT" ? n(r.amount) : -n(r.amount),
+        Narration: r.narration,
+      }));
+    if (view === "ageing") {
+      const todayKey = today();
+      const dayDiff = (d: any) => {
+        const dk = dateKey(d);
+        if (!dk) return 0;
+        const a = todayKey.split("-").map(Number),
+          b = dk.split("-").map(Number);
+        return Math.floor((Date.UTC(a[0], a[1] - 1, a[2]) - Date.UTC(b[0], b[1] - 1, b[2])) / 86400000);
+      };
+      return [
+        ...(data.purchases || [])
+          .filter((r: any) => r.status === "POSTED" && JSON.stringify(r).toLowerCase().includes(query.toLowerCase()) && Math.max(0, n(r.net_payable) - n(r.paid_amount)) > 0)
+          .map((r: any) => {
+            const due = dueDate(r.payment_due_date, r.purchase_date, r.payment_due_days);
+            const days = dayDiff(due);
+            return {
+              "Due Date": due,
+              Type: "Vendor Payable",
+              "Bill No": r.invoice_no || r.sample_no,
+              Party: r.party_name,
+              Outstanding: Math.max(0, n(r.net_payable) - n(r.paid_amount)),
+              "Days Past Due": Math.max(0, days),
+              "Ageing Bucket": days <= 0 ? "Not due" : days <= 30 ? "1-30 days" : days <= 60 ? "31-60 days" : days <= 90 ? "61-90 days" : "90+ days",
+            };
+          }),
+        ...(data.receivables || [])
+          .filter((r: any) => JSON.stringify(r).toLowerCase().includes(query.toLowerCase()) && Math.max(0, n(r.receivable_amount) - n(r.received_amount)) > 0)
+          .map((r: any) => {
+            const due = dueDate(r.due_date, r.bill_date, r.due_days);
+            const days = dayDiff(due);
+            return {
+              "Due Date": due,
+              Type: "Financing Receivable",
+              "Bill No": r.bill_no,
+              Party: r.party_name,
+              Outstanding: Math.max(0, n(r.receivable_amount) - n(r.received_amount)),
+              "Days Past Due": Math.max(0, days),
+              "Ageing Bucket": days <= 0 ? "Not due" : days <= 30 ? "1-30 days" : days <= 60 ? "31-60 days" : days <= 90 ? "61-90 days" : "90+ days",
+            };
+          }),
+      ]
+        .filter((r: any) => within(r["Due Date"]) && JSON.stringify(r).toLowerCase().includes(query.toLowerCase()))
+        .sort((a: any, b: any) => (sortDir === "asc" ? String(a["Due Date"]).localeCompare(String(b["Due Date"])) : String(b["Due Date"]).localeCompare(String(a["Due Date"]))));
+    }
+    if (view === "gst")
+      return sales.map((r: any) => ({
+        "Invoice Date": r.invoice_date,
+        "Invoice No": r.invoice_no,
+        Customer: r.customer_name,
+        GSTIN: r.customer_gstin,
+        "Place of Supply": r.place_of_supply,
+        "Invoice Type": r.invoice_type,
+        "HSN/SAC": r.hsn,
+        "Taxable Value": n(r.taxable_value),
+        "Rate %": n(r.gst_rate),
+        CGST: n(r.cgst),
+        SGST: n(r.sgst),
+        IGST: n(r.igst),
+        "Total Invoice Value": n(r.total_value),
+      }));
+    if (view === "itc")
+      return purchases
+        .filter((r: any) => n(r.gst_taxable) > 0 || n(r.gst_amount) > 0)
+        .map((r: any) => ({
+          "Purchase Date": r.purchase_date,
+          Supplier: r.party_name,
+          "Supplier Invoice No": r.invoice_no,
+          "Internal Sample No": r.sample_no,
+          "GST Type": r.gst_type,
+          "HSN/SAC": r.hsn,
+          "Taxable Value": n(r.gst_taxable),
+          "GST Rate %": n(r.gst_rate),
+          "Input GST Amount": n(r.gst_amount),
+          "Input Tax Credit Review": "CA / portal reconciliation required",
+        }));
+    if (view === "tds")
+      return [
+        ...payments
+          .filter((r: any) => n(r.tds_amount) > 0)
+          .map((r: any) => ({
+            Date: r.payment_date,
+            Reference: r.payment_no,
+            Party: r.party_name,
+            "TDS Section": r.tds_rule || "Not recorded",
+            "TDS Base": n(r.tds_base),
+            "TDS Rate %": n(r.tds_rate),
+            "TDS Amount": n(r.tds_amount),
+            "Net Paid": n(r.net_paid),
+          })),
+        ...tdsReceivables
+          .filter((r: any) => n(r.tds_amount) > 0)
+          .map((r: any) => ({
+            Date: r.received_date || r.bill_date,
+            Reference: r.bill_no,
+            Party: r.party_name,
+            "TDS Section": r.tds_section || "Not recorded",
+            "TDS Base": n(r.received_amount),
+            "TDS Rate %": n(r.tds_rate),
+            "TDS Amount": n(r.tds_amount),
+            "Net Paid": n(r.net_received),
+          })),
+      ].sort((a: any, b: any) => (sortDir === "asc" ? String(a.Date).localeCompare(String(b.Date)) : String(b.Date).localeCompare(String(a.Date))));
+    if (view === "pnl")
+      return Object.entries(monthly)
+        .sort(([a], [b]) => (sortDir === "asc" ? a.localeCompare(b) : b.localeCompare(a)))
+        .map(([month, v]: any) => ({
+          Month: month,
+          "Taxable Sales": v.sales,
+          "Sales Cost": v.cost,
+          "Trading Gross Profit": v.sales - v.cost,
+          "Financing Income": v.finance,
+          "Interest Expense": v.interest,
+          "Estimated Net Profit": v.sales - v.cost + v.finance - v.interest,
+        }));
+    return [];
+  };
+  const monthly: Record<string, any> = {};
+  for (const r of sales) {
+    const k = dateKey(r.invoice_date).slice(0, 7) || "Unknown";
+    monthly[k] ||= { sales: 0, cost: 0, finance: 0, interest: 0 };
+    monthly[k].sales += n(r.taxable_value);
+    monthly[k].cost += n(r.cost_amount);
+  }
+  for (const r of financeIncomeRows) {
+    const k = dateKey(r.received_date || r.bill_date).slice(0, 7) || "Unknown";
+    monthly[k] ||= { sales: 0, cost: 0, finance: 0, interest: 0 };
+    monthly[k].finance += n(r.received_amount) > 0 ? ((n(r.discount_amount) + n(r.other_charges_profit)) * n(r.received_amount)) / Math.max(1, n(r.receivable_amount)) : 0;
+  }
+  for (const r of interest) {
+    const k = dateKey(r.payment_date).slice(0, 7) || "Unknown";
+    monthly[k] ||= { sales: 0, cost: 0, finance: 0, interest: 0 };
+    monthly[k].interest += n(r.amount);
+  }
+  const exportExcel = (name: string, rows: any[]) => {
+    if (!rows.length) {
+      notifyFinance("error", "No rows available for this report and date filter.");
+      return;
+    }
+    const sortedRows = [...rows].sort((a: any, b: any) => {
+      const keys = ["Date", "Bill Date", "Due Date", "Entry Date", "Purchase Date", "Invoice Date", "Payment Date", "Receipt Date", "Month"];
+      const ka = keys.find((k) => a[k] !== undefined && a[k] !== null && String(a[k]) !== "") || "";
+      const kb = keys.find((k) => b[k] !== undefined && b[k] !== null && String(b[k]) !== "") || ka;
+      const da = dateKey(a[ka]) || String(a[ka] ?? "");
+      const db = dateKey(b[kb]) || String(b[kb] ?? "");
+      return da.localeCompare(db);
+    });
+    const headers = Object.keys(sortedRows[0] || {});
+    const dateHeaders = headers.filter((h) => /date/i.test(h) && !/^month$/i.test(h));
+    const exportRows = sortedRows.map((r: any) => {
+      const out = { ...r };
+      for (const h of dateHeaders) {
+        const v = out[h];
+        const dk = dateKey(v);
+        if (dk) out[h] = new Date(`${dk}T12:00:00.000Z`);
+      }
+      return out;
+    });
+    const ws = XLSX.utils.json_to_sheet(exportRows, { cellDates: true });
+    for (let ri = 1; ri <= exportRows.length; ri++) {
+      for (const h of dateHeaders) {
+        const ci = headers.indexOf(h);
+        const cell = ws[XLSX.utils.encode_cell({ r: ri, c: ci })];
+        if (cell && cell.t === "d") cell.z = "dd-mmm-yyyy";
+      }
+    }
+    ws["!cols"] = headers.map((h) => ({ wch: Math.min(60, Math.max(12, h.length, ...sortedRows.map((r: any) => String(r[h] ?? "").length + 2))) }));
+    ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: sortedRows.length, c: Math.max(0, headers.length - 1) } }) };
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+    XLSX.writeFile(wb, `SOLIVY-${name.replace(/[^a-z0-9]+/gi, "-")}-${from || "all"}-to-${to || "all"}.xlsx`);
+  };
+  const currentRows = () => {
+    if (view === "purchase") return formatRows();
+    if (view === "sales") return formatRows();
+    if (view === "payments" || view === "accounting" || view === "cashbank" || view === "ageing" || view === "gst" || view === "itc" || view === "tds" || view === "pnl") return formatRows();
+    return [];
+  };
+  const tile = (label: string, value: any, sub?: string) => (
+    <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-2 break-words text-xl font-black">{typeof value === "number" ? "₹" + moneyFmt(value) : value}</div>
+      {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
+    </div>
+  );
+  const tableRows = currentRows();
+  return (
+    <div className="space-y-5">
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[.16em] text-indigo-700">Management Information System</div>
+            <h2 className="mt-1 text-xl font-black">MIS, Accounting & Filing Reports</h2>
+            <p className="muted mt-1 text-sm">Date-filtered operational and accounting working reports. Excel downloads are date-sorted with auto-fit column widths and filters.</p>
+          </div>
+          <span className="badge">{mode} MODE</span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="text-xs font-bold">
+            From date
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="text-xs font-bold">
+            To date
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+          <label className="text-xs font-bold">
+            Search report rows
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Party, bill, reference…" />
+          </label>
+          <button className="secondary btn self-end" onClick={() => setSortDir((v) => (v === "asc" ? "desc" : "asc"))}>
+            Date: {sortDir === "asc" ? "Oldest first" : "Newest first"}
+          </button>
+        </div>
+        <p className="mt-4 text-xs text-slate-500">Each report is a separate module. Open a card to view its own filters, explanation, data table and Excel export.</p>
+        {!opened && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {MIS_REPORTS.map(([id, label]) => (
+              <article key={id} className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <h3 className="font-black">{label}</h3>
+                <p className="mt-2 flex-1 text-sm text-slate-600">{MIS_REPORT_DESCRIPTIONS[id]}</p>
+                <button
+                  className="primary btn mt-4 w-full"
+                  onClick={() => {
+                    setView(id);
+                    setOpened(true);
+                  }}
+                >
+                  Open {label}
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+        {opened && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-bold">Current module: {MIS_REPORTS.find((x) => x[0] === view)?.[1]}</div>
+            <button className="secondary btn" onClick={() => setOpened(false)}>
+              ← All report modules
+            </button>
+          </div>
+        )}
+      </div>
+      {opened && view === "executive" && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {tile("Net purchase payable", purchaseCost, `${purchases.length} posted purchases; after recorded deductions/charges`)}
+            {tile("Sales taxable value", grossSales, `${sales.length} posted invoices`)}
+            {tile("Weighted average buying rate", `₹${moneyFmt(weightedBuyRate)} / stored weight unit`, "Σ(rate × net weight) ÷ Σ(net weight); confirm your unit (kg/quintal/MT)")}
+            {tile("Net quantity purchased", moneyFmt(netWeight), `Gross weight ${moneyFmt(grossWeight)} • Bags / quantity ${moneyFmt(qty)}; units follow the purchase entry`)}
+            {tile("Trading gross profit", grossTrading, "Taxable sales less recorded sales cost; GST excluded")}
+            {tile("Finance income", financingIncome, "Discount + other charges on receivable records")}
+            {tile("Interest expense", interestCost, "Posted interest payments")}
+            {tile("Estimated net profit", netProfit, "Trading gross profit + finance income − interest; before unrecorded expenses/tax")}
+            {tile("Vendor outstanding", outstandingPayables, "Outstanding on posted purchase bills in the selected date range")}
+            {tile("Sales outstanding", outstandingSales, "Outstanding on posted sales invoices in the selected date range")}
+            {tile("Financing receivable outstanding", outstandingFinance, "Outstanding on receivables billed in the selected date range")}
+            {tile("Purchase cost / net weight", `₹${moneyFmt(avgRate)} / stored weight unit`, "Net payable ÷ net weight; this differs from the entered buying rate when deductions/charges apply")}
+          </div>
+          <div className="card p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black">Monthly management trend</h3>
+                <p className="muted text-xs">Month buckets follow transaction dates; accounting classification depends on your recorded entries.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="secondary btn text-xs"
+                  onClick={() =>
+                    exportExcel("Executive-MIS", [
+                      { Metric: "Net purchase payable", Value: purchaseCost },
+                      { Metric: "Sales taxable value", Value: grossSales },
+                      { Metric: "Weighted average buying rate per stored weight unit", Value: weightedBuyRate },
+                      { Metric: "Net quantity purchased", Value: netWeight },
+                      { Metric: "Trading gross profit", Value: grossTrading },
+                      { Metric: "Financing income", Value: financingIncome },
+                      { Metric: "Interest expense", Value: interestCost },
+                      { Metric: "Estimated net profit", Value: netProfit },
+                      { Metric: "Vendor outstanding on filtered bills", Value: outstandingPayables },
+                      { Metric: "Sales outstanding on filtered invoices", Value: outstandingSales },
+                      { Metric: "Financing receivable outstanding on filtered bills", Value: outstandingFinance },
+                    ])
+                  }
+                >
+                  Export Executive MIS
+                </button>
+                <button
+                  className="primary btn text-xs"
+                  onClick={() =>
+                    exportExcel(
+                      "Monthly-MIS",
+                      Object.entries(monthly)
+                        .sort(([a], [b]) => (sortDir === "asc" ? a.localeCompare(b) : b.localeCompare(a)))
+                        .map(([month, v]: any) => ({
+                          Month: month,
+                          "Taxable Sales": v.sales,
+                          "Sales Cost": v.cost,
+                          "Trading Gross Profit": v.sales - v.cost,
+                          "Financing Income": v.finance,
+                          "Interest Expense": v.interest,
+                          "Estimated Net Profit": v.sales - v.cost + v.finance - v.interest,
+                        })),
+                    )
+                  }
+                >
+                  Export Monthly MIS
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="p-2">Month</th>
+                    <th className="p-2">Taxable Sales</th>
+                    <th className="p-2">Sales Cost</th>
+                    <th className="p-2">Trading GP</th>
+                    <th className="p-2">Finance income</th>
+                    <th className="p-2">Interest</th>
+                    <th className="p-2">Est. net profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(monthly)
+                    .sort(([a], [b]) => (sortDir === "asc" ? a.localeCompare(b) : b.localeCompare(a)))
+                    .map(([m, v]: any) => (
+                      <tr key={m} className="border-b">
+                        <td className="p-2 font-bold">{m}</td>
+                        <td className="p-2">₹{moneyFmt(v.sales)}</td>
+                        <td className="p-2">₹{moneyFmt(v.cost)}</td>
+                        <td className="p-2">₹{moneyFmt(v.sales - v.cost)}</td>
+                        <td className="p-2">₹{moneyFmt(v.finance)}</td>
+                        <td className="p-2">₹{moneyFmt(v.interest)}</td>
+                        <td className="p-2 font-black">₹{moneyFmt(v.sales - v.cost + v.finance - v.interest)}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+      {opened && view === "purchase" && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {tile("Purchase net payable", purchaseCost, "Filtered posted purchases after recorded deductions and charges")}
+          {tile(
+            "Receivable Profit",
+            purchases.reduce((a: number, r: any) => {
+              const rec = (data.receivables || []).find((x: any) => Number(x.purchase_id) === Number(r.id));
+              return a + (rec ? Math.max(0, n(rec.receivable_amount) - n(rec.cost_amount)) : 0);
+            }, 0),
+            "Agreed bill-level profit on linked financing receivables",
+          )}
+          {tile(
+            "Profit Earned as of Today",
+            purchases.reduce((a: number, r: any) => {
+              const rec = (data.receivables || []).find((x: any) => Number(x.purchase_id) === Number(r.id));
+              if (!rec || n(rec.receivable_amount) <= 0) return a;
+              const ratio = Math.min(1, Math.max(0, n(rec.received_amount) / n(rec.receivable_amount)));
+              return a + Math.max(0, n(rec.receivable_amount) - n(rec.cost_amount)) * ratio;
+            }, 0),
+            "Receipt-based profit recognized to date; not time-accrued interest",
+          )}
+          {tile("Trading gross profit", grossTrading, "Separate sales trading margin; taxable sales minus recorded sales cost, GST excluded")}
+        </div>
+      )}
+      {opened && view !== "executive" && (
+        <div className="card p-4 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-black">{MIS_REPORTS.find((x) => x[0] === view)?.[1]}</h3>
+              <p className="muted mt-1 text-xs">{MIS_REPORT_DESCRIPTIONS[view] || "Filtered operational register; download to Excel for review and reconciliation."}</p>
+            </div>
+            <button className="primary btn text-xs" onClick={() => exportExcel(MIS_REPORTS.find((x) => x[0] === view)?.[1] || "MIS-Report", tableRows)}>
+              Download Excel
+            </button>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[850px] border-collapse text-xs">
+              <thead>
+                <tr>
+                  {Object.keys(tableRows[0] || {}).map((k) => (
+                    <th key={k} className="border-b bg-slate-50 px-3 py-3 text-left font-black whitespace-nowrap">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1"
+                        onClick={() => setReportSort((p) => (p.key === k ? { key: k, dir: p.dir === "asc" ? "desc" : "asc" } : { key: k, dir: "asc" }))}
+                        title={`Sort by ${k}`}
+                      >
+                        {k}
+                        <span className="text-[10px] text-slate-400">{reportSort.key === k ? (reportSort.dir === "asc" ? "▲" : "▼") : "↕"}</span>
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...tableRows]
+                  .sort((a: any, b: any) => {
+                    const k = reportSort.key || Object.keys(tableRows[0] || {}).find((x) => /date/i.test(x)) || Object.keys(tableRows[0] || {})[0];
+                    if (!k) return 0;
+                    const av = a[k],
+                      bv = b[k];
+                    if (av == null && bv == null) return 0;
+                    if (av == null) return 1;
+                    if (bv == null) return -1;
+                    const ad = /date/i.test(k) ? dateKey(av) : "",
+                      bd = /date/i.test(k) ? dateKey(bv) : "";
+                    let cmp =
+                      ad && bd
+                        ? ad.localeCompare(bd)
+                        : typeof av === "number" && typeof bv === "number"
+                          ? av - bv
+                          : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+                    return reportSort.dir === "asc" ? cmp : -cmp;
+                  })
+                  .slice(0, 500)
+                  .map((r: any, i: number) => (
+                    <tr key={i} className="odd:bg-white even:bg-slate-50">
+                      {Object.keys(tableRows[0] || {}).map((k) => (
+                        <td key={k} className="whitespace-nowrap border-b border-slate-100 px-3 py-2">
+                          {/date/i.test(k) && dateKey(r[k])
+                            ? new Date(`${dateKey(r[k])}T12:00:00.000Z`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
+                            : typeof r[k] === "number"
+                              ? /%/.test(k)
+                                ? `${moneyFmt(r[k])}%`
+                                : moneyFmt(r[k])
+                              : String(r[k] ?? "")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            {tableRows.length > 500 && <p className="mt-3 text-xs text-slate-500">Showing first 500 rows in the screen; Excel export includes all rows available in the report dataset.</p>}
+            {!tableRows.length && <p className="p-8 text-center text-sm text-slate-500">No rows found for the selected date range/search.</p>}
+          </div>
+        </div>
+      )}
+      <div className="card p-4 sm:p-5">
+        <h3 className="font-black">Report scope & accounting safeguards</h3>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 text-xs text-slate-600">
+          <p>• P&L is a management estimate: it is not a statutory trial balance and excludes expenses that were not recorded.</p>
+          <p>• Weighted buying rate uses net-weight weighting; all rates/weights follow the unit stored in the purchase entry.</p>
+          <p>• GST/TDS exports are filing workpapers, not submitted returns or tax advice; reconcile before filing.</p>
+          <p>• Reconcile bank/cash movements and opening balances before closing a period.</p>
+          <p>• Reports respect the active company and LIVE/TEST database context.</p>
+          <p>• Exported workbooks use date sorting, filter headers and auto-fit column widths.</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function CommercialBills({data,mode,api,load}:{data:any,mode:Mode,api:any,load:any}){
- const [tp,setTp]=useState<any>({}); const [editing,setEditing]=useState<any>(null); const [selected,setSelected]=useState<any>(null); const [billType,setBillType]=useState<'purchase'|'third-party'>('purchase');
- const save=async()=>{try{await api('/third-parties',{method:editing?.id?'PUT':'POST',body:JSON.stringify({mode,...tp,id:editing?.id})});setTp({});setEditing(null);load()}catch(e:any){}};
- const openBill=(p:any,type:'purchase'|'third-party')=>{setBillType(type);setSelected(p);if(type==='purchase'){window.open(`/api/purchase-bill?mode=${mode}&company_id=${Number(sessionStorage.getItem('aksh-company-id')||1)}&id=${p.id}&bill_type=purchase`,'_blank');return;}const list=data.thirdParties||[];if(!list.length){notifyFinance('error','Add at least one third party first.');return;}if(list.length===1){window.open(`/api/purchase-bill?mode=${mode}&company_id=${Number(sessionStorage.getItem('aksh-company-id')||1)}&id=${p.id}&bill_type=third-party&third_party_id=${list[0].id}`,'_blank');return;}};
- return <div className="space-y-5"><div className="card p-5 sm:p-6"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-xs font-black uppercase tracking-[.16em] text-red-600">Commercial documents</div><h2 className="mt-1 text-xl font-black">Generate Commercial Bill</h2><p className="muted mt-1 text-sm">The PDF follows the supplied invoice structure. Empty fields are omitted and GST appears only when configured.</p></div><span className="badge">{mode} MODE</span></div><div className="mt-5 grid gap-3">{(data.purchases||[]).slice(0,100).map((p:any)=><div key={p.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="font-black">{p.invoice_no||p.sample_no}</div><div className="text-xs text-slate-500">{p.purchase_date} • {p.party_name} • {money(p.net_payable)}</div></div><div className="flex flex-wrap gap-2"><button className="primary btn text-xs" onClick={()=>openBill(p,'purchase')}>Purchase Party Bill</button><button className="secondary btn text-xs" onClick={()=>openBill(p,'third-party')}>3rd Party Bill</button></div></div>)}</div></div>
- <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]"><div className="card p-5 sm:p-6"><h3 className="font-black">{editing?'Edit Third Party':'Add Third Party'}</h3><div className="mt-4 grid gap-3"><Field label="Party Name" k="name" obj={tp} setObj={setTp}/><Field label="Address" k="address" obj={tp} setObj={setTp}/><Field label="Contact" k="contact" obj={tp} setObj={setTp}/><Field label="Email" k="email" obj={tp} setObj={setTp}/><Field label="GSTIN" k="gst" obj={tp} setObj={setTp}/><Field label="PAN" k="pan" obj={tp} setObj={setTp}/></div><div className="mt-4 flex gap-2"><InlineFeedback/><button className="primary btn flex-1" onClick={save}>{editing?'UPDATE':'ADD'} THIRD PARTY</button>{editing&&<button className="btn border border-slate-200 bg-white" onClick={()=>{setEditing(null);setTp({})}}>Cancel</button>}</div></div><div className="card p-5 sm:p-6"><h3 className="font-black">Third Parties</h3><div className="mt-4 space-y-2">{(data.thirdParties||[]).map((x:any)=><div key={x.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="font-bold">{x.name}</div><div className="text-xs text-slate-500">{[x.contact,x.gst,x.email].filter(Boolean).join(' • ')}</div></div><button className="secondary btn text-xs" onClick={()=>{setEditing(x);setTp(x)}}>Edit</button></div>)}</div></div></div>
- {selected&&billType==='third-party'&&(data.thirdParties||[]).length>1&&<div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/55 p-4"><div className="motion-scale w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl sm:p-6"><div className="text-xs font-black uppercase tracking-[.16em] text-emerald-700">3rd Party Bill</div><h3 className="mt-1 text-xl font-black">Select party</h3><p className="muted mt-1 text-sm">Choose which third party should appear as Buyer (Bill to).</p><div className="mt-4 max-h-[55vh] space-y-2 overflow-y-auto">{(data.thirdParties||[]).map((x:any)=><button key={x.id} className="w-full rounded-2xl border border-slate-200 p-4 text-left transition hover:border-emerald-400 hover:bg-emerald-50" onClick={()=>{window.open(`/api/purchase-bill?mode=${mode}&company_id=${Number(sessionStorage.getItem('aksh-company-id')||1)}&id=${selected.id}&bill_type=third-party&third_party_id=${x.id}`,'_blank');setSelected(null)}}><div className="font-bold">{x.name}</div><div className="text-xs text-slate-500">{[x.address,x.gst,x.contact].filter(Boolean).join(' • ')}</div></button>)}</div><button className="btn mt-4 w-full border border-slate-200 bg-white" onClick={()=>setSelected(null)}>Cancel</button></div></div>}
- </div>
+function CommercialBills({ data, mode, api, load }: { data: any; mode: Mode; api: any; load: any }) {
+  const [tp, setTp] = useState<any>({});
+  const [editing, setEditing] = useState<any>(null);
+  const [selected, setSelected] = useState<any>(null);
+  const [billType, setBillType] = useState<"purchase" | "third-party">("purchase");
+  const save = async () => {
+    try {
+      await api("/third-parties", { method: editing?.id ? "PUT" : "POST", body: JSON.stringify({ mode, ...tp, id: editing?.id }) });
+      setTp({});
+      setEditing(null);
+      load();
+    } catch (e: any) {}
+  };
+  const openBill = (p: any, type: "purchase" | "third-party") => {
+    setBillType(type);
+    setSelected(p);
+    if (type === "purchase") {
+      window.open(`/api/purchase-bill?mode=${mode}&company_id=${Number(sessionStorage.getItem("aksh-company-id") || 1)}&id=${p.id}&bill_type=purchase`, "_blank");
+      return;
+    }
+    const list = data.thirdParties || [];
+    if (!list.length) {
+      notifyFinance("error", "Add at least one third party first.");
+      return;
+    }
+    if (list.length === 1) {
+      window.open(`/api/purchase-bill?mode=${mode}&company_id=${Number(sessionStorage.getItem("aksh-company-id") || 1)}&id=${p.id}&bill_type=third-party&third_party_id=${list[0].id}`, "_blank");
+      return;
+    }
+  };
+  return (
+    <div className="space-y-5">
+      <div className="card p-5 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[.16em] text-red-600">Commercial documents</div>
+            <h2 className="mt-1 text-xl font-black">Generate Commercial Bill</h2>
+            <p className="muted mt-1 text-sm">The PDF follows the supplied invoice structure. Empty fields are omitted and GST appears only when configured.</p>
+          </div>
+          <span className="badge">{mode} MODE</span>
+        </div>
+        <div className="mt-5 grid gap-3">
+          {(data.purchases || []).slice(0, 100).map((p: any) => (
+            <div key={p.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="font-black">{p.invoice_no || p.sample_no}</div>
+                <div className="text-xs text-slate-500">
+                  {p.purchase_date} • {p.party_name} • {money(p.net_payable)}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="primary btn text-xs" onClick={() => openBill(p, "purchase")}>
+                  Purchase Party Bill
+                </button>
+                <button className="secondary btn text-xs" onClick={() => openBill(p, "third-party")}>
+                  3rd Party Bill
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <div className="card p-5 sm:p-6">
+          <h3 className="font-black">{editing ? "Edit Third Party" : "Add Third Party"}</h3>
+          <div className="mt-4 grid gap-3">
+            <Field label="Party Name" k="name" obj={tp} setObj={setTp} />
+            <Field label="Address" k="address" obj={tp} setObj={setTp} />
+            <Field label="Contact" k="contact" obj={tp} setObj={setTp} />
+            <Field label="Email" k="email" obj={tp} setObj={setTp} />
+            <Field label="GSTIN" k="gst" obj={tp} setObj={setTp} />
+            <Field label="PAN" k="pan" obj={tp} setObj={setTp} />
+          </div>
+          <div className="mt-4 flex gap-2">
+            <InlineFeedback />
+            <button className="primary btn flex-1" onClick={save}>
+              {editing ? "UPDATE" : "ADD"} THIRD PARTY
+            </button>
+            {editing && (
+              <button
+                className="btn border border-slate-200 bg-white"
+                onClick={() => {
+                  setEditing(null);
+                  setTp({});
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="card p-5 sm:p-6">
+          <h3 className="font-black">Third Parties</h3>
+          <div className="mt-4 space-y-2">
+            {(data.thirdParties || []).map((x: any) => (
+              <div key={x.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="font-bold">{x.name}</div>
+                  <div className="text-xs text-slate-500">{[x.contact, x.gst, x.email].filter(Boolean).join(" • ")}</div>
+                </div>
+                <button
+                  className="secondary btn text-xs"
+                  onClick={() => {
+                    setEditing(x);
+                    setTp(x);
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {selected && billType === "third-party" && (data.thirdParties || []).length > 1 && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/55 p-4">
+          <div className="motion-scale w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+            <div className="text-xs font-black uppercase tracking-[.16em] text-emerald-700">3rd Party Bill</div>
+            <h3 className="mt-1 text-xl font-black">Select party</h3>
+            <p className="muted mt-1 text-sm">Choose which third party should appear as Buyer (Bill to).</p>
+            <div className="mt-4 max-h-[55vh] space-y-2 overflow-y-auto">
+              {(data.thirdParties || []).map((x: any) => (
+                <button
+                  key={x.id}
+                  className="w-full rounded-2xl border border-slate-200 p-4 text-left transition hover:border-emerald-400 hover:bg-emerald-50"
+                  onClick={() => {
+                    window.open(
+                      `/api/purchase-bill?mode=${mode}&company_id=${Number(sessionStorage.getItem("aksh-company-id") || 1)}&id=${selected.id}&bill_type=third-party&third_party_id=${x.id}`,
+                      "_blank",
+                    );
+                    setSelected(null);
+                  }}
+                >
+                  <div className="font-bold">{x.name}</div>
+                  <div className="text-xs text-slate-500">{[x.address, x.gst, x.contact].filter(Boolean).join(" • ")}</div>
+                </button>
+              ))}
+            </div>
+            <button className="btn mt-4 w-full border border-slate-200 bg-white" onClick={() => setSelected(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function DocumentSettings({data,mode,api,load}:{data:any,mode:Mode,api:any,load:any}){
- const [s,setS]=useState<any>({commercial_bill:{},third_party_bill:{},payment_advice:{}});
- useEffect(()=>{api(`/document-settings?mode=${mode}`).then((x:any)=>setS(x)).catch((e:any)=>notifyFinance('error',e.message))},[mode]);
- const toggle=(group:string,k:string)=>setS((p:any)=>({...p,[group]:{...p[group],[k]:!p[group]?.[k]}}));
- const save=async()=>{try{await api('/document-settings',{method:'POST',body:JSON.stringify({mode,...s})});notifyFinance('success','Document settings saved');load()}catch(e:any){notifyFinance('error',e.message)}};
- const labels:any={commercial_bill:{show_invoice_no:'Invoice No.',show_reference_no:'Reference No. & Date',show_buyer_order_no:"Buyer's Order No.",show_payment_terms:'Payment Terms',show_other_references:'Other References',show_sample_no:'Sample No.',show_sample_date_together:'Combine Sample No. & Date',show_delivery_terms:'Terms of Delivery',show_hsn:'HSN/SAC',show_quantity:'Quantity',show_rate:'Rate',show_amount:'Amount',show_gross_weight:'Gross Weight',show_net_weight:'Net Weight',show_party_contact:'Party Contact',show_party_gst:'Party GSTIN',show_party_pan:'Party PAN',show_company_address:'Company Address',show_company_email:'Company Email',show_company_gst:'Company GSTIN',show_company_pan:'Company PAN',show_bank_details:'Company Bank Details',show_declaration:'Declaration',show_signature:'Authorised Signatory',include_unload:'Less: Unload Charges',include_driver_rokdi:'Less: Driver Rokdi',include_freight:'Less: Freight',include_moisture:'Less: Moisture',include_discount:'Less: Discount',include_quality_deduct:'Less: Quality Deduct',include_other_charges:'Less: Other Charges'},third_party_bill:{show_deductions:'Show deductions section',show_bill_number:'Internal Bill No.',show_invoice_no:'Invoice No.',show_reference_no:'Reference No. & Date',show_buyer_order_no:"Buyer's Order No.",show_payment_terms:'Payment Terms',show_other_references:'Other References',show_sample_no:'Sample No.',show_sample_date_together:'Combine Sample No. & Date',show_delivery_terms:'Terms of Delivery',show_hsn:'HSN/SAC',show_quantity:'Quantity',show_rate:'Rate',show_amount:'Amount',show_gross_weight:'Gross Weight',show_net_weight:'Net Weight',show_party_contact:'Third Party Contact',show_party_gst:'Third Party GSTIN',show_party_pan:'Third Party PAN',show_company_address:'Company Address',show_company_email:'Company Email',show_company_gst:'Company GSTIN',show_company_pan:'Company PAN',show_bank_details:'Company Bank Details',show_declaration:'Declaration',show_signature:'Authorised Signatory',include_unload:'Less: Unload Charges',include_driver_rokdi:'Less: Driver Rokdi',include_freight:'Less: Freight',include_moisture:'Less: Moisture',include_discount:'Less: Discount',include_quality_deduct:'Less: Quality Deduct',include_other_charges:'Less: Other Charges'},payment_advice:{show_party_address:'Party Address',show_party_gst:'Party GSTIN',show_party_pan:'Party PAN',show_bank_details:'Bank Details',show_broker:'Broker Details',show_utr:'UTR / Reference',show_purchase_date:'Purchase Date',show_invoice_no:'Invoice No.',show_sample_no:'Sample No.',show_description:'Goods Description',show_quantity:'Quantity / Weight (legacy)',show_net_weight:'Net Weight',show_bags:'Bags / Packages',show_rate:'Rate / Kg (2 decimals)',show_gross_weight:'Gross Weight',show_gross_amount:'Gross Amount',show_unload:'Unload Charges',show_freight:'Freight',show_moisture:'Moisture',show_discount:'Discount',show_discount_percent:'Show discount percentage',show_driver_rokdi:'Driver Rokdi',show_quality_deduct:'Quality Deduct',show_other_charges:'Other Charges',show_net_payable:'Net Payable',show_allocated:'Amount Allocated',show_outstanding:'Outstanding After Payment',show_tds:'TDS',show_allocations:'Bill Allocations',show_notes:'Notes',show_amount_words:'Amount in Words',show_payment_date_below_words:'Payment Date below Amount in Words',show_utr_below_words:'UTR / Reference below Amount in Words',show_payment_date_top:'Payment Date in header',show_gross_settlement:'Gross Settlement (legacy)',show_allocated_total:'Allocated to Bills (legacy)',show_unallocated:'Unallocated / Advance (legacy)',include_tds_in_net:'Count TDS in Net Payment'}};
- return <div className="space-y-5"><div className="card p-4 sm:p-6"><div className="text-xs font-black uppercase tracking-[.16em] text-purple-700">Admin only</div><h2 className="mt-1 text-xl font-black">Document Settings</h2><p className="muted mt-1 text-sm">Choose what is printed and which purchase deductions are considered in each document total.</p></div>{[['commercial_bill','Commercial Bill'],['third_party_bill','3rd Party Bill'],['payment_advice','Payment Advice']].map(([g,title])=><div key={g} className="card p-4 sm:p-6"><h3 className="font-black">{title}</h3><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(labels[g]||{}).map(([k,l])=><label key={k} className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 p-3 text-sm font-semibold"><input type="checkbox" className="shrink-0" checked={k==='show_sample_date_together'?!!s[g]?.[k]:s[g]?.[k]!==false} onChange={()=>toggle(g,k)}/><span className="min-w-0">{l as string}</span></label>)}</div></div>)}<InlineFeedback/><button className="primary btn w-full sm:w-auto" onClick={save}>SAVE DOCUMENT SETTINGS</button></div>
+function DocumentSettings({ data, mode, api, load }: { data: any; mode: Mode; api: any; load: any }) {
+  const [s, setS] = useState<any>({ commercial_bill: {}, third_party_bill: {}, payment_advice: {} });
+  useEffect(() => {
+    api(`/document-settings?mode=${mode}`)
+      .then((x: any) => setS(x))
+      .catch((e: any) => notifyFinance("error", e.message));
+  }, [mode]);
+  const toggle = (group: string, k: string) => setS((p: any) => ({ ...p, [group]: { ...p[group], [k]: !p[group]?.[k] } }));
+  const save = async () => {
+    try {
+      await api("/document-settings", { method: "POST", body: JSON.stringify({ mode, ...s }) });
+      notifyFinance("success", "Document settings saved");
+      load();
+    } catch (e: any) {
+      notifyFinance("error", e.message);
+    }
+  };
+  const labels: any = {
+    commercial_bill: {
+      show_invoice_no: "Invoice No.",
+      show_reference_no: "Reference No. & Date",
+      show_buyer_order_no: "Buyer's Order No.",
+      show_payment_terms: "Payment Terms",
+      show_other_references: "Other References",
+      show_sample_no: "Sample No.",
+      show_sample_date_together: "Combine Sample No. & Date",
+      show_delivery_terms: "Terms of Delivery",
+      show_hsn: "HSN/SAC",
+      show_quantity: "Quantity",
+      show_rate: "Rate",
+      show_amount: "Amount",
+      show_gross_weight: "Gross Weight",
+      show_net_weight: "Net Weight",
+      show_party_contact: "Party Contact",
+      show_party_gst: "Party GSTIN",
+      show_party_pan: "Party PAN",
+      show_company_address: "Company Address",
+      show_company_email: "Company Email",
+      show_company_gst: "Company GSTIN",
+      show_company_pan: "Company PAN",
+      show_bank_details: "Company Bank Details",
+      show_declaration: "Declaration",
+      show_signature: "Authorised Signatory",
+      include_unload: "Less: Unload Charges",
+      include_driver_rokdi: "Less: Driver Rokdi",
+      include_freight: "Less: Freight",
+      include_moisture: "Less: Moisture",
+      include_discount: "Less: Discount",
+      include_quality_deduct: "Less: Quality Deduct",
+      include_other_charges: "Less: Other Charges",
+    },
+    third_party_bill: {
+      show_deductions: "Show deductions section",
+      show_bill_number: "Internal Bill No.",
+      show_invoice_no: "Invoice No.",
+      show_reference_no: "Reference No. & Date",
+      show_buyer_order_no: "Buyer's Order No.",
+      show_payment_terms: "Payment Terms",
+      show_other_references: "Other References",
+      show_sample_no: "Sample No.",
+      show_sample_date_together: "Combine Sample No. & Date",
+      show_delivery_terms: "Terms of Delivery",
+      show_hsn: "HSN/SAC",
+      show_quantity: "Quantity",
+      show_rate: "Rate",
+      show_amount: "Amount",
+      show_gross_weight: "Gross Weight",
+      show_net_weight: "Net Weight",
+      show_party_contact: "Third Party Contact",
+      show_party_gst: "Third Party GSTIN",
+      show_party_pan: "Third Party PAN",
+      show_company_address: "Company Address",
+      show_company_email: "Company Email",
+      show_company_gst: "Company GSTIN",
+      show_company_pan: "Company PAN",
+      show_bank_details: "Company Bank Details",
+      show_declaration: "Declaration",
+      show_signature: "Authorised Signatory",
+      include_unload: "Less: Unload Charges",
+      include_driver_rokdi: "Less: Driver Rokdi",
+      include_freight: "Less: Freight",
+      include_moisture: "Less: Moisture",
+      include_discount: "Less: Discount",
+      include_quality_deduct: "Less: Quality Deduct",
+      include_other_charges: "Less: Other Charges",
+    },
+    payment_advice: {
+      show_party_address: "Party Address",
+      show_party_gst: "Party GSTIN",
+      show_party_pan: "Party PAN",
+      show_bank_details: "Bank Details",
+      show_broker: "Broker Details",
+      show_utr: "UTR / Reference",
+      show_purchase_date: "Purchase Date",
+      show_invoice_no: "Invoice No.",
+      show_sample_no: "Sample No.",
+      show_description: "Goods Description",
+      show_quantity: "Quantity / Weight (legacy)",
+      show_net_weight: "Net Weight",
+      show_bags: "Bags / Packages",
+      show_rate: "Rate / Kg (2 decimals)",
+      show_gross_weight: "Gross Weight",
+      show_gross_amount: "Gross Amount",
+      show_unload: "Unload Charges",
+      show_freight: "Freight",
+      show_moisture: "Moisture",
+      show_discount: "Discount",
+      show_discount_percent: "Show discount percentage",
+      show_driver_rokdi: "Driver Rokdi",
+      show_quality_deduct: "Quality Deduct",
+      show_other_charges: "Other Charges",
+      show_net_payable: "Net Payable",
+      show_allocated: "Amount Allocated",
+      show_outstanding: "Outstanding After Payment",
+      show_tds: "TDS",
+      show_allocations: "Bill Allocations",
+      show_notes: "Notes",
+      show_amount_words: "Amount in Words",
+      show_payment_date_below_words: "Payment Date below Amount in Words",
+      show_utr_below_words: "UTR / Reference below Amount in Words",
+      show_payment_date_top: "Payment Date in header",
+      show_gross_settlement: "Gross Settlement (legacy)",
+      show_allocated_total: "Allocated to Bills (legacy)",
+      show_unallocated: "Unallocated / Advance (legacy)",
+      include_tds_in_net: "Count TDS in Net Payment",
+    },
+  };
+  return (
+    <div className="space-y-5">
+      <div className="card p-4 sm:p-6">
+        <div className="text-xs font-black uppercase tracking-[.16em] text-purple-700">Admin only</div>
+        <h2 className="mt-1 text-xl font-black">Document Settings</h2>
+        <p className="muted mt-1 text-sm">Choose what is printed and which purchase deductions are considered in each document total.</p>
+      </div>
+      {[
+        ["commercial_bill", "Commercial Bill"],
+        ["third_party_bill", "3rd Party Bill"],
+        ["payment_advice", "Payment Advice"],
+      ].map(([g, title]) => (
+        <div key={g} className="card p-4 sm:p-6">
+          <h3 className="font-black">{title}</h3>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(labels[g] || {}).map(([k, l]) => (
+              <label key={k} className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 p-3 text-sm font-semibold">
+                <input type="checkbox" className="shrink-0" checked={k === "show_sample_date_together" ? !!s[g]?.[k] : s[g]?.[k] !== false} onChange={() => toggle(g, k)} />
+                <span className="min-w-0">{l as string}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+      <InlineFeedback />
+      <button className="primary btn w-full sm:w-auto" onClick={save}>
+        SAVE DOCUMENT SETTINGS
+      </button>
+    </div>
+  );
 }
-function Settings({data,setData,api,mode,load,currency,setCurrency,language,setLanguage}:{data:any,setData:any,api:any,mode:Mode,load:any,currency:string,setCurrency:(v:string)=>void,language:string,setLanguage:(v:string)=>void}){const s=data.settings||{};return <div className="space-y-4"><div className="card p-4 sm:p-6 max-w-3xl"><h2 className="font-bold text-lg">Display Preferences</h2><p className="muted text-sm mb-4">Language selection translates navigation and module headings; detailed forms and accounting documents remain in English. Currency changes affect on-screen formatting only; they do not convert or modify stored transaction amounts. Accounting documents continue to use INR.</p><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-semibold">Interface language<select value={language} onChange={e=>setLanguage(e.target.value)}><option value="en">English</option><option value="hi">हिन्दी (Hindi navigation)</option><option value="gu">ગુજરાતી (Gujarati navigation)</option></select></label><label className="text-sm font-semibold">Display currency<select value={currency} onChange={e=>setCurrency(e.target.value)}><option value="INR">INR — Indian Rupee (₹)</option><option value="USD">USD — US Dollar ($)</option><option value="EUR">EUR — Euro (€)</option><option value="AED">AED — UAE Dirham</option></select></label><div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Default accounting currency: INR (₹). For multi-currency accounting, exchange rates and currency-specific ledger balances must be configured separately.</div></div></div><div className="card p-4 sm:p-6 max-w-3xl"><h2 className="font-bold text-lg">Company / TDS Settings</h2><p className="muted text-sm mb-5">Set the facts the TDS engine needs; the software then evaluates the transaction. Keep CA review for special certificates and exceptions.</p><div className="grid gap-3 sm:grid-cols-2"><Field label="Company Name" k="entity_name" obj={s} setObj={(fn:any)=>setData((d:any)=>({...d,settings:typeof fn==='function'?fn(d.settings||{}):fn}))}/><Field label="TAN" k="tan" obj={s} setObj={(fn:any)=>setData((d:any)=>({...d,settings:typeof fn==='function'?fn(d.settings||{}):fn}))}/><SelectField label="Deductor Type" k="deductor_type" obj={s} setObj={(fn:any)=>setData((d:any)=>({...d,settings:typeof fn==='function'?fn(d.settings||{}):fn}))} options={{COMPANY:'Company',FIRM:'Firm',LLP:'LLP',INDIVIDUAL:'Individual / Proprietor',HUF:'HUF',GOVERNMENT:'Government'}}/><Field label="Preceding FY Turnover (₹)" k="preceding_turnover" obj={s} setObj={(fn:any)=>setData((d:any)=>({...d,settings:typeof fn==='function'?fn(d.settings||{}):fn}))} type="number"/></div><div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">The TDS engine is a decision aid, not a substitute for tax advice. It considers transaction type, thresholds, PAN status and your company settings. Review certificates, exemptions and special cases with your CA.</div><InlineFeedback/><button className="primary btn mt-5 w-full sm:w-auto" onClick={async()=>{await api('/settings',{method:'POST',body:JSON.stringify({mode,...s})});window.scrollTo({top:0,behavior:'smooth'});load()}}>SAVE SETTINGS</button></div></div>}
-function setMsgSafe(v:string){window.dispatchEvent(new CustomEvent('finance-msg',{detail:v}))}
-function InlineFeedback(){const [f,setF]=useState<any>(null);useEffect(()=>{const h=(e:any)=>{setF(e.detail||null);};window.addEventListener('finance-feedback',h);return()=>window.removeEventListener('finance-feedback',h)},[]);if(!f)return null;return <div className={`mt-4 rounded-xl border p-3 text-sm font-semibold ${f.type==='error'?'border-red-200 bg-red-50 text-red-800':'border-emerald-200 bg-emerald-50 text-emerald-800'}`} role="alert">{f.message}</div>}
-function Field({label,k,obj,setObj,type='text'}:{label:string,k:string,obj:any,setObj:any,type?:string}){return <label className="text-sm font-medium block">{label}<input type={type} value={obj?.[k]??''} onChange={e=>setObj((prev:any)=>({...prev,[k]:type==='number'?(e.target.value===''?'':Number(e.target.value)):e.target.value}))}/></label>}
-function SelectField({label,k,obj,setObj,options}:{label:string,k:string,obj:any,setObj:any,options:Record<string,string>}){return <label className="text-sm font-medium block">{label}<select value={obj?.[k]??Object.keys(options)[0]} onChange={e=>setObj((prev:any)=>({...prev,[k]:e.target.value}))}>{Object.entries(options).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>}
-function Table({rows,cols,action}:{rows:any[],cols:string[],action?:(r:any)=>React.ReactNode}){
- const [sort,setSort]=useState<{c:string,d:'asc'|'desc'}|null>(null);
- const moneyCols=['amount','net_payable','gross_amount','debit','credit','purchases','payments','outstanding','allocated','balance','opening_balance','tds_amount','net_paid','total_value','cost_amount','taxable_value','received_amount','due_amount','other_charges_profit','interest_amount','paid_amount','principal_amount','fixed_interest_amount','outstanding_interest','days_overdue','gross_weight','net_weight','rate','discount_amount','freight','unload_charge','moisture','driver_rokdi','quality_deduct_amount','other_charges'];
- const label=(c:string)=>c.replaceAll('_',' ').replace(/\b\w/g,m=>m.toUpperCase());
- const value=(r:any,c:string)=>typeof r[c]==='number'&&moneyCols.includes(c)?money(r[c]):String(r[c]??'—');
- const sorted=useMemo(()=>{if(!sort)return rows||[];return [...(rows||[])].sort((a,b)=>{const av=a?.[sort.c],bv=b?.[sort.c];if(av==null&&bv==null)return 0;if(av==null)return 1;if(bv==null)return -1;const an=Number(av),bn=Number(bv);const numeric=Number.isFinite(an)&&Number.isFinite(bn)&&String(av).trim()!==''&&String(bv).trim()!=='';const cmp=numeric?an-bn:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:'base'});return sort.d==='asc'?cmp:-cmp})},[rows,sort]);
- const toggle=(c:string)=>setSort(p=>p?.c===c?{c,d:p.d==='asc'?'desc':'asc'}:{c,d:'asc'});
- return <div className="w-full min-w-0"><div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block"><table className="table min-w-full"><thead><tr>{cols.map(c=><th key={c} className="whitespace-nowrap"><button type="button" className="inline-flex items-center gap-1 font-black" onClick={()=>toggle(c)} title={`Sort by ${label(c)}`}>{label(c)}<span className="text-[10px] text-slate-400">{sort?.c===c?(sort.d==='asc'?'▲':'▼'):'↕'}</span></button></th>)}{action&&<th>ACTION</th>}</tr></thead><tbody>{sorted.length?sorted.map((r,i)=><tr key={r.id||i}>{cols.map(c=><td key={c}>{value(r,c)}</td>)}{action&&<td>{action(r)}</td>}</tr>):<tr><td colSpan={cols.length+(action?1:0)} className="py-8 text-center muted">No records</td></tr>}</tbody></table></div><div className="space-y-3 md:hidden">{sorted.length?sorted.map((r,i)=><article key={r.id||i} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between gap-2"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Sort</span><select className="!min-h-9 !w-auto !rounded-lg !py-1 !text-xs" value={sort?.c||''} onChange={e=>{const c=e.target.value;if(c)toggle(c)}}><option value="">Sort…</option>{cols.map(c=><option key={c} value={c}>{label(c)}</option>)}</select></div><div className="grid min-w-0 gap-3">{cols.map(c=><div key={c} className="grid min-w-0 grid-cols-[minmax(6rem,38%)_minmax(0,1fr)] items-start gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0"><span className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label(c)}</span><span className="min-w-0 break-words text-right text-sm font-semibold text-slate-800">{value(r,c)}</span></div>)}{action&&<div className="pt-1">{action(r)}</div>}</div></article>):<div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No records</div>}</div></div>
+function Settings({
+  data,
+  setData,
+  api,
+  mode,
+  load,
+  currency,
+  setCurrency,
+  language,
+  setLanguage,
+}: {
+  data: any;
+  setData: any;
+  api: any;
+  mode: Mode;
+  load: any;
+  currency: string;
+  setCurrency: (v: string) => void;
+  language: string;
+  setLanguage: (v: string) => void;
+}) {
+  const s = data.settings || {};
+  return (
+    <div className="space-y-4">
+      <div className="card p-4 sm:p-6 max-w-3xl">
+        <h2 className="font-bold text-lg">Display Preferences</h2>
+        <p className="muted text-sm mb-4">
+          Language selection translates navigation and module headings; detailed forms and accounting documents remain in English. Currency changes affect on-screen formatting only; they do not
+          convert or modify stored transaction amounts. Accounting documents continue to use INR.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm font-semibold">
+            Interface language
+            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+              <option value="en">English</option>
+              <option value="hi">हिन्दी (Hindi navigation)</option>
+              <option value="gu">ગુજરાતી (Gujarati navigation)</option>
+            </select>
+          </label>
+          <label className="text-sm font-semibold">
+            Display currency
+            <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              <option value="INR">INR — Indian Rupee (₹)</option>
+              <option value="USD">USD — US Dollar ($)</option>
+              <option value="EUR">EUR — Euro (€)</option>
+              <option value="AED">AED — UAE Dirham</option>
+            </select>
+          </label>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            Default accounting currency: INR (₹). For multi-currency accounting, exchange rates and currency-specific ledger balances must be configured separately.
+          </div>
+        </div>
+      </div>
+      <div className="card p-4 sm:p-6 max-w-3xl">
+        <h2 className="font-bold text-lg">Company / TDS Settings</h2>
+        <p className="muted text-sm mb-5">Set the facts the TDS engine needs; the software then evaluates the transaction. Keep CA review for special certificates and exceptions.</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Company Name" k="entity_name" obj={s} setObj={(fn: any) => setData((d: any) => ({ ...d, settings: typeof fn === "function" ? fn(d.settings || {}) : fn }))} />
+          <Field label="TAN" k="tan" obj={s} setObj={(fn: any) => setData((d: any) => ({ ...d, settings: typeof fn === "function" ? fn(d.settings || {}) : fn }))} />
+          <SelectField
+            label="Deductor Type"
+            k="deductor_type"
+            obj={s}
+            setObj={(fn: any) => setData((d: any) => ({ ...d, settings: typeof fn === "function" ? fn(d.settings || {}) : fn }))}
+            options={{ COMPANY: "Company", FIRM: "Firm", LLP: "LLP", INDIVIDUAL: "Individual / Proprietor", HUF: "HUF", GOVERNMENT: "Government" }}
+          />
+          <Field
+            label="Preceding FY Turnover (₹)"
+            k="preceding_turnover"
+            obj={s}
+            setObj={(fn: any) => setData((d: any) => ({ ...d, settings: typeof fn === "function" ? fn(d.settings || {}) : fn }))}
+            type="number"
+          />
+        </div>
+        <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+          The TDS engine is a decision aid, not a substitute for tax advice. It considers transaction type, thresholds, PAN status and your company settings. Review certificates, exemptions and
+          special cases with your CA.
+        </div>
+        <InlineFeedback />
+        <button
+          className="primary btn mt-5 w-full sm:w-auto"
+          onClick={async () => {
+            await api("/settings", { method: "POST", body: JSON.stringify({ mode, ...s }) });
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            load();
+          }}
+        >
+          SAVE SETTINGS
+        </button>
+      </div>
+    </div>
+  );
 }
-function Administration({companies,mode,onRefresh,api,data,setMsg,load}:{companies:any[],mode:Mode,onRefresh:()=>void,api:any,data:any,setMsg:(message:string)=>void,load:()=>Promise<void>}){
- const blankCompany={name:'',code:'',address:'',city:'',state:'Gujarat',email:'',gstin:'',pan:'',financial_year:'2026-27'};
- const allMenuIds=nav.map(([k])=>String(k));const blankUser={username:'',name:'',password:'',role:'DATA_ENTRY',active:1,assignments:[],menu_access:[...allMenuIds],card_access:DASHBOARD_CARDS.map(([id])=>id)};
- const [promoteCompanyId,setPromoteCompanyId]=useState<number>(Number(companies[0]?.id ?? 1));
- useEffect(()=>{if(companies.length&&!companies.some((co:any)=>Number(co.id)===Number(promoteCompanyId)))setPromoteCompanyId(Number(companies[0].id))},[companies,promoteCompanyId]);
- const [company,setCompany]=useState<any>(blankCompany),[user,setUser]=useState<any>(blankUser),[section,setSection]=useState<'companies'|'users'|'backups'>('companies'),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
- const loadUsers=async()=>{const j=await api('/users');return j.users||[]};
- const saveCompany=async()=>{setBusy(true);try{await api('/companies',{method:company.id?'PUT':'POST',body:JSON.stringify(company)});setNotice(company.id?'Company updated successfully.':'Company created and finance databases initialized.');setCompany(blankCompany);onRefresh()}catch(e:any){setNotice(e.message)}finally{setBusy(false)}};
- const toggleCompany=async(c:any)=>{const next=!c.active;if(!confirm(`${next?'Activate':'Deactivate'} ${c.name}?`))return;try{await fetch('/api/companies',{method:'PATCH',headers:{'Content-Type':'application/json','x-aksh-mode':mode},body:JSON.stringify({id:c.id,active:next})}).then(async r=>{const j=await r.json();if(!r.ok)throw Error(j.error||'Unable to update company')});setNotice(`${c.name} is now ${next?'active':'inactive'}.`);onRefresh()}catch(e:any){setNotice(e.message)}};
- const editUser=async(id:number)=>{try{const j=await loadUsers();const found=j.find((x:any)=>Number(x.id)===id);if(found)setUser({...found,password:'',assignments:found.assignments||[],menu_access:Array.isArray(found.menu_access)?found.menu_access:[...nav.map(([k])=>String(k))],card_access:Array.isArray(found.card_access)?found.card_access:DASHBOARD_CARDS.map(([id])=>id)})}catch(e:any){setNotice(e.message)}};
- const saveUser=async()=>{setBusy(true);try{const payload={...user,menu_access:user.role==='ADMIN'?nav.map(([k])=>String(k)):(user.menu_access||[]),card_access:user.role==='ADMIN'?DASHBOARD_CARDS.map(([id])=>id):(user.card_access||[])};await api('/users',{method:'POST',body:JSON.stringify(payload)});setNotice(user.id?'User updated successfully.':'User created successfully.');setUser(blankUser);onRefresh()}catch(e:any){setNotice(e.message)}finally{setBusy(false)}};
- const toggleAssignment=(companyId:number,key:'can_live'|'can_test')=>setUser((p:any)=>{const a=[...(p.assignments||[])];const i=a.findIndex((x:any)=>Number(x.company_id)===companyId);if(i<0)a.push({company_id:companyId,can_live:key==='can_live',can_test:key==='can_test'});else a[i]={...a[i],[key]:!a[i][key]};return {...p,assignments:a}});
- return <div className="space-y-5">
-  <div className="card p-2"><div className="grid grid-cols-3 gap-2">{[['companies','Companies'],['users','Users'],['backups','Backup Center']].map(([k,l])=><button key={k} onClick={()=>setSection(k as any)} className={`rounded-xl px-3 py-3 text-sm font-black transition ${section===k?'bg-slate-950 text-white shadow-lg':'text-slate-600 hover:bg-slate-100'}`}>{l}</button>)}</div></div>
-  {notice&&<div className="animate-[fadeIn_.2s_ease-out] rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm font-semibold text-indigo-900">{notice}</div>}
-  {section==='companies'&&<div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
-   <div className="card p-5 sm:p-6"><div className="mb-5"><div className="text-xs font-black uppercase tracking-[.15em] text-orange-600">Company Master</div><h2 className="mt-1 text-xl font-black">{company.id?'Edit company':'Create new company'}</h2><p className="muted mt-1 text-sm">Each company receives separate LIVE and TEST SQLite databases.</p></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Company Name" k="name" obj={company} setObj={setCompany}/><Field label="Company Code" k="code" obj={company} setObj={setCompany}/><Field label="Address" k="address" obj={company} setObj={setCompany}/><Field label="City" k="city" obj={company} setObj={setCompany}/><Field label="State" k="state" obj={company} setObj={setCompany}/><Field label="Email" k="email" obj={company} setObj={setCompany}/><Field label="GSTIN" k="gstin" obj={company} setObj={setCompany}/><Field label="PAN" k="pan" obj={company} setObj={setCompany}/><Field label="Financial Year" k="financial_year" obj={company} setObj={setCompany}/></div><div className="mt-5"><InlineFeedback/><div className="flex flex-col gap-2 sm:flex-row"><button disabled={busy} className="primary btn flex-1" onClick={saveCompany}>{busy?'Saving…':company.id?'UPDATE COMPANY':'CREATE COMPANY'}</button>{company.id&&<button className="btn border border-slate-200 bg-white" onClick={()=>setCompany(blankCompany)}>Cancel</button>}</div></div></div>
-   <div className="card overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5 sm:p-6"><div><h2 className="text-lg font-black">All companies</h2><p className="muted text-sm">Active and inactive companies managed by Admin.</p></div><span className="badge">{companies.length} TOTAL</span></div><div className="divide-y divide-slate-100">{companies.map((c:any)=><div key={c.id} className="p-4 transition hover:bg-orange-50/40 sm:p-5"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-black">{c.name}</h3><span className="badge">{c.code}</span><span className={`badge ${c.active?'!border-emerald-200 !bg-emerald-50 !text-emerald-700':'!border-slate-200 !bg-slate-100 !text-slate-500'}`}>{c.active?'ACTIVE':'INACTIVE'}</span></div><div className="mt-1 text-xs text-slate-500">{c.city||'—'}{c.state?`, ${c.state}`:''} • FY {c.financial_year||'—'}</div><div className="mt-1 text-xs text-slate-500">{c.gstin||'No GSTIN'} {c.pan?`• PAN ${c.pan}`:''}</div></div><div className="flex flex-wrap gap-2"><button className="secondary btn text-xs" onClick={()=>setCompany({...blankCompany,...c})}>Edit</button><button className="btn border border-slate-200 bg-white text-xs" onClick={()=>toggleCompany(c)}> {c.active?'Deactivate':'Activate'} </button><a className="btn border border-slate-200 bg-white text-xs" href={`/api/backup?mode=LIVE&company_id=${c.id}`}>LIVE Backup</a><a className="btn border border-slate-200 bg-white text-xs" href={`/api/backup?mode=TEST&company_id=${c.id}`}>TEST Backup</a></div></div></div>)}</div></div>
-  </div>}
-  {section==='users'&&<div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
-   <div className="card p-5 sm:p-6"><div className="mb-5"><div className="text-xs font-black uppercase tracking-[.15em] text-purple-700">User Management</div><h2 className="mt-1 text-xl font-black">{user.id?'Edit user':'Create user'}</h2></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Username" k="username" obj={user} setObj={setUser}/><Field label="Full Name" k="name" obj={user} setObj={setUser}/><Field label={user.id?'New Password (optional)':'Password'} k="password" obj={user} setObj={setUser} type="password"/><SelectField label="Role" k="role" obj={user} setObj={setUser} options={{ADMIN:'Administrator',DATA_ENTRY:'Data Entry',VIEWER:'Viewer',TESTER:'Tester'}}/></div><label className="mt-3 block text-sm font-semibold"><input type="checkbox" checked={!!user.active} onChange={e=>setUser({...user,active:e.target.checked?1:0})}/> Active user</label><div className="mt-5 space-y-2"><div className="text-xs font-black uppercase tracking-wider text-slate-500">Company access</div>{companies.filter((c:any)=>c.active).map((c:any)=>{const a=(user.assignments||[]).find((x:any)=>Number(x.company_id)===Number(c.id));return <div key={c.id} className="rounded-2xl border border-slate-200 p-3"><div className="mb-2 font-bold">{c.name} <span className="text-xs text-slate-400">{c.code}</span></div><div className="grid grid-cols-2 gap-2"><button type="button" className={`btn text-xs ${a?.can_live?'secondary':'border border-slate-200 bg-white'}`} onClick={()=>toggleAssignment(c.id,'can_live')}>LIVE {a?.can_live?'✓':''}</button><button type="button" className={`btn text-xs ${a?.can_test?'secondary':'border border-slate-200 bg-white'}`} onClick={()=>toggleAssignment(c.id,'can_test')}>TEST {a?.can_test?'✓':''}</button></div></div>})}</div><div className="mt-5 rounded-2xl border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="text-xs font-black uppercase tracking-wider text-slate-500">Menu access</div><p className="mt-1 text-xs text-slate-500">Menu IDs are shown for support and permission assignment. Unchecked modules remain visible with a lock for this user.</p></div><button type="button" className="secondary btn text-xs" onClick={()=>setUser((p:any)=>({...p,menu_access:[...nav.map(([k])=>String(k))]}))}>Select all</button></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{nav.map(([k,l])=>{const id=String(k);const checked=(user.menu_access||[]).includes(id);return <label key={id} className={`flex min-w-0 items-start gap-3 rounded-xl border p-3 ${checked?'border-teal-200 bg-teal-50/40':'border-slate-200 bg-slate-50'}`}><input type="checkbox" className="mt-1 shrink-0" checked={checked} onChange={()=>setUser((p:any)=>({...p,menu_access:checked?(p.menu_access||[]).filter((x:string)=>x!==id):(p.menu_access||[]).concat(id)}))}/><span className="min-w-0 flex-1"><span className="block text-sm font-bold">{l}</span><span className="mt-0.5 block break-all font-mono text-[11px] text-slate-500">ID: {id}</span></span>{checked?<FiUnlock className="mt-1 shrink-0 text-teal-700" size={15}/>:<FiLock className="mt-1 shrink-0 text-slate-400" size={15}/>}</label>})}</div>{user.role==='ADMIN'&&<p className="mt-3 text-xs font-semibold text-amber-700">Administrator always has access to Administration and all modules.</p>}<div className="mt-6 border-t pt-4"><div className="text-xs font-black uppercase tracking-wider text-slate-500">Dashboard card access</div><p className="mt-1 text-xs text-slate-500">Choose which dashboard cards this user can see. This is separate from module/menu access.</p><div className="mt-3 grid gap-2 sm:grid-cols-2">{DASHBOARD_CARDS.map(([id,label])=>{const checked=(user.card_access||[]).includes(id);return <label key={id} className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={checked} onChange={()=>setUser((p:any)=>({...p,card_access:checked?(p.card_access||[]).filter((x:string)=>x!==id):(p.card_access||[]).concat(id)}))}/><span className="min-w-0 flex-1">{label}<span className="block break-all font-mono text-[10px] text-slate-500">ID: {id}</span></span></label>})}</div></div></div><div className="mt-5 flex flex-col gap-2 sm:flex-row"><InlineFeedback/><button disabled={busy} className="primary btn flex-1" onClick={saveUser}>{busy?'Saving…':user.id?'UPDATE USER':'CREATE USER'}</button>{user.id&&<button className="btn border border-slate-200 bg-white" onClick={()=>setUser(blankUser)}>Cancel</button>}</div></div>
-   <div className="card overflow-hidden"><div className="border-b border-slate-200 p-5 sm:p-6"><h2 className="text-lg font-black">Users</h2><p className="muted text-sm">Assign exactly which companies and environments each user can access.</p></div><Table rows={data.users||[]} cols={['username','name','role','active','company_ids']} action={(r:any)=><button className="secondary btn text-xs" onClick={()=>editUser(Number(r.id))}>Edit</button>}/></div>
-  </div>}
-  {section==='backups'&&<div className="grid gap-5 md:grid-cols-2"><div className="card p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-[.15em] text-indigo-600">Company Backup</div><h2 className="mt-1 text-xl font-black">Backup a company</h2><p className="muted mt-2 text-sm">Download an exact SQLite snapshot for LIVE or TEST.</p><div className="mt-5 grid gap-3">{companies.map((c:any)=><div key={c.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="font-bold">{c.name}</div><div className="text-xs text-slate-500">{c.code}</div></div><div className="flex gap-2"><a className="btn border border-slate-200 bg-white text-xs" href={`/api/backup?mode=LIVE&company_id=${c.id}`}>LIVE</a><a className="btn border border-slate-200 bg-white text-xs" href={`/api/backup?mode=TEST&company_id=${c.id}`}>TEST</a></div></div>)}</div></div><div className="card p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-[.15em] text-orange-600">Disaster Recovery</div><h2 className="mt-1 text-xl font-black">Backup everything</h2><p className="muted mt-2 text-sm">Includes the Admin database and every company’s LIVE + TEST database in one compressed backup.</p><a className="primary btn mt-6 w-full" href="/api/admin-backup-all">DOWNLOAD ALL-COMPANY BACKUP</a><label className="mt-4 block text-sm font-bold">Company to promote from TEST to LIVE<select className="mt-2 block w-full rounded-xl border border-slate-200 bg-white p-3" value={promoteCompanyId} onChange={e=>setPromoteCompanyId(Number(e.target.value))} disabled={!companies.length}>{companies.map((co:any)=><option key={co.id} value={Number(co.id)}>{co.name} · {co.code} · ID {co.id}</option>)}</select></label><p className="mt-2 text-xs text-slate-500">Only the selected company is moved. The operation is refused if that company’s LIVE database already contains financial data.</p><button className="secondary btn mt-3 w-full" disabled={!companies.some((co:any)=>Number(co.id)===Number(promoteCompanyId))} onClick={async()=>{const selected=companies.find((co:any)=>Number(co.id)===Number(promoteCompanyId));if(!selected){setMsg('Choose a company first.');return}const c=prompt(`This promotes TEST data for ${selected.name} (ID ${selected.id}) to LIVE only when that company’s LIVE database is empty. Type PROMOTE TEST TO LIVE to continue.`, '');if(c!=='PROMOTE TEST TO LIVE')return;try{const r=await fetch('/api/test-to-live',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company_id:Number(promoteCompanyId),confirmation:c})});const j=await r.json();if(!r.ok)throw new Error(j.error||'Promotion failed');setMsg(j.message||`TEST data promoted for ${selected.name}.`);await load()}catch(e:any){setMsg(e.message||'Promotion failed')}}}>PROMOTE SELECTED COMPANY TEST → LIVE (SAFE)</button><div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">Store backups outside the server. TEST→LIVE is allowed only when LIVE is empty; it never overwrites live financial data.</div></div></div>}
- </div>
+function setMsgSafe(v: string) {
+  window.dispatchEvent(new CustomEvent("finance-msg", { detail: v }));
+}
+function InlineFeedback() {
+  const [f, setF] = useState<any>(null);
+  useEffect(() => {
+    const h = (e: any) => {
+      setF(e.detail || null);
+    };
+    window.addEventListener("finance-feedback", h);
+    return () => window.removeEventListener("finance-feedback", h);
+  }, []);
+  if (!f) return null;
+  return (
+    <div
+      className={`mt-4 rounded-xl border p-3 text-sm font-semibold ${f.type === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
+      role="alert"
+    >
+      {f.message}
+    </div>
+  );
+}
+function Field({ label, k, obj, setObj, type = "text" }: { label: string; k: string; obj: any; setObj: any; type?: string }) {
+  return (
+    <label className="text-sm font-medium block">
+      {label}
+      <input
+        type={type}
+        value={obj?.[k] ?? ""}
+        onChange={(e) => setObj((prev: any) => ({ ...prev, [k]: type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value }))}
+      />
+    </label>
+  );
+}
+function SelectField({ label, k, obj, setObj, options }: { label: string; k: string; obj: any; setObj: any; options: Record<string, string> }) {
+  return (
+    <label className="text-sm font-medium block">
+      {label}
+      <select value={obj?.[k] ?? Object.keys(options)[0]} onChange={(e) => setObj((prev: any) => ({ ...prev, [k]: e.target.value }))}>
+        {Object.entries(options).map(([v, l]) => (
+          <option key={v} value={v}>
+            {l}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+function Table({ rows, cols, action }: { rows: any[]; cols: string[]; action?: (r: any) => React.ReactNode }) {
+  const [sort, setSort] = useState<{ c: string; d: "asc" | "desc" } | null>(null);
+  const moneyCols = [
+    "amount",
+    "net_payable",
+    "gross_amount",
+    "debit",
+    "credit",
+    "purchases",
+    "payments",
+    "outstanding",
+    "allocated",
+    "balance",
+    "opening_balance",
+    "tds_amount",
+    "net_paid",
+    "total_value",
+    "cost_amount",
+    "taxable_value",
+    "received_amount",
+    "due_amount",
+    "other_charges_profit",
+    "interest_amount",
+    "paid_amount",
+    "principal_amount",
+    "fixed_interest_amount",
+    "outstanding_interest",
+    "days_overdue",
+    "gross_weight",
+    "net_weight",
+    "rate",
+    "discount_amount",
+    "freight",
+    "unload_charge",
+    "moisture",
+    "driver_rokdi",
+    "quality_deduct_amount",
+    "other_charges",
+  ];
+  const label = (c: string) => c.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+  const value = (r: any, c: string) => (typeof r[c] === "number" && moneyCols.includes(c) ? money(r[c]) : String(r[c] ?? "—"));
+  const sorted = useMemo(() => {
+    if (!sort) return rows || [];
+    return [...(rows || [])].sort((a, b) => {
+      const av = a?.[sort.c],
+        bv = b?.[sort.c];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      const an = Number(av),
+        bn = Number(bv);
+      const numeric = Number.isFinite(an) && Number.isFinite(bn) && String(av).trim() !== "" && String(bv).trim() !== "";
+      const cmp = numeric ? an - bn : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+      return sort.d === "asc" ? cmp : -cmp;
+    });
+  }, [rows, sort]);
+  const toggle = (c: string) => setSort((p) => (p?.c === c ? { c, d: p.d === "asc" ? "desc" : "asc" } : { c, d: "asc" }));
+  return (
+    <div className="w-full min-w-0">
+      <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
+        <table className="table min-w-full">
+          <thead>
+            <tr>
+              {cols.map((c) => (
+                <th key={c} className="whitespace-nowrap">
+                  <button type="button" className="inline-flex items-center gap-1 font-black" onClick={() => toggle(c)} title={`Sort by ${label(c)}`}>
+                    {label(c)}
+                    <span className="text-[10px] text-slate-400">{sort?.c === c ? (sort.d === "asc" ? "▲" : "▼") : "↕"}</span>
+                  </button>
+                </th>
+              ))}
+              {action && <th>ACTION</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length ? (
+              sorted.map((r, i) => (
+                <tr key={r.id || i}>
+                  {cols.map((c) => (
+                    <td key={c}>{value(r, c)}</td>
+                  ))}
+                  {action && <td>{action(r)}</td>}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={cols.length + (action ? 1 : 0)} className="py-8 text-center muted">
+                  No records
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="space-y-3 md:hidden">
+        {sorted.length ? (
+          sorted.map((r, i) => (
+            <article key={r.id || i} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Sort</span>
+                <select
+                  className="!min-h-9 !w-auto !rounded-lg !py-1 !text-xs"
+                  value={sort?.c || ""}
+                  onChange={(e) => {
+                    const c = e.target.value;
+                    if (c) toggle(c);
+                  }}
+                >
+                  <option value="">Sort…</option>
+                  {cols.map((c) => (
+                    <option key={c} value={c}>
+                      {label(c)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid min-w-0 gap-3">
+                {cols.map((c) => (
+                  <div key={c} className="grid min-w-0 grid-cols-[minmax(6rem,38%)_minmax(0,1fr)] items-start gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label(c)}</span>
+                    <span className="min-w-0 break-words text-right text-sm font-semibold text-slate-800">{value(r, c)}</span>
+                  </div>
+                ))}
+                {action && <div className="pt-1">{action(r)}</div>}
+              </div>
+            </article>
+          ))
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No records</div>
+        )}
+      </div>
+    </div>
+  );
+}
+function Administration({
+  companies,
+  mode,
+  onRefresh,
+  api,
+  data,
+  setMsg,
+  load,
+}: {
+  companies: any[];
+  mode: Mode;
+  onRefresh: () => void;
+  api: any;
+  data: any;
+  setMsg: (message: string) => void;
+  load: () => Promise<void>;
+}) {
+  const blankCompany = { name: "", code: "", address: "", city: "", state: "Gujarat", email: "", gstin: "", pan: "", financial_year: "2026-27" };
+  const allMenuIds = nav.map(([k]) => String(k));
+  const blankUser = { username: "", name: "", password: "", role: "DATA_ENTRY", active: 1, assignments: [], menu_access: [...allMenuIds], card_access: DASHBOARD_CARDS.map(([id]) => id) };
+  const [promoteCompanyId, setPromoteCompanyId] = useState<number>(Number(companies[0]?.id ?? 1));
+  useEffect(() => {
+    if (companies.length && !companies.some((co: any) => Number(co.id) === Number(promoteCompanyId))) setPromoteCompanyId(Number(companies[0].id));
+  }, [companies, promoteCompanyId]);
+  const [company, setCompany] = useState<any>(blankCompany),
+    [user, setUser] = useState<any>(blankUser),
+    [section, setSection] = useState<"companies" | "users" | "backups">("companies"),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false);
+  const loadUsers = async () => {
+    const j = await api("/users");
+    return j.users || [];
+  };
+  const saveCompany = async () => {
+    setBusy(true);
+    try {
+      await api("/companies", { method: company.id ? "PUT" : "POST", body: JSON.stringify(company) });
+      setNotice(company.id ? "Company updated successfully." : "Company created and finance databases initialized.");
+      setCompany(blankCompany);
+      onRefresh();
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleCompany = async (c: any) => {
+    const next = !c.active;
+    if (!confirm(`${next ? "Activate" : "Deactivate"} ${c.name}?`)) return;
+    try {
+      await fetch("/api/companies", { method: "PATCH", headers: { "Content-Type": "application/json", "x-aksh-mode": mode }, body: JSON.stringify({ id: c.id, active: next }) }).then(async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw Error(j.error || "Unable to update company");
+      });
+      setNotice(`${c.name} is now ${next ? "active" : "inactive"}.`);
+      onRefresh();
+    } catch (e: any) {
+      setNotice(e.message);
+    }
+  };
+  const editUser = async (id: number) => {
+    try {
+      const j = await loadUsers();
+      const found = j.find((x: any) => Number(x.id) === id);
+      if (found)
+        setUser({
+          ...found,
+          password: "",
+          assignments: found.assignments || [],
+          menu_access: Array.isArray(found.menu_access) ? found.menu_access : [...nav.map(([k]) => String(k))],
+          card_access: Array.isArray(found.card_access) ? found.card_access : DASHBOARD_CARDS.map(([id]) => id),
+        });
+    } catch (e: any) {
+      setNotice(e.message);
+    }
+  };
+  const saveUser = async () => {
+    setBusy(true);
+    try {
+      const payload = {
+        ...user,
+        menu_access: user.role === "ADMIN" ? nav.map(([k]) => String(k)) : user.menu_access || [],
+        card_access: user.role === "ADMIN" ? DASHBOARD_CARDS.map(([id]) => id) : user.card_access || [],
+      };
+      await api("/users", { method: "POST", body: JSON.stringify(payload) });
+      setNotice(user.id ? "User updated successfully." : "User created successfully.");
+      setUser(blankUser);
+      onRefresh();
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleAssignment = (companyId: number, key: "can_live" | "can_test") =>
+    setUser((p: any) => {
+      const a = [...(p.assignments || [])];
+      const i = a.findIndex((x: any) => Number(x.company_id) === companyId);
+      if (i < 0) a.push({ company_id: companyId, can_live: key === "can_live", can_test: key === "can_test" });
+      else a[i] = { ...a[i], [key]: !a[i][key] };
+      return { ...p, assignments: a };
+    });
+  return (
+    <div className="space-y-5">
+      <div className="card p-2">
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ["companies", "Companies"],
+            ["users", "Users"],
+            ["backups", "Backup Center"],
+          ].map(([k, l]) => (
+            <button
+              key={k}
+              onClick={() => setSection(k as any)}
+              className={`rounded-xl px-3 py-3 text-sm font-black transition ${section === k ? "bg-slate-950 text-white shadow-lg" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      {notice && <div className="animate-[fadeIn_.2s_ease-out] rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm font-semibold text-indigo-900">{notice}</div>}
+      {section === "companies" && (
+        <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
+          <div className="card p-5 sm:p-6">
+            <div className="mb-5">
+              <div className="text-xs font-black uppercase tracking-[.15em] text-orange-600">Company Master</div>
+              <h2 className="mt-1 text-xl font-black">{company.id ? "Edit company" : "Create new company"}</h2>
+              <p className="muted mt-1 text-sm">Each company receives separate LIVE and TEST SQLite databases.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Company Name" k="name" obj={company} setObj={setCompany} />
+              <Field label="Company Code" k="code" obj={company} setObj={setCompany} />
+              <Field label="Address" k="address" obj={company} setObj={setCompany} />
+              <Field label="City" k="city" obj={company} setObj={setCompany} />
+              <Field label="State" k="state" obj={company} setObj={setCompany} />
+              <Field label="Email" k="email" obj={company} setObj={setCompany} />
+              <Field label="GSTIN" k="gstin" obj={company} setObj={setCompany} />
+              <Field label="PAN" k="pan" obj={company} setObj={setCompany} />
+              <Field label="Financial Year" k="financial_year" obj={company} setObj={setCompany} />
+            </div>
+            <div className="mt-5">
+              <InlineFeedback />
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button disabled={busy} className="primary btn flex-1" onClick={saveCompany}>
+                  {busy ? "Saving…" : company.id ? "UPDATE COMPANY" : "CREATE COMPANY"}
+                </button>
+                {company.id && (
+                  <button className="btn border border-slate-200 bg-white" onClick={() => setCompany(blankCompany)}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="card overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5 sm:p-6">
+              <div>
+                <h2 className="text-lg font-black">All companies</h2>
+                <p className="muted text-sm">Active and inactive companies managed by Admin.</p>
+              </div>
+              <span className="badge">{companies.length} TOTAL</span>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {companies.map((c: any) => (
+                <div key={c.id} className="p-4 transition hover:bg-orange-50/40 sm:p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="truncate font-black">{c.name}</h3>
+                        <span className="badge">{c.code}</span>
+                        <span className={`badge ${c.active ? "!border-emerald-200 !bg-emerald-50 !text-emerald-700" : "!border-slate-200 !bg-slate-100 !text-slate-500"}`}>
+                          {c.active ? "ACTIVE" : "INACTIVE"}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {c.city || "—"}
+                        {c.state ? `, ${c.state}` : ""} • FY {c.financial_year || "—"}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {c.gstin || "No GSTIN"} {c.pan ? `• PAN ${c.pan}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button className="secondary btn text-xs" onClick={() => setCompany({ ...blankCompany, ...c })}>
+                        Edit
+                      </button>
+                      <button className="btn border border-slate-200 bg-white text-xs" onClick={() => toggleCompany(c)}>
+                        {" "}
+                        {c.active ? "Deactivate" : "Activate"}{" "}
+                      </button>
+                      <a className="btn border border-slate-200 bg-white text-xs" href={`/api/backup?mode=LIVE&company_id=${c.id}`}>
+                        LIVE Backup
+                      </a>
+                      <a className="btn border border-slate-200 bg-white text-xs" href={`/api/backup?mode=TEST&company_id=${c.id}`}>
+                        TEST Backup
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {section === "users" && (
+        <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
+          <div className="card p-5 sm:p-6">
+            <div className="mb-5">
+              <div className="text-xs font-black uppercase tracking-[.15em] text-purple-700">User Management</div>
+              <h2 className="mt-1 text-xl font-black">{user.id ? "Edit user" : "Create user"}</h2>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Username" k="username" obj={user} setObj={setUser} />
+              <Field label="Full Name" k="name" obj={user} setObj={setUser} />
+              <Field label={user.id ? "New Password (optional)" : "Password"} k="password" obj={user} setObj={setUser} type="password" />
+              <SelectField label="Role" k="role" obj={user} setObj={setUser} options={{ ADMIN: "Administrator", DATA_ENTRY: "Data Entry", VIEWER: "Viewer", TESTER: "Tester" }} />
+            </div>
+            <label className="mt-3 block text-sm font-semibold">
+              <input type="checkbox" checked={!!user.active} onChange={(e) => setUser({ ...user, active: e.target.checked ? 1 : 0 })} /> Active user
+            </label>
+            <div className="mt-5 space-y-2">
+              <div className="text-xs font-black uppercase tracking-wider text-slate-500">Company access</div>
+              {companies
+                .filter((c: any) => c.active)
+                .map((c: any) => {
+                  const a = (user.assignments || []).find((x: any) => Number(x.company_id) === Number(c.id));
+                  return (
+                    <div key={c.id} className="rounded-2xl border border-slate-200 p-3">
+                      <div className="mb-2 font-bold">
+                        {c.name} <span className="text-xs text-slate-400">{c.code}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" className={`btn text-xs ${a?.can_live ? "secondary" : "border border-slate-200 bg-white"}`} onClick={() => toggleAssignment(c.id, "can_live")}>
+                          LIVE {a?.can_live ? "✓" : ""}
+                        </button>
+                        <button type="button" className={`btn text-xs ${a?.can_test ? "secondary" : "border border-slate-200 bg-white"}`} onClick={() => toggleAssignment(c.id, "can_test")}>
+                          TEST {a?.can_test ? "✓" : ""}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            <div className="mt-5 rounded-2xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wider text-slate-500">Menu access</div>
+                  <p className="mt-1 text-xs text-slate-500">Menu IDs are shown for support and permission assignment. Unchecked modules remain visible with a lock for this user.</p>
+                </div>
+                <button type="button" className="secondary btn text-xs" onClick={() => setUser((p: any) => ({ ...p, menu_access: [...nav.map(([k]) => String(k))] }))}>
+                  Select all
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {nav.map(([k, l]) => {
+                  const id = String(k);
+                  const checked = (user.menu_access || []).includes(id);
+                  return (
+                    <label key={id} className={`flex min-w-0 items-start gap-3 rounded-xl border p-3 ${checked ? "border-teal-200 bg-teal-50/40" : "border-slate-200 bg-slate-50"}`}>
+                      <input
+                        type="checkbox"
+                        className="mt-1 shrink-0"
+                        checked={checked}
+                        onChange={() => setUser((p: any) => ({ ...p, menu_access: checked ? (p.menu_access || []).filter((x: string) => x !== id) : (p.menu_access || []).concat(id) }))}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold">{l}</span>
+                        <span className="mt-0.5 block break-all font-mono text-[11px] text-slate-500">ID: {id}</span>
+                      </span>
+                      {checked ? <FiUnlock className="mt-1 shrink-0 text-teal-700" size={15} /> : <FiLock className="mt-1 shrink-0 text-slate-400" size={15} />}
+                    </label>
+                  );
+                })}
+              </div>
+              {user.role === "ADMIN" && <p className="mt-3 text-xs font-semibold text-amber-700">Administrator always has access to Administration and all modules.</p>}
+              <div className="mt-6 border-t pt-4">
+                <div className="text-xs font-black uppercase tracking-wider text-slate-500">Dashboard card access</div>
+                <p className="mt-1 text-xs text-slate-500">Choose which dashboard cards this user can see. This is separate from module/menu access.</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {DASHBOARD_CARDS.map(([id, label]) => {
+                    const checked = (user.card_access || []).includes(id);
+                    return (
+                      <label key={id} className="flex items-center gap-3 rounded-xl border p-3 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setUser((p: any) => ({ ...p, card_access: checked ? (p.card_access || []).filter((x: string) => x !== id) : (p.card_access || []).concat(id) }))}
+                        />
+                        <span className="min-w-0 flex-1">
+                          {label}
+                          <span className="block break-all font-mono text-[10px] text-slate-500">ID: {id}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <InlineFeedback />
+              <button disabled={busy} className="primary btn flex-1" onClick={saveUser}>
+                {busy ? "Saving…" : user.id ? "UPDATE USER" : "CREATE USER"}
+              </button>
+              {user.id && (
+                <button className="btn border border-slate-200 bg-white" onClick={() => setUser(blankUser)}>
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="card overflow-hidden">
+            <div className="border-b border-slate-200 p-5 sm:p-6">
+              <h2 className="text-lg font-black">Users</h2>
+              <p className="muted text-sm">Assign exactly which companies and environments each user can access.</p>
+            </div>
+            <Table
+              rows={data.users || []}
+              cols={["username", "name", "role", "active", "company_ids"]}
+              action={(r: any) => (
+                <button className="secondary btn text-xs" onClick={() => editUser(Number(r.id))}>
+                  Edit
+                </button>
+              )}
+            />
+          </div>
+        </div>
+      )}
+      {section === "backups" && (
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="card p-5 sm:p-6">
+            <div className="text-xs font-black uppercase tracking-[.15em] text-indigo-600">Company Backup</div>
+            <h2 className="mt-1 text-xl font-black">Backup a company</h2>
+            <p className="muted mt-2 text-sm">Download an exact SQLite snapshot for LIVE or TEST.</p>
+            <div className="mt-5 grid gap-3">
+              {companies.map((c: any) => (
+                <div key={c.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-bold">{c.name}</div>
+                    <div className="text-xs text-slate-500">{c.code}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <a className="btn border border-slate-200 bg-white text-xs" href={`/api/backup?mode=LIVE&company_id=${c.id}`}>
+                      LIVE
+                    </a>
+                    <a className="btn border border-slate-200 bg-white text-xs" href={`/api/backup?mode=TEST&company_id=${c.id}`}>
+                      TEST
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card p-5 sm:p-6">
+            <div className="text-xs font-black uppercase tracking-[.15em] text-orange-600">Disaster Recovery</div>
+            <h2 className="mt-1 text-xl font-black">Backup everything</h2>
+            <p className="muted mt-2 text-sm">Includes the Admin database and every company’s LIVE + TEST database in one compressed backup.</p>
+            <a className="primary btn mt-6 w-full" href="/api/admin-backup-all">
+              DOWNLOAD ALL-COMPANY BACKUP
+            </a>
+            <label className="mt-4 block text-sm font-bold">
+              Company to promote from TEST to LIVE
+              <select
+                className="mt-2 block w-full rounded-xl border border-slate-200 bg-white p-3"
+                value={promoteCompanyId}
+                onChange={(e) => setPromoteCompanyId(Number(e.target.value))}
+                disabled={!companies.length}
+              >
+                {companies.map((co: any) => (
+                  <option key={co.id} value={Number(co.id)}>
+                    {co.name} · {co.code} · ID {co.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-2 text-xs text-slate-500">Only the selected company is moved. The operation is refused if that company’s LIVE database already contains financial data.</p>
+            <button
+              className="secondary btn mt-3 w-full"
+              disabled={!companies.some((co: any) => Number(co.id) === Number(promoteCompanyId))}
+              onClick={async () => {
+                const selected = companies.find((co: any) => Number(co.id) === Number(promoteCompanyId));
+                if (!selected) {
+                  setMsg("Choose a company first.");
+                  return;
+                }
+                const c = prompt(
+                  `This promotes TEST data for ${selected.name} (ID ${selected.id}) to LIVE only when that company’s LIVE database is empty. Type PROMOTE TEST TO LIVE to continue.`,
+                  "",
+                );
+                if (c !== "PROMOTE TEST TO LIVE") return;
+                try {
+                  const r = await fetch("/api/test-to-live", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ company_id: Number(promoteCompanyId), confirmation: c }),
+                  });
+                  const j = await r.json();
+                  if (!r.ok) throw new Error(j.error || "Promotion failed");
+                  setMsg(j.message || `TEST data promoted for ${selected.name}.`);
+                  await load();
+                } catch (e: any) {
+                  setMsg(e.message || "Promotion failed");
+                }
+              }}
+            >
+              PROMOTE SELECTED COMPANY TEST → LIVE (SAFE)
+            </button>
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+              Store backups outside the server. TEST→LIVE is allowed only when LIVE is empty; it never overwrites live financial data.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function Users({data,api,load,companies}:{data:any,api:any,load:any,companies:any[]}){const [u,setU]=useState<any>({role:'DATA_ENTRY',active:1,assignments:[]});const [c,setC]=useState<any>({name:'',code:''});const [notice,setNotice]=useState('');const toggle=(id:number,key:'can_live'|'can_test')=>setU((p:any)=>{const a=[...(p.assignments||[])];const i=a.findIndex((x:any)=>Number(x.company_id)===id);if(i<0)a.push({company_id:id,can_live:key==='can_live',can_test:key==='can_test'});else a[i]={...a[i],[key]:!a[i][key]};return {...p,assignments:a}});const save=async()=>{try{await api('/users',{method:'POST',body:JSON.stringify(u)});setNotice('User saved');setU({role:'DATA_ENTRY',active:1,assignments:[]});load()}catch(e:any){setNotice(e.message)}};const addCompany=async()=>{try{const j=await fetch('/api/companies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}).then(r=>r.json());if(j.error)throw Error(j.error);setNotice('Company created. Refreshing company list…');location.reload()}catch(e:any){setNotice(e.message)}};return <div className="space-y-4"><div className="grid gap-4 xl:grid-cols-2"><div className="card p-4 sm:p-6"><h2 className="font-bold mb-4">Create Company</h2><div className="grid gap-3 sm:grid-cols-2"><Field label="Company Name" k="name" obj={c} setObj={setC}/><Field label="Company Code" k="code" obj={c} setObj={setC}/></div><button className="primary btn mt-4 w-full" onClick={addCompany}>CREATE COMPANY</button></div><div className="card p-4 sm:p-6"><h2 className="font-bold mb-4">User & Company Access</h2><div className="grid gap-3 sm:grid-cols-2"><Field label="Username" k="username" obj={u} setObj={setU}/><Field label="Name" k="name" obj={u} setObj={setU}/><Field label="Password" k="password" obj={u} setObj={setU}/><SelectField label="Role" k="role" obj={u} setObj={setU} options={{ADMIN:'Admin',DATA_ENTRY:'Data Entry',VIEWER:'Viewer',TESTER:'Tester'}}/></div><div className="mt-4 space-y-2">{companies.map((co:any)=>{const a=(u.assignments||[]).find((x:any)=>Number(x.company_id)===Number(co.id));return <div key={co.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3"><div><div className="font-semibold">{co.name}</div><div className="text-xs text-slate-500">{co.code}</div></div><div className="flex gap-2"><button type="button" className={`btn text-xs ${a?.can_live?'secondary':'border border-slate-200 bg-white'}`} onClick={()=>toggle(co.id,'can_live')}>LIVE {a?.can_live?'✓':''}</button><button type="button" className={`btn text-xs ${a?.can_test?'secondary':'border border-slate-200 bg-white'}`} onClick={()=>toggle(co.id,'can_test')}>TEST {a?.can_test?'✓':''}</button></div></div>})}</div><InlineFeedback/><button className="primary btn mt-4 w-full" onClick={save}>SAVE USER + ACCESS</button></div></div>{notice&&<div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">{notice}</div>}<div className="card p-4 sm:p-6"><h2 className="font-bold mb-3">Users</h2><Table rows={data.users||[]} cols={['username','name','role','active','company_ids']} action={(r:any)=><button className="secondary btn text-xs" onClick={()=>setU({...r,assignments:String(r.company_ids||'').split(',').filter(Boolean).map((id:string)=>({company_id:Number(id),can_live:true,can_test:false}))})}>Edit</button>}/></div></div>}
+function Users({ data, api, load, companies }: { data: any; api: any; load: any; companies: any[] }) {
+  const [u, setU] = useState<any>({ role: "DATA_ENTRY", active: 1, assignments: [] });
+  const [c, setC] = useState<any>({ name: "", code: "" });
+  const [notice, setNotice] = useState("");
+  const toggle = (id: number, key: "can_live" | "can_test") =>
+    setU((p: any) => {
+      const a = [...(p.assignments || [])];
+      const i = a.findIndex((x: any) => Number(x.company_id) === id);
+      if (i < 0) a.push({ company_id: id, can_live: key === "can_live", can_test: key === "can_test" });
+      else a[i] = { ...a[i], [key]: !a[i][key] };
+      return { ...p, assignments: a };
+    });
+  const save = async () => {
+    try {
+      await api("/users", { method: "POST", body: JSON.stringify(u) });
+      setNotice("User saved");
+      setU({ role: "DATA_ENTRY", active: 1, assignments: [] });
+      load();
+    } catch (e: any) {
+      setNotice(e.message);
+    }
+  };
+  const addCompany = async () => {
+    try {
+      const j = await fetch("/api/companies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c) }).then((r) => r.json());
+      if (j.error) throw Error(j.error);
+      setNotice("Company created. Refreshing company list…");
+      location.reload();
+    } catch (e: any) {
+      setNotice(e.message);
+    }
+  };
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="card p-4 sm:p-6">
+          <h2 className="font-bold mb-4">Create Company</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Company Name" k="name" obj={c} setObj={setC} />
+            <Field label="Company Code" k="code" obj={c} setObj={setC} />
+          </div>
+          <button className="primary btn mt-4 w-full" onClick={addCompany}>
+            CREATE COMPANY
+          </button>
+        </div>
+        <div className="card p-4 sm:p-6">
+          <h2 className="font-bold mb-4">User & Company Access</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Username" k="username" obj={u} setObj={setU} />
+            <Field label="Name" k="name" obj={u} setObj={setU} />
+            <Field label="Password" k="password" obj={u} setObj={setU} />
+            <SelectField label="Role" k="role" obj={u} setObj={setU} options={{ ADMIN: "Admin", DATA_ENTRY: "Data Entry", VIEWER: "Viewer", TESTER: "Tester" }} />
+          </div>
+          <div className="mt-4 space-y-2">
+            {companies.map((co: any) => {
+              const a = (u.assignments || []).find((x: any) => Number(x.company_id) === Number(co.id));
+              return (
+                <div key={co.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3">
+                  <div>
+                    <div className="font-semibold">{co.name}</div>
+                    <div className="text-xs text-slate-500">{co.code}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" className={`btn text-xs ${a?.can_live ? "secondary" : "border border-slate-200 bg-white"}`} onClick={() => toggle(co.id, "can_live")}>
+                      LIVE {a?.can_live ? "✓" : ""}
+                    </button>
+                    <button type="button" className={`btn text-xs ${a?.can_test ? "secondary" : "border border-slate-200 bg-white"}`} onClick={() => toggle(co.id, "can_test")}>
+                      TEST {a?.can_test ? "✓" : ""}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <InlineFeedback />
+          <button className="primary btn mt-4 w-full" onClick={save}>
+            SAVE USER + ACCESS
+          </button>
+        </div>
+      </div>
+      {notice && <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">{notice}</div>}
+      <div className="card p-4 sm:p-6">
+        <h2 className="font-bold mb-3">Users</h2>
+        <Table
+          rows={data.users || []}
+          cols={["username", "name", "role", "active", "company_ids"]}
+          action={(r: any) => (
+            <button
+              className="secondary btn text-xs"
+              onClick={() =>
+                setU({
+                  ...r,
+                  assignments: String(r.company_ids || "")
+                    .split(",")
+                    .filter(Boolean)
+                    .map((id: string) => ({ company_id: Number(id), can_live: true, can_test: false })),
+                })
+              }
+            >
+              Edit
+            </button>
+          )}
+        />
+      </div>
+    </div>
+  );
+}
 
-
-function InterCompanyTransfers({companies,data,mode,companyId}:{companies:any[];data:any;mode:Mode;companyId:number}){
- const [type,setType]=useState('payments'),[dest,setDest]=useState(''),[ids,setIds]=useState<number[]>([]),[rows,setRows]=useState<any[]>([]),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[receipt,setReceipt]=useState(''),[packageText,setPackageText]=useState('');
- const types:any={purchases:{label:'Purchases',rows:data.purchases||[],ref:'sample_no',date:'purchase_date',amount:'net_payable'},payments:{label:'Payments',rows:data.payments||[],ref:'payment_no',date:'payment_date',amount:'amount'},money_in:{label:'Money In / Receipts',rows:data.moneyIn||[],ref:'receipt_no',date:'receipt_date',amount:'amount'},account_movements:{label:'Withdrawals / Account Movements',rows:data.accountMovements||[],ref:'movement_no',date:'movement_date',amount:'amount'},interest_payments:{label:'Interest Payments',rows:data.interestPayments||[],ref:'payment_no',date:'payment_date',amount:'amount'},sales:{label:'Sales / Receivables',rows:data.sales||[],ref:'invoice_no',date:'invoice_date',amount:'total_value'},funding_loans:{label:'Funding / Loans',rows:data.fundingLoans||[],ref:'loan_no',date:'loan_start_date',amount:'principal_amount'}};
- const active=types[type];const selectable=active.rows.filter((r:any)=>String(r.status||'POSTED')==='POSTED').map((r:any)=>Number(r.id)).filter((n:number)=>Number.isSafeInteger(n)&&n>0);const visibleIds=selectable.slice(0,500);const allSelected=visibleIds.length>0&&visibleIds.every((n:number)=>ids.includes(n));const call=async(body:any)=>{const r=await fetch('/api/transfers',{method:'POST',headers:{'Content-Type':'application/json','x-aksh-mode':mode},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.error||'Transfer request failed');return j};
- async function refresh(){const r=await fetch('/api/transfers');const j=await r.json();if(!r.ok)throw Error(j.error||'Could not load transfers');setRows(j.transfers||[])}useEffect(()=>{refresh().catch(e=>setNotice(e.message))},[companyId,mode]);
- const download=(name:string,obj:any)=>{const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)};
- async function send(){setBusy(true);try{const j=await call({action:'create',destination_company_id:Number(dest),type,ids});setNotice(`Transfer ${j.transfer_id} sent. Source records remain pending until acceptance is confirmed.`);setIds([]);await refresh()}catch(e:any){setNotice(e.message)}finally{setBusy(false)}}
- async function act(action:string,id:string){setBusy(true);try{const j=await call({action,transfer_id:id});if(j.receipt)download(`SOLIVY-transfer-receipt-${id}.json`,j.receipt);if(j.package)download(`SOLIVY-transfer-package-${id}.json`,j.package);setNotice(j.message||`Transfer ${j.status||'updated'}.`);await refresh()}catch(e:any){setNotice(e.message)}finally{setBusy(false)}}
- async function importFile(file:File,action:'import-package'|'confirm-receipt'){try{const parsed=JSON.parse(await file.text());const j=await call(action==='import-package'?{action,package:parsed.package||parsed}:{action,receipt:parsed.receipt||parsed});setNotice(j.message||`Transfer ${j.status||'updated'}.`);await refresh()}catch(e:any){setNotice(e.message)}}
- return <div className="space-y-4"><div className="card p-4 sm:p-6"><h2 className="text-lg font-black">Inter-Company Data Transfer</h2><p className="muted mt-1 text-sm">Send posted records to an organization where you are mapped. On the receiving organization, open this same screen: incoming PENDING transfers show Accept and Reject buttons. Acceptance is available only in the matching environment. Keep LIVE and TEST transfers separate.</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><label className="text-sm font-semibold">Record type<select value={type} onChange={e=>{setType(e.target.value);setIds([])}}>{Object.entries(types).map(([k,v]:any)=><option key={k} value={k}>{v.label}</option>)}</select></label><label className="text-sm font-semibold">Destination organization<select value={dest} onChange={e=>setDest(e.target.value)}><option value="">Choose organization</option>{companies.filter(c=>c.active&&Number(c.id)!==companyId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><div className="flex items-end"><button className="primary btn w-full" disabled={busy||!dest||!ids.length} onClick={send}>{busy?'Processing…':`Send ${ids.length} selected`}</button></div></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[620px] text-sm"><thead><tr className="border-b text-left"><th className="p-2"><label className="inline-flex items-center gap-2 whitespace-nowrap"><input aria-label="Select all eligible records" type="checkbox" checked={allSelected} onChange={e=>setIds(old=>e.target.checked?Array.from(new Set([...old.filter((n:number)=>!visibleIds.includes(n)),...visibleIds])).slice(0,500):old.filter((n:number)=>!visibleIds.includes(n)))}/><span>Select all</span></label></th><th className="p-2">Reference</th><th className="p-2">Date</th><th className="p-2 text-right">Amount</th><th className="p-2">Status</th></tr></thead><tbody>{active.rows.map((r:any)=><tr key={r.id} className="border-b"><td className="p-2"><input aria-label={`Select ${r[active.ref]||`record ${r.id}`}`} type="checkbox" disabled={String(r.status||'POSTED')!=='POSTED'||(!ids.includes(Number(r.id))&&ids.length>=500)} checked={ids.includes(Number(r.id))} onChange={e=>setIds(old=>e.target.checked?Array.from(new Set([...old,Number(r.id)])).slice(0,500):old.filter(n=>n!==Number(r.id)))}/></td><td className="p-2 font-semibold">{r[active.ref]||`#${r.id}`}</td><td className="p-2">{r[active.date]||'—'}</td><td className="p-2 text-right">{Number(r[active.amount]||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</td><td className="p-2">{r.status||'POSTED'}</td></tr>)}{!active.rows.length&&<tr><td colSpan={5} className="p-5 text-center text-slate-500">No records available in this module.</td></tr>}</tbody></table></div><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">Showing records loaded for the current organization. Select all checks eligible posted records shown here (up to 500); drafts/closed records cannot be selected.</p><div className="flex items-center gap-3"><span className="text-xs font-semibold text-slate-600">{ids.length} selected</span><button type="button" className="secondary btn text-xs" disabled={!ids.length} onClick={()=>setIds([])}>Clear selection</button></div></div></div>
- <div className="card p-4 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black">Incoming and outgoing transfers</h3><p className="muted text-xs">Accepting imports records into the destination. Source deletion requires confirmation with the acceptance receipt.</p></div><button className="secondary btn text-xs" onClick={()=>refresh().catch(e=>setNotice(e.message))}>Refresh</button></div><div className="mt-3 space-y-2">{rows.map((r:any)=><div key={r.id} className="flex flex-col gap-2 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="break-all text-sm font-bold">{r.id}</div><div className="text-xs text-slate-500">{Number(r.source_company_id)===companyId?'Outgoing':'Incoming'} · {r.transfer_type} · {r.mode} · {r.status} · {r.created_at}</div></div><div className="flex flex-wrap gap-2">{Number(r.destination_company_id)===companyId&&r.status==='PENDING'&&<><button className="primary btn text-xs" disabled={busy} onClick={()=>act('accept',r.id)}>Accept</button><button className="danger-outline btn text-xs" disabled={busy} onClick={()=>act('reject',r.id)}>Reject</button></>}{Number(r.source_company_id)===companyId&&r.status==='PENDING'&&<button className="secondary btn text-xs" disabled={busy} onClick={()=>act('export-package',r.id)}>Export offline package</button>}</div></div>)}{!rows.length&&<p className="py-5 text-center text-sm text-slate-500">No transfers yet.</p>}</div><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="block text-sm font-semibold">Import offline transfer package<input className="mt-2 block w-full text-xs" type="file" accept="application/json,.json" onChange={e=>e.target.files?.[0]&&importFile(e.target.files[0],'import-package')}/></label><label className="block text-sm font-semibold">Confirm acceptance receipt at sender<input className="mt-2 block w-full text-xs" type="file" accept="application/json,.json" onChange={e=>e.target.files?.[0]&&importFile(e.target.files[0],'confirm-receipt')}/></label></div>{notice&&<div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" role="status">{notice}</div>}</div></div>
+function InterCompanyTransfers({ companies, data, mode, companyId }: { companies: any[]; data: any; mode: Mode; companyId: number }) {
+  const [type, setType] = useState("payments"),
+    [dest, setDest] = useState(""),
+    [ids, setIds] = useState<number[]>([]),
+    [rows, setRows] = useState<any[]>([]),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false),
+    [receipt, setReceipt] = useState(""),
+    [packageText, setPackageText] = useState("");
+  const types: any = {
+    purchases: { label: "Purchases", rows: data.purchases || [], ref: "sample_no", date: "purchase_date", amount: "net_payable" },
+    payments: { label: "Payments", rows: data.payments || [], ref: "payment_no", date: "payment_date", amount: "amount" },
+    money_in: { label: "Money In / Receipts", rows: data.moneyIn || [], ref: "receipt_no", date: "receipt_date", amount: "amount" },
+    account_movements: { label: "Withdrawals / Account Movements", rows: data.accountMovements || [], ref: "movement_no", date: "movement_date", amount: "amount" },
+    interest_payments: { label: "Interest Payments", rows: data.interestPayments || [], ref: "payment_no", date: "payment_date", amount: "amount" },
+    sales: { label: "Sales / Receivables", rows: data.sales || [], ref: "invoice_no", date: "invoice_date", amount: "total_value" },
+    funding_loans: { label: "Funding / Loans", rows: data.fundingLoans || [], ref: "loan_no", date: "loan_start_date", amount: "principal_amount" },
+  };
+  const active = types[type];
+  const selectable = active.rows
+    .filter((r: any) => String(r.status || "POSTED") === "POSTED")
+    .map((r: any) => Number(r.id))
+    .filter((n: number) => Number.isSafeInteger(n) && n > 0);
+  const visibleIds = selectable.slice(0, 500);
+  const allSelected = visibleIds.length > 0 && visibleIds.every((n: number) => ids.includes(n));
+  const call = async (body: any) => {
+    const r = await fetch("/api/transfers", { method: "POST", headers: { "Content-Type": "application/json", "x-aksh-mode": mode }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) throw Error(j.error || "Transfer request failed");
+    return j;
+  };
+  async function refresh() {
+    const r = await fetch("/api/transfers");
+    const j = await r.json();
+    if (!r.ok) throw Error(j.error || "Could not load transfers");
+    setRows(j.transfers || []);
+  }
+  useEffect(() => {
+    refresh().catch((e) => setNotice(e.message));
+  }, [companyId, mode]);
+  const download = (name: string, obj: any) => {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" }),
+      url = URL.createObjectURL(blob),
+      a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  async function send() {
+    setBusy(true);
+    try {
+      const j = await call({ action: "create", destination_company_id: Number(dest), type, ids });
+      setNotice(`Transfer ${j.transfer_id} sent. Source records remain pending until acceptance is confirmed.`);
+      setIds([]);
+      await refresh();
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function act(action: string, id: string) {
+    setBusy(true);
+    try {
+      const j = await call({ action, transfer_id: id });
+      if (j.receipt) download(`SOLIVY-transfer-receipt-${id}.json`, j.receipt);
+      if (j.package) download(`SOLIVY-transfer-package-${id}.json`, j.package);
+      setNotice(j.message || `Transfer ${j.status || "updated"}.`);
+      await refresh();
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function importFile(file: File, action: "import-package" | "confirm-receipt") {
+    try {
+      const parsed = JSON.parse(await file.text());
+      const j = await call(action === "import-package" ? { action, package: parsed.package || parsed } : { action, receipt: parsed.receipt || parsed });
+      setNotice(j.message || `Transfer ${j.status || "updated"}.`);
+      await refresh();
+    } catch (e: any) {
+      setNotice(e.message);
+    }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="card p-4 sm:p-6">
+        <h2 className="text-lg font-black">Inter-Company Data Transfer</h2>
+        <p className="muted mt-1 text-sm">
+          Send posted records to an organization where you are mapped. On the receiving organization, open this same screen: incoming PENDING transfers show Accept and Reject buttons. Acceptance is
+          available only in the matching environment. Keep LIVE and TEST transfers separate.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <label className="text-sm font-semibold">
+            Record type
+            <select
+              value={type}
+              onChange={(e) => {
+                setType(e.target.value);
+                setIds([]);
+              }}
+            >
+              {Object.entries(types).map(([k, v]: any) => (
+                <option key={k} value={k}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-semibold">
+            Destination organization
+            <select value={dest} onChange={(e) => setDest(e.target.value)}>
+              <option value="">Choose organization</option>
+              {companies
+                .filter((c) => c.active && Number(c.id) !== companyId)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <div className="flex items-end">
+            <button className="primary btn w-full" disabled={busy || !dest || !ids.length} onClick={send}>
+              {busy ? "Processing…" : `Send ${ids.length} selected`}
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[620px] text-sm">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="p-2">
+                  <label className="inline-flex items-center gap-2 whitespace-nowrap">
+                    <input
+                      aria-label="Select all eligible records"
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={(e) =>
+                        setIds((old) =>
+                          e.target.checked
+                            ? Array.from(new Set([...old.filter((n: number) => !visibleIds.includes(n)), ...visibleIds])).slice(0, 500)
+                            : old.filter((n: number) => !visibleIds.includes(n)),
+                        )
+                      }
+                    />
+                    <span>Select all</span>
+                  </label>
+                </th>
+                <th className="p-2">Reference</th>
+                <th className="p-2">Date</th>
+                <th className="p-2 text-right">Amount</th>
+                <th className="p-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {active.rows.map((r: any) => (
+                <tr key={r.id} className="border-b">
+                  <td className="p-2">
+                    <input
+                      aria-label={`Select ${r[active.ref] || `record ${r.id}`}`}
+                      type="checkbox"
+                      disabled={String(r.status || "POSTED") !== "POSTED" || (!ids.includes(Number(r.id)) && ids.length >= 500)}
+                      checked={ids.includes(Number(r.id))}
+                      onChange={(e) => setIds((old) => (e.target.checked ? Array.from(new Set([...old, Number(r.id)])).slice(0, 500) : old.filter((n) => n !== Number(r.id))))}
+                    />
+                  </td>
+                  <td className="p-2 font-semibold">{r[active.ref] || `#${r.id}`}</td>
+                  <td className="p-2">{r[active.date] || "—"}</td>
+                  <td className="p-2 text-right">{Number(r[active.amount] || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</td>
+                  <td className="p-2">{r.status || "POSTED"}</td>
+                </tr>
+              ))}
+              {!active.rows.length && (
+                <tr>
+                  <td colSpan={5} className="p-5 text-center text-slate-500">
+                    No records available in this module.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-500">
+            Showing records loaded for the current organization. Select all checks eligible posted records shown here (up to 500); drafts/closed records cannot be selected.
+          </p>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold text-slate-600">{ids.length} selected</span>
+            <button type="button" className="secondary btn text-xs" disabled={!ids.length} onClick={() => setIds([])}>
+              Clear selection
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black">Incoming and outgoing transfers</h3>
+            <p className="muted text-xs">Accepting imports records into the destination. Source deletion requires confirmation with the acceptance receipt.</p>
+          </div>
+          <button className="secondary btn text-xs" onClick={() => refresh().catch((e) => setNotice(e.message))}>
+            Refresh
+          </button>
+        </div>
+        <div className="mt-3 space-y-2">
+          {rows.map((r: any) => (
+            <div key={r.id} className="flex flex-col gap-2 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="break-all text-sm font-bold">{r.id}</div>
+                <div className="text-xs text-slate-500">
+                  {Number(r.source_company_id) === companyId ? "Outgoing" : "Incoming"} · {r.transfer_type} · {r.mode} · {r.status} · {r.created_at}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Number(r.destination_company_id) === companyId && r.status === "PENDING" && (
+                  <>
+                    <button className="primary btn text-xs" disabled={busy} onClick={() => act("accept", r.id)}>
+                      Accept
+                    </button>
+                    <button className="danger-outline btn text-xs" disabled={busy} onClick={() => act("reject", r.id)}>
+                      Reject
+                    </button>
+                  </>
+                )}
+                {Number(r.source_company_id) === companyId && r.status === "PENDING" && (
+                  <button className="secondary btn text-xs" disabled={busy} onClick={() => act("export-package", r.id)}>
+                    Export offline package
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+          {!rows.length && <p className="py-5 text-center text-sm text-slate-500">No transfers yet.</p>}
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm font-semibold">
+            Import offline transfer package
+            <input className="mt-2 block w-full text-xs" type="file" accept="application/json,.json" onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0], "import-package")} />
+          </label>
+          <label className="block text-sm font-semibold">
+            Confirm acceptance receipt at sender
+            <input className="mt-2 block w-full text-xs" type="file" accept="application/json,.json" onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0], "confirm-receipt")} />
+          </label>
+        </div>
+        {notice && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" role="status">
+            {notice}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

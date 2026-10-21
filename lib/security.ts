@@ -142,7 +142,7 @@ export function authorizeRequest(req: NextRequest, role: string, session?: any) 
       ['/api/backup', ['backup']], ['/api/admin-backup-all', ['backup']], ['/api/tally-export', ['tally-export']], ['/api/tally-mapping', ['tally-export']], ['/api/bank-statement-import', ['bank-statement-import']],
       ['/api/export/gst', ['gst']], ['/api/export/payments', ['reports']], ['/api/export/purchases', ['reports']],
       ['/api/document-settings', ['document-settings']], ['/api/settings', ['settings']],
-      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']], ['/api/data', ['dashboard']], ['/api/transfers', ['transfers']],
+      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']], ['/api/data', ['dashboard']], ['/api/transfers', ['transfers']], ['/api/sync/run', ['sync']],
     ];
     const rule = moduleRules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
     if (rule) {

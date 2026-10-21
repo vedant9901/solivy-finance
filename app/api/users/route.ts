@@ -3,7 +3,7 @@ import {NextResponse} from 'next/server';
 import {adminDb} from '../../../lib/db';
 import {hashPassword} from '../../../lib/session';
 const DEFAULT_CARD_IDS=['kpi-parties','kpi-purchase-cost','kpi-paid','kpi-vendor-outstanding','kpi-finance-profit','kpi-average-earning','business-pulse','due-pay-today','due-pay-tomorrow','due-receive-today','due-receive-tomorrow','due-interest-today','due-interest-tomorrow','due-this-week','overdue-receivables','bank-cash','realised-profit','charts'];
-const DEFAULT_MENU_IDS=['dashboard','accounts','account-movements','parties','party-aliases','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','secondary-backup','tally-export','bank-statement-import','gst','commercial-bills','document-settings','settings','transfers'];
+const DEFAULT_MENU_IDS=['dashboard','accounts','account-movements','parties','party-aliases','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','secondary-backup','tally-export','bank-statement-import','gst','commercial-bills','document-settings','settings','transfers','sync'];
 function parseCardAccess(value:any){try{const parsed=JSON.parse(String(value||''));return Array.isArray(parsed)?parsed.filter((x:any)=>DEFAULT_CARD_IDS.includes(String(x))):DEFAULT_CARD_IDS}catch{return DEFAULT_CARD_IDS}}
 function parseMenuAccess(value:any){try{const parsed=JSON.parse(String(value||''));return Array.isArray(parsed)?parsed.filter((x:any)=>DEFAULT_MENU_IDS.includes(String(x))):DEFAULT_MENU_IDS}catch{return DEFAULT_MENU_IDS}}
 function admin(req:Request){if(req.headers.get('x-aksh-role')!=='ADMIN')throw Error('Admin access required');}

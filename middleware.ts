@@ -93,6 +93,17 @@ export async function middleware(req: NextRequest) {
     return securityHeaders(res, req);
   }
 
+  // Device sync is authenticated by a scoped, revocable sync-device token inside
+  // /api/sync/exchange. Do not require a browser session cookie on this endpoint.
+  if (path === '/api/sync/exchange') {
+    const syncCompanyId=Number(req.headers.get('x-aksh-company-id')||0);
+    const syncMode=req.headers.get('x-aksh-mode');
+    if(!syncCompanyId||!['LIVE','TEST'].includes(String(syncMode))) return securityHeaders(NextResponse.json({error:'Sync company and environment are required.'},{status:400}),req);
+    const syncLicense=await checkLicense(syncCompanyId);
+    if(!syncLicense.ok) return securityHeaders(NextResponse.json({error:syncLicense.reason||'A valid organization license is required for sync.',code:'LICENSE_REQUIRED'},{status:402}),req);
+    return securityHeaders(NextResponse.next({ request: { headers: req.headers } }), req);
+  }
+
   const session = await valid(req.cookies.get(COOKIE)?.value);
   if (!session) {
     const res = path.startsWith('/api/')

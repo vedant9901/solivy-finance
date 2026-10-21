@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'node:crypto';
 
 export type Mode = 'LIVE' | 'TEST';
 
@@ -77,7 +78,65 @@ CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT,
   if((d.prepare('SELECT COUNT(*) c FROM company_settings').get() as any).c===0)d.prepare("INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY')").run();
 }
 
-function openDb(file:string){if(isVercel && process.env.SOLIVY_SQLITE_BRIDGE !== '1')throw new Error('SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and enable the SOLIVY Finance PostgreSQL database bridge before using this API online.');const key=path.resolve(file);if(!dbCache.has(key)){fs.mkdirSync(path.dirname(key),{recursive:true});const d=new Database(key);ensureSchema(d);dbCache.set(key,d);}return dbCache.get(key)!}
+
+function ensureSyncSchema(d: Database.Database) {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS sync_meta (
+      id INTEGER PRIMARY KEY CHECK(id=1),
+      device_id TEXT NOT NULL,
+      suppress_triggers INTEGER NOT NULL DEFAULT 0,
+      remote_cursor INTEGER NOT NULL DEFAULT 0,
+      paired_url TEXT DEFAULT '',
+      device_token TEXT DEFAULT '',
+      sync_mode TEXT NOT NULL DEFAULT 'LIVE',
+      paired_company_id INTEGER DEFAULT NULL,
+      last_sync_at TEXT DEFAULT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sync_changes (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT NOT NULL UNIQUE,
+      table_name TEXT NOT NULL,
+      pk_json TEXT NOT NULL,
+      operation TEXT NOT NULL CHECK(operation IN ('INSERT','UPDATE','DELETE')),
+      base_json TEXT,
+      row_json TEXT,
+      origin_device TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      pushed INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_changes_pushed ON sync_changes(pushed, seq);
+    CREATE TABLE IF NOT EXISTS sync_applied_events (
+      event_id TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  const cryptoId = () => crypto.randomUUID();
+  const meta = d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any;
+  if (!meta) d.prepare('INSERT INTO sync_meta(id,device_id) VALUES(1,?)').run(cryptoId());
+  // Install change-capture triggers for existing business tables. System, identity,
+  // licensing and sync tables are deliberately excluded from financial synchronization.
+  const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','users','sqlite_sequence']);
+  const tables = d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as Array<{name:string}>;
+  for (const {name} of tables) {
+    if (excluded.has(name) || name.startsWith('license_') || name.startsWith('admin_')) continue;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue;
+    const cols = d.prepare(`PRAGMA table_info("${name}")`).all() as Array<{name:string;pk:number}>;
+    const pk = cols.filter(c=>c.pk>0).sort((a,b)=>a.pk-b.pk);
+    if (!cols.length || !pk.length) continue;
+    const obj = (prefix:string, selected=cols) => `json_object(${selected.map(c=>`'${c.name.replace(/'/g,"''")}', ${prefix}."${c.name}"`).join(',')})`;
+    const pkObj = (prefix:string) => obj(prefix,pk);
+    const safe = name.replace(/[^A-Za-z0-9_]/g,'_');
+    const common = `INSERT INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed)
+      SELECT lower(hex(randomblob(16))), '${name.replace(/'/g,"''")}', %PK%, '%OP%', %BASE%, %ROW%,
+      (SELECT device_id FROM sync_meta WHERE id=1), 0
+      WHERE COALESCE((SELECT suppress_triggers FROM sync_meta WHERE id=1),0)=0;`;
+    d.exec(`DROP TRIGGER IF EXISTS sync_${safe}_ins; DROP TRIGGER IF EXISTS sync_${safe}_upd; DROP TRIGGER IF EXISTS sync_${safe}_del;`);
+    d.exec(`CREATE TRIGGER sync_${safe}_ins AFTER INSERT ON "${name}" BEGIN ${common.replace('%PK%',pkObj('NEW')).replace('%OP%','INSERT').replace('%BASE%','NULL').replace('%ROW%',obj('NEW'))} END;`);
+    d.exec(`CREATE TRIGGER sync_${safe}_upd AFTER UPDATE ON "${name}" BEGIN ${common.replace('%PK%',pkObj('NEW')).replace('%OP%','UPDATE').replace('%BASE%',obj('OLD')).replace('%ROW%',obj('NEW'))} END;`);
+    d.exec(`CREATE TRIGGER sync_${safe}_del AFTER DELETE ON "${name}" BEGIN ${common.replace('%PK%',pkObj('OLD')).replace('%OP%','DELETE').replace('%BASE%',obj('OLD')).replace('%ROW%','NULL')} END;`);
+  }
+}
+function openDb(file:string){if(isVercel && process.env.SOLIVY_SQLITE_BRIDGE !== '1')throw new Error('SQLite storage is disabled on Vercel because its filesystem is not persistent. Configure DATABASE_URL and enable the SOLIVY Finance PostgreSQL database bridge before using this API online.');const key=path.resolve(file);if(!dbCache.has(key)){fs.mkdirSync(path.dirname(key),{recursive:true});const d=new Database(key);ensureSchema(d);ensureSyncSchema(d);dbCache.set(key,d);}return dbCache.get(key)!}
 
 export function closeAllDatabases(){ for (const d of dbCache.values()) { try { d.close(); } catch {} } dbCache.clear(); }
 
@@ -96,7 +155,7 @@ export function db(mode:Mode='LIVE',companyId=1){
   return openDb(path.join(dataDir,'companies',String(companyId),mode==='LIVE'?'live.db':'test.db'));
 }
 
-export function adminDb(){const d=openDb(path.join(dataDir,'admin.db'));d.exec(`CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,code TEXT UNIQUE NOT NULL,address TEXT DEFAULT '',city TEXT DEFAULT '',state TEXT DEFAULT '',email TEXT DEFAULT '',gstin TEXT DEFAULT '',pan TEXT DEFAULT '',financial_year TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS admin_users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'DATA_ENTRY',password TEXT DEFAULT '',password_hash TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,menu_access TEXT NOT NULL DEFAULT '',card_access TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS user_companies(user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,can_live INTEGER NOT NULL DEFAULT 1,can_test INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,company_id));CREATE TABLE IF NOT EXISTS password_reset_tokens(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,expires_at TEXT NOT NULL,used_at TEXT DEFAULT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);const addCompanyColumn=(column:string,definition:string)=>{const cols=d.prepare('PRAGMA table_info(companies)').all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`)};const addUserColumn=(column:string,definition:string)=>{const cols=d.prepare('PRAGMA table_info(admin_users)').all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE admin_users ADD COLUMN ${column} ${definition}`)};addUserColumn('menu_access',"TEXT NOT NULL DEFAULT ''");addUserColumn('card_access',"TEXT NOT NULL DEFAULT ''");addUserColumn('email',"TEXT NOT NULL DEFAULT ''");addCompanyColumn('address',"TEXT DEFAULT ''");addCompanyColumn('city',"TEXT DEFAULT ''");addCompanyColumn('state',"TEXT DEFAULT ''");addCompanyColumn('email',"TEXT DEFAULT ''");addCompanyColumn('gstin',"TEXT DEFAULT ''");addCompanyColumn('pan',"TEXT DEFAULT ''");addCompanyColumn('financial_year',"TEXT DEFAULT ''");addCompanyColumn('updated_at',"TEXT DEFAULT CURRENT_TIMESTAMP");const c=d.prepare('SELECT COUNT(*) c FROM companies').get() as any;if(!c.c)d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();let defaultCompanyRow=d.prepare('SELECT id FROM companies WHERE code=?').get('SOLIVY') as any;if(!defaultCompanyRow){const legacyCompany=d.prepare('SELECT id FROM companies WHERE code=? OR UPPER(name)=UPPER(?) ORDER BY id LIMIT 1').get('AKSH','AKSH ENTERPRISE') as any;if(legacyCompany){d.prepare("UPDATE companies SET name='SOLIVY',code='SOLIVY',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(legacyCompany.id);defaultCompanyRow={id:legacyCompany.id};}else{d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();defaultCompanyRow=d.prepare('SELECT id FROM companies WHERE code=?').get('SOLIVY') as any;}}const defaultCompany=defaultCompanyRow.id;const old=db('LIVE',1);const u=d.prepare('SELECT COUNT(*) c FROM admin_users').get() as any;if(!u.c){const oldUsers=old.prepare('SELECT username,name,role,active,password,password_hash FROM users').all() as any[];if(oldUsers.length){const ins=d.prepare('INSERT INTO admin_users(username,name,role,active,password,password_hash) VALUES(?,?,?,?,?,?)');for(const x of oldUsers)ins.run(x.username,x.name,x.role,x.active,x.password||'',x.password_hash||'')}/* New installations intentionally do not seed predictable administrator or tester credentials. The first administrator is created through /setup. */}
+export function adminDb(){const d=openDb(path.join(dataDir,'admin.db'));d.exec(`CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,code TEXT UNIQUE NOT NULL,address TEXT DEFAULT '',city TEXT DEFAULT '',state TEXT DEFAULT '',email TEXT DEFAULT '',gstin TEXT DEFAULT '',pan TEXT DEFAULT '',financial_year TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS admin_users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'DATA_ENTRY',password TEXT DEFAULT '',password_hash TEXT DEFAULT '',active INTEGER NOT NULL DEFAULT 1,menu_access TEXT NOT NULL DEFAULT '',card_access TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS user_companies(user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,can_live INTEGER NOT NULL DEFAULT 1,can_test INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,company_id));CREATE TABLE IF NOT EXISTS sync_devices(id TEXT PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,company_id INTEGER NOT NULL,mode TEXT NOT NULL CHECK(mode IN ('LIVE','TEST')),user_id INTEGER NOT NULL,device_name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,last_seen_at TEXT DEFAULT NULL);CREATE TABLE IF NOT EXISTS password_reset_tokens(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,expires_at TEXT NOT NULL,used_at TEXT DEFAULT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);const addCompanyColumn=(column:string,definition:string)=>{const cols=d.prepare('PRAGMA table_info(companies)').all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`)};const addUserColumn=(column:string,definition:string)=>{const cols=d.prepare('PRAGMA table_info(admin_users)').all() as any[];if(!cols.some(c=>c.name===column))d.exec(`ALTER TABLE admin_users ADD COLUMN ${column} ${definition}`)};addUserColumn('menu_access',"TEXT NOT NULL DEFAULT ''");addUserColumn('card_access',"TEXT NOT NULL DEFAULT ''");addUserColumn('email',"TEXT NOT NULL DEFAULT ''");addCompanyColumn('address',"TEXT DEFAULT ''");addCompanyColumn('city',"TEXT DEFAULT ''");addCompanyColumn('state',"TEXT DEFAULT ''");addCompanyColumn('email',"TEXT DEFAULT ''");addCompanyColumn('gstin',"TEXT DEFAULT ''");addCompanyColumn('pan',"TEXT DEFAULT ''");addCompanyColumn('financial_year',"TEXT DEFAULT ''");addCompanyColumn('updated_at',"TEXT DEFAULT CURRENT_TIMESTAMP");const c=d.prepare('SELECT COUNT(*) c FROM companies').get() as any;if(!c.c)d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();let defaultCompanyRow=d.prepare('SELECT id FROM companies WHERE code=?').get('SOLIVY') as any;if(!defaultCompanyRow){const legacyCompany=d.prepare('SELECT id FROM companies WHERE code=? OR UPPER(name)=UPPER(?) ORDER BY id LIMIT 1').get('AKSH','AKSH ENTERPRISE') as any;if(legacyCompany){d.prepare("UPDATE companies SET name='SOLIVY',code='SOLIVY',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(legacyCompany.id);defaultCompanyRow={id:legacyCompany.id};}else{d.prepare("INSERT INTO companies(name,code) VALUES('SOLIVY','SOLIVY')").run();defaultCompanyRow=d.prepare('SELECT id FROM companies WHERE code=?').get('SOLIVY') as any;}}const defaultCompany=defaultCompanyRow.id;const old=db('LIVE',1);const u=d.prepare('SELECT COUNT(*) c FROM admin_users').get() as any;if(!u.c){const oldUsers=old.prepare('SELECT username,name,role,active,password,password_hash FROM users').all() as any[];if(oldUsers.length){const ins=d.prepare('INSERT INTO admin_users(username,name,role,active,password,password_hash) VALUES(?,?,?,?,?,?)');for(const x of oldUsers)ins.run(x.username,x.name,x.role,x.active,x.password||'',x.password_hash||'')}/* New installations intentionally do not seed predictable administrator or tester credentials. The first administrator is created through /setup. */}
   // Disable known weak legacy plaintext defaults without resetting accounts that have modern password hashes.
   d.prepare("UPDATE admin_users SET active=0,password='',password_hash='' WHERE username='admin' AND password='admin123' AND COALESCE(password_hash,'')=''").run();
   d.prepare("UPDATE admin_users SET active=0,password='',password_hash='' WHERE username='tester' AND password='test123' AND COALESCE(password_hash,'')=''").run();

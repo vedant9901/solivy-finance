@@ -6,7 +6,7 @@ const required=[
   ['app/api/sync/pair/route.ts',['randomBytes(32)','token_hash','company_id','mode','revokeHandler']],
   ['app/api/sync/exchange/route.ts',['x-solivy-device-token','Conflict on','sync_applied_events','has_more']],
   ['app/api/sync/run/route.ts',['reserveOfflineIdRanges','remote_cursor','remote_url','LIVE and TEST cannot sync across environments']],
-  ['app/sync/page.tsx',['Sync Now','Automatic sync when online','/api/sync/run']],
+  ['app/sync/page.tsx',['Sync Now','Automatic sync','/api/sync/run','Back to SOLIVY','Sync completed successfully']],
   ['middleware.ts',['/api/sync/exchange']],
 ];
 let failures=0;

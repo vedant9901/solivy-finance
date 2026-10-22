@@ -1,0 +1,13 @@
+SOLIVY Finance v2.5.27 — verification status
+
+Base: v2.5.26 TALLY-BANK-ACCESS-BACKUP candidate (2).
+
+PASS: source ZIP extracted successfully (208 entries in base archive).
+PASS: installer source updated to prompt for first-install database folder.
+PASS: installer source preserves configured dataDir on upgrade and tests write access.
+PASS: package version and setup documentation updated to 2.5.27.
+PASS: source/security/import/license checks are included in the project.
+
+NOT VERIFIED in this environment: npm dependency installation (npm install timed out), TypeScript full check, Next.js standalone production build, actual Windows PowerShell execution, clean-machine installation, LIVE/TEST persistence, upgrade against a real client database, or live app regression tests.
+
+IMPORTANT: This is a setup-enhanced SOURCE/BUILD-TOOL package, not a precompiled installable client ZIP. On a Windows developer PC with Node.js 20+ and npm registry access, run BUILD-CLIENT-RELEASE.bat. Only use the generated releases/SOLIVY-Finance-Client-v2.5.27.zip if the builder exits successfully. Then test installation and the checklist against COPIES of databases before LIVE use.

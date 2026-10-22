@@ -1,0 +1,14 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
+import {NextResponse} from 'next/server';import {adminDb,db} from '../../../lib/db';
+const tables=['bank_statement_imports','bank_statement_rows','parties','bank_accounts','company_accounts','account_transactions','purchases','payments','payment_allocations','ledger','sales','financing_receivables','money_in','interest_payments','funding_loans','funding_schedule','bank_matches','account_movements','third_parties','company_settings','import_batches','audit_logs'];
+async function __bridge_POST(req:Request){try{const x=await req.json();if(String(x.confirmation||'')!=='PROMOTE TEST TO LIVE')throw Error('Confirmation text is required');const cid=Number(x.company_id||req.headers.get('x-aksh-company-id')||0);if(!Number.isSafeInteger(cid)||cid<1)throw Error('Select a valid company before promoting TEST to LIVE.');const company=adminDb().prepare('SELECT id,name FROM companies WHERE id=?').get(cid) as {id:number;name:string}|undefined;if(!company)throw Error('Selected company was not found. Refresh the company list and try again.');const test=db('TEST',cid);const live=db('LIVE',cid);const exists=(d:any,table:string)=>((d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table) as any)?.name===table);const count=(table:string)=>exists(live,table)?Number((live.prepare(`SELECT COUNT(*) c FROM ${table}`).get() as any).c||0):0;
+// Purge intentionally preserves company_settings. Those settings are configuration, not financial records,
+// and are safely replaced from TEST below. All other listed tables remain protected by the empty-LIVE guard.
+const protectedTables=tables.filter(table=>table!=='company_settings');
+const populatedTables=protectedTables.filter(table=>count(table)>0);
+if(populatedTables.length)throw Error(`LIVE still contains records in: ${populatedTables.join(', ')}. Promotion was blocked to protect existing data. Back up LIVE and resolve these records before retrying.`);const copy=(table:string)=>{const cols=(test.prepare(`PRAGMA table_info(${table})`).all() as any[]).map(c=>c.name);if(!cols.length)return;const rows=test.prepare(`SELECT * FROM ${table}`).all() as any[];if(!rows.length)return;const placeholders=cols.map(()=>'?').join(',');const verb=table==='company_settings'?'INSERT OR REPLACE':'INSERT';const ins=live.prepare(`${verb} INTO ${table}(${cols.join(',')}) VALUES(${placeholders})`);for(const r of rows)ins.run(...cols.map(c=>r[c]));};live.transaction(()=>tables.forEach(copy))();return NextResponse.json({ok:true,companyId:cid,companyName:company.name,message:`TEST data promoted to LIVE for ${company.name} because its LIVE database was empty.`})}catch(e:any){return NextResponse.json({error:e.message},{status:400})}}
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

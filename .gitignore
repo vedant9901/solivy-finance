@@ -1,0 +1,12 @@
+node_modules
+.next
+.env
+*.db
+*.db-shm
+*.db-wal
+
+license-authority/
+licenses/private.pem
+SOLIVY-LICENSE-AUTHORITY-PRIVATE.pem
+customer-license.txt
+.env.local

@@ -1,0 +1,15 @@
+SOLIVY Finance v2.5.49 — Inter-Company Transfers
+
+PASS: TypeScript/TSX source parse audit (66 files)
+PASS: Security/source smoke checks
+PASS: Import schema checks (6 checks)
+PASS: PostgreSQL/SQLite bridge source audit (47 API route files)
+PASS: Ed25519 license signing self-test
+PASS: Inter-company transfer static checks (15 checks), including Select all / Clear selection
+BLOCKED: npm install timed out; node_modules unavailable
+NOT RUN: Next.js production build
+NOT RUN: Runtime API integration tests against SQLite and PostgreSQL
+NOT RUN: Online multi-organization acceptance tests or offline two-installation tests
+NOT RUN: Windows installer smoke test
+
+Release status: candidate only, not production-certified. Do not use on sole copies of live financial data. Transfer API intentionally blocks known linked ledger/bank/allocation cases rather than risk orphaning accounting records. Offline transfer package/receipt exchange is not protected by a cross-installation cryptographic trust registry.

@@ -1,0 +1,9 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
+import { sessionMode } from '../../../lib/db';
+import {NextResponse} from 'next/server';import {db,Mode} from '../../../lib/db';
+async function __bridge_POST(req:Request){try{const x=await req.json();const d=db(sessionMode(req), Number(req.headers.get('x-aksh-company-id')||x.company_id||1));const used=d.prepare('SELECT COUNT(*) c FROM purchases WHERE party_id=? UNION ALL SELECT COUNT(*) FROM payments WHERE party_id=?').all(x.id,x.id) as any[];if(used.some(r=>r.c>0)){d.prepare('UPDATE parties SET active=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(x.id);return NextResponse.json({ok:true,deactivated:true})}d.prepare('DELETE FROM parties WHERE id=?').run(x.id);return NextResponse.json({ok:true,deactivated:false})}catch(e:any){return NextResponse.json({error:e.message},{status:400})}}
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

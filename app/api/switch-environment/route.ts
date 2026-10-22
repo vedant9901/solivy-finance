@@ -1,0 +1,12 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
+function parseCardAccess(raw:any,role:string):string[]{const defaults=['kpi-parties','kpi-purchase-cost','kpi-paid','kpi-vendor-outstanding','kpi-finance-profit','kpi-average-earning','business-pulse','due-pay-today','due-pay-tomorrow','due-receive-today','due-receive-tomorrow','due-interest-today','due-interest-tomorrow','due-this-week','overdue-receivables','bank-cash','realised-profit','charts'];if(role==='ADMIN')return defaults;try{const a=JSON.parse(String(raw||''));return Array.isArray(a)?a.filter((v:any)=>defaults.includes(String(v))):[]}catch{return []}}
+function parseMenuAccess(raw:any,role:string):string[]{try{const a=JSON.parse(String(raw||''));if(Array.isArray(a))return a.filter((v:any)=>typeof v==='string')}catch{}return role==='ADMIN'?[]:['dashboard']}
+import {NextResponse} from 'next/server';
+import {adminDb} from '../../../lib/db';
+import {COOKIE,signSession,cookieOptions} from '../../../lib/session';
+async function __bridge_POST(req:Request){try{const x=await req.json();const username=String(req.headers.get('x-aksh-user')||'');const companyId=Number(req.headers.get('x-aksh-company-id')||x.company_id);const mode=x.mode==='TEST'?'TEST':'LIVE';if(!username||!companyId)throw Error('Invalid environment switch');const d=adminDb();const u=d.prepare('SELECT id,role,active,menu_access,card_access FROM admin_users WHERE username=?').get(username) as any;if(!u||!u.active)throw Error('User not found');if(u.role==='TESTER'&&mode!=='TEST')throw Error('TESTER users can only use TEST mode');const c=d.prepare('SELECT id,active FROM companies WHERE id=?').get(companyId) as any;if(!c?.active)throw Error('Company is inactive');const allowed=d.prepare('SELECT can_live,can_test FROM user_companies WHERE user_id=? AND company_id=?').get(u.id,companyId) as any;if(!allowed||((mode==='LIVE'&&!allowed.can_live)||(mode==='TEST'&&!allowed.can_test)))throw Error(`User is not assigned to ${mode} for this company`);const res=NextResponse.json({ok:true,mode});res.cookies.set(COOKIE,signSession(username,u.role,companyId,mode,parseMenuAccess(u.menu_access,u.role),parseCardAccess(u.card_access,u.role)),cookieOptions(req));return res;}catch(e:any){return NextResponse.json({error:e.message},{status:403})}}
+
+export const runtime = 'nodejs';
+
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+export async function POST(req: Request) { return __wrapped_POST(req); }

@@ -1,26 +1,195 @@
-import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
-import {NextResponse} from 'next/server';
-import {adminDb} from '../../../lib/db';
-import {hashPassword} from '../../../lib/session';
-const DEFAULT_CARD_IDS=['kpi-parties','kpi-purchase-cost','kpi-paid','kpi-vendor-outstanding','kpi-finance-profit','kpi-average-earning','business-pulse','due-pay-today','due-pay-tomorrow','due-receive-today','due-receive-tomorrow','due-interest-today','due-interest-tomorrow','due-this-week','overdue-receivables','bank-cash','realised-profit','charts'];
-const DEFAULT_MENU_IDS=['dashboard','accounts','account-movements','parties','party-aliases','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','secondary-backup','tally-export','bank-statement-import','gst','commercial-bills','document-settings','settings','transfers','sync'];
-function parseCardAccess(value:any){try{const parsed=JSON.parse(String(value||''));return Array.isArray(parsed)?parsed.filter((x:any)=>DEFAULT_CARD_IDS.includes(String(x))):DEFAULT_CARD_IDS}catch{return DEFAULT_CARD_IDS}}
-function parseMenuAccess(value:any){try{const parsed=JSON.parse(String(value||''));return Array.isArray(parsed)?parsed.filter((x:any)=>DEFAULT_MENU_IDS.includes(String(x))):DEFAULT_MENU_IDS}catch{return DEFAULT_MENU_IDS}}
-function admin(req:Request){if(req.headers.get('x-aksh-role')!=='ADMIN')throw Error('Admin access required');}
-async function __bridge_GET(req:Request){try{admin(req);const d=adminDb();const u=d.prepare(`SELECT u.id,u.username,u.name,u.role,u.active,u.menu_access,u.card_access,GROUP_CONCAT(uc.company_id) company_ids,CASE WHEN lower(u.username)='admin' OR u.id=(SELECT id FROM admin_users WHERE role='ADMIN' ORDER BY id LIMIT 1) THEN 1 ELSE 0 END is_primary FROM admin_users u LEFT JOIN user_companies uc ON uc.user_id=u.id GROUP BY u.id ORDER BY u.username`).all() as any[];const assignments=d.prepare('SELECT user_id,company_id,can_live,can_test FROM user_companies').all() as any[];return NextResponse.json({users:u.map(x=>({...x,menu_access:parseMenuAccess(x.menu_access),card_access:parseCardAccess(x.card_access),assignments:assignments.filter(a=>Number(a.user_id)===Number(x.id))}))});}catch(e:any){return NextResponse.json({error:e.message},{status:403})}}
-async function __bridge_POST(req:Request){try{admin(req);const x=await req.json();const d=adminDb();if(!x.username||!x.name)throw Error('Username and name are required');if(String(x.username).trim().length>80)throw Error('Username is too long');if(x.password&&String(x.password).length<12)throw Error('Password must be at least 12 characters');
-const allowedRoles=['ADMIN','DATA_ENTRY','VIEWER','TESTER']; if(x.role!==undefined&&!allowedRoles.includes(String(x.role)))throw Error('Invalid user role');let id=0;const saveTransaction=d.transaction(()=>{if(x.id){id=Number(x.id);const current=d.prepare('SELECT id,role,active FROM admin_users WHERE id=?').get(id) as any;if(!current)throw Error('User not found.');const nextRole=String(x.role||current.role),nextActive=x.active?1:0;const primary=d.prepare("SELECT id FROM admin_users WHERE role='ADMIN' ORDER BY id LIMIT 1").get() as any;if((Number(primary?.id||0)===id||String(current.username).toLowerCase()==='admin')&&(nextRole!=='ADMIN'||!nextActive))throw Error('The primary administrator cannot be deactivated or demoted.');if(current.role==='ADMIN'&&(nextRole!=='ADMIN'||!nextActive)){const otherAdmin=d.prepare("SELECT COUNT(*) c FROM admin_users WHERE role='ADMIN' AND active=1 AND id<>?").get(id) as any;if(Number(otherAdmin?.c||0)===0)throw Error('Cannot deactivate or demote the last active administrator. Create another active administrator first.')}if(x.password)d.prepare('UPDATE admin_users SET username=?,name=?,role=?,active=?,password_hash=?,password=? WHERE id=?').run(x.username,x.name,nextRole,nextActive,hashPassword(String(x.password)),'',id);else d.prepare('UPDATE admin_users SET username=?,name=?,role=?,active=? WHERE id=?').run(x.username,x.name,nextRole,nextActive,id);d.prepare('DELETE FROM user_companies WHERE user_id=?').run(id)}else{const password=String(x.password||'');if(password.length<12)throw Error('A new user must be created with a password of at least 12 characters. Default passwords are not allowed.');const r=d.prepare('INSERT INTO admin_users(username,name,role,active,password_hash,password) VALUES(?,?,?,?,?,?)').run(String(x.username).trim(),String(x.name).trim(),x.role||'DATA_ENTRY',x.active===false?0:1,hashPassword(password),'');id=Number(r.lastInsertRowid)}const menuAccess=Array.isArray(x.menu_access)?x.menu_access.filter((m:any)=>DEFAULT_MENU_IDS.includes(String(m))):DEFAULT_MENU_IDS;const cardAccess=Array.isArray(x.card_access)?x.card_access.filter((m:any)=>DEFAULT_CARD_IDS.includes(String(m))):DEFAULT_CARD_IDS;d.prepare('UPDATE admin_users SET menu_access=?,card_access=? WHERE id=?').run(JSON.stringify(menuAccess),JSON.stringify(cardAccess),id);for(const a of (x.assignments||[])){d.prepare('INSERT OR REPLACE INTO user_companies(user_id,company_id,can_live,can_test) VALUES(?,?,?,?)').run(id,Number(a.company_id),a.can_live?1:0,a.can_test?1:0)}});saveTransaction();return NextResponse.json({ok:true,id});}catch(e:any){return NextResponse.json({error:String(e.message).includes('UNIQUE')?'Username already exists':e.message},{status:400})}}
+import { withPostgresSQLiteBridge } from "../../../lib/postgres-sqlite-bridge";
+import { NextResponse } from "next/server";
+import { adminDb } from "../../../lib/db";
+import { hashPassword } from "../../../lib/session";
+const DEFAULT_CARD_IDS = [
+  "kpi-parties",
+  "kpi-purchase-cost",
+  "kpi-paid",
+  "kpi-vendor-outstanding",
+  "kpi-finance-profit",
+  "kpi-average-earning",
+  "business-pulse",
+  "due-pay-today",
+  "due-pay-tomorrow",
+  "due-receive-today",
+  "due-receive-tomorrow",
+  "due-interest-today",
+  "due-interest-tomorrow",
+  "due-this-week",
+  "overdue-receivables",
+  "bank-cash",
+  "realised-profit",
+  "charts",
+];
+const DEFAULT_MENU_IDS = [
+  "dashboard",
+  "accounts",
+  "account-movements",
+  "parties",
+  "party-aliases",
+  "purchase",
+  "payments",
+  "money-in",
+  "interest",
+  "funding",
+  "import",
+  "ledger",
+  "receivables",
+  "reports",
+  "bank",
+  "backup",
+  "secondary-backup",
+  "tally-export",
+  "bank-statement-import",
+  "gst",
+  "commercial-bills",
+  "document-settings",
+  "settings",
+  "transfers",
+  "sync",
+];
+function parseCardAccess(value: any) {
+  try {
+    const parsed = JSON.parse(String(value || ""));
+    return Array.isArray(parsed) ? parsed.filter((x: any) => DEFAULT_CARD_IDS.includes(String(x))) : DEFAULT_CARD_IDS;
+  } catch {
+    return DEFAULT_CARD_IDS;
+  }
+}
+function parseMenuAccess(value: any) {
+  try {
+    const parsed = JSON.parse(String(value || ""));
+    return Array.isArray(parsed) ? parsed.filter((x: any) => DEFAULT_MENU_IDS.includes(String(x))) : DEFAULT_MENU_IDS;
+  } catch {
+    return DEFAULT_MENU_IDS;
+  }
+}
+function admin(req: Request) {
+  if (req.headers.get("x-aksh-role") !== "ADMIN") throw Error("Admin access required");
+}
+async function __bridge_GET(req: Request) {
+  try {
+    admin(req);
+    const d = adminDb();
+    const u = d
+      .prepare(
+        `SELECT u.id,u.username,u.name,u.role,u.active,u.menu_access,u.card_access,GROUP_CONCAT(uc.company_id) company_ids,CASE WHEN lower(u.username)='admin' OR u.id=(SELECT id FROM admin_users WHERE role='ADMIN' ORDER BY id LIMIT 1) THEN 1 ELSE 0 END is_primary FROM admin_users u LEFT JOIN user_companies uc ON uc.user_id=u.id GROUP BY u.id ORDER BY u.username`,
+      )
+      .all() as any[];
+    const assignments = d.prepare("SELECT user_id,company_id,can_live,can_test FROM user_companies").all() as any[];
+    return NextResponse.json({
+      users: u.map((x) => ({
+        ...x,
+        menu_access: parseMenuAccess(x.menu_access),
+        card_access: parseCardAccess(x.card_access),
+        assignments: assignments.filter((a) => Number(a.user_id) === Number(x.id)),
+      })),
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 403 });
+  }
+}
+async function __bridge_POST(req: Request) {
+  try {
+    admin(req);
+    const x = await req.json();
+    const d = adminDb();
+    if (!x.username || !x.name) throw Error("Username and name are required");
+    if (String(x.username).trim().length > 80) throw Error("Username is too long");
+    if (x.password && String(x.password).length < 12) throw Error("Password must be at least 12 characters");
+    const allowedRoles = ["ADMIN", "DATA_ENTRY", "VIEWER", "TESTER"];
+    if (x.role !== undefined && !allowedRoles.includes(String(x.role))) throw Error("Invalid user role");
+    let id = 0;
+    const saveTransaction = d.transaction(() => {
+      if (x.id) {
+        id = Number(x.id);
+        const current = d.prepare("SELECT id,role,active FROM admin_users WHERE id=?").get(id) as any;
+        if (!current) throw Error("User not found.");
+        const nextRole = String(x.role || current.role),
+          nextActive = x.active ? 1 : 0;
+        const primary = d.prepare("SELECT id FROM admin_users WHERE role='ADMIN' ORDER BY id LIMIT 1").get() as any;
+        if ((Number(primary?.id || 0) === id || String(current.username).toLowerCase() === "admin") && (nextRole !== "ADMIN" || !nextActive))
+          throw Error("The primary administrator cannot be deactivated or demoted.");
+        if (current.role === "ADMIN" && (nextRole !== "ADMIN" || !nextActive)) {
+          const otherAdmin = d.prepare("SELECT COUNT(*) c FROM admin_users WHERE role='ADMIN' AND active=1 AND id<>?").get(id) as any;
+          if (Number(otherAdmin?.c || 0) === 0) throw Error("Cannot deactivate or demote the last active administrator. Create another active administrator first.");
+        }
+        if (x.password)
+          d.prepare("UPDATE admin_users SET username=?,name=?,role=?,active=?,password_hash=?,password=? WHERE id=?").run(
+            x.username,
+            x.name,
+            nextRole,
+            nextActive,
+            hashPassword(String(x.password)),
+            "",
+            id,
+          );
+        else d.prepare("UPDATE admin_users SET username=?,name=?,role=?,active=? WHERE id=?").run(x.username, x.name, nextRole, nextActive, id);
+        d.prepare("DELETE FROM user_companies WHERE user_id=?").run(id);
+      } else {
+        const password = String(x.password || "");
+        if (password.length < 12) throw Error("A new user must be created with a password of at least 12 characters. Default passwords are not allowed.");
+        const r = d
+          .prepare("INSERT INTO admin_users(username,name,role,active,password_hash,password) VALUES(?,?,?,?,?,?)")
+          .run(String(x.username).trim(), String(x.name).trim(), x.role || "DATA_ENTRY", x.active === false ? 0 : 1, hashPassword(password), "");
+        id = Number(r.lastInsertRowid);
+      }
+      const menuAccess = Array.isArray(x.menu_access) ? x.menu_access.filter((m: any) => DEFAULT_MENU_IDS.includes(String(m))) : DEFAULT_MENU_IDS;
+      const cardAccess = Array.isArray(x.card_access) ? x.card_access.filter((m: any) => DEFAULT_CARD_IDS.includes(String(m))) : DEFAULT_CARD_IDS;
+      d.prepare("UPDATE admin_users SET menu_access=?,card_access=? WHERE id=?").run(JSON.stringify(menuAccess), JSON.stringify(cardAccess), id);
+      for (const a of x.assignments || []) {
+        d.prepare("INSERT OR REPLACE INTO user_companies(user_id,company_id,can_live,can_test) VALUES(?,?,?,?)").run(id, Number(a.company_id), a.can_live ? 1 : 0, a.can_test ? 1 : 0);
+      }
+    });
+    saveTransaction();
+    return NextResponse.json({ ok: true, id });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e.message).includes("UNIQUE") ? "Username already exists" : e.message }, { status: 400 });
+  }
+}
 
+async function __bridge_DELETE(req: Request) {
+  try {
+    admin(req);
+    const x = await req.json().catch(() => ({}));
+    const id = Number(x.id);
+    if (!Number.isSafeInteger(id) || id < 1) throw Error("Select a valid user to delete.");
+    const d = adminDb();
+    const target = d.prepare("SELECT id,username,role,active FROM admin_users WHERE id=?").get(id) as any;
+    if (!target) throw Error("User not found.");
+    if (String(target.username) === String(req.headers.get("x-aksh-user") || "")) throw Error("You cannot delete the account currently signed in. Sign in with another administrator first.");
+    const primary = d.prepare("SELECT id FROM admin_users WHERE role='ADMIN' ORDER BY id LIMIT 1").get() as any;
+    if (Number(primary?.id || 0) === id || String(target.username).toLowerCase() === "admin") throw Error("The primary administrator account cannot be deleted.");
+    if (target.role === "ADMIN" && target.active) {
+      const active = d.prepare("SELECT COUNT(*) c FROM admin_users WHERE role='ADMIN' AND active=1").get() as any;
+      if (Number(active?.c || 0) <= 1) throw Error("The last active administrator cannot be deleted. Create and activate another administrator first.");
+    }
+    const remove = d.transaction(() => {
+      d.prepare("DELETE FROM user_companies WHERE user_id=?").run(id);
+      d.prepare("DELETE FROM password_reset_tokens WHERE user_id=?").run(id);
+      d.prepare("DELETE FROM admin_users WHERE id=?").run(id);
+    });
+    remove();
+    return NextResponse.json({ ok: true, id, message: `User ${target.username} deleted.` });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "Unable to delete user." }, { status: 400 });
+  }
+}
 
-async function __bridge_DELETE(req:Request){try{admin(req);const x=await req.json().catch(()=>({}));const id=Number(x.id);if(!Number.isSafeInteger(id)||id<1)throw Error('Select a valid user to delete.');const d=adminDb();const target=d.prepare('SELECT id,username,role,active FROM admin_users WHERE id=?').get(id) as any;if(!target)throw Error('User not found.');if(String(target.username)===String(req.headers.get('x-aksh-user')||''))throw Error('You cannot delete the account currently signed in. Sign in with another administrator first.');const primary=d.prepare("SELECT id FROM admin_users WHERE role='ADMIN' ORDER BY id LIMIT 1").get() as any;if(Number(primary?.id||0)===id||String(target.username).toLowerCase()==='admin')throw Error('The primary administrator account cannot be deleted.');if(target.role==='ADMIN'&&target.active){const active=d.prepare("SELECT COUNT(*) c FROM admin_users WHERE role='ADMIN' AND active=1").get() as any;if(Number(active?.c||0)<=1)throw Error('The last active administrator cannot be deleted. Create and activate another administrator first.');}const remove=d.transaction(()=>{d.prepare('DELETE FROM user_companies WHERE user_id=?').run(id);d.prepare('DELETE FROM password_reset_tokens WHERE user_id=?').run(id);d.prepare('DELETE FROM admin_users WHERE id=?').run(id)});remove();return NextResponse.json({ok:true,id,message:`User ${target.username} deleted.`});}catch(e:any){return NextResponse.json({error:e.message||'Unable to delete user.'},{status:400})}}
-
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
 const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
-export async function GET(req: Request) { return __wrapped_GET(req); }
+export async function GET(req: Request) {
+  return __wrapped_GET(req);
+}
 
 const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
-export async function POST(req: Request) { return __wrapped_POST(req); }
+export async function POST(req: Request) {
+  return __wrapped_POST(req);
+}
 
 const __wrapped_DELETE = withPostgresSQLiteBridge(__bridge_DELETE);
-export async function DELETE(req: Request) { return __wrapped_DELETE(req); }
+export async function DELETE(req: Request) {
+  return __wrapped_DELETE(req);
+}

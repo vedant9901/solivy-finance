@@ -1,52 +1,246 @@
-import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
-import { sessionMode } from '../../../lib/db';
-import {NextResponse} from 'next/server';
-import {db,Mode,adminDb} from '../../../lib/db';
-export const dynamic='force-dynamic';
-function today(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10)}
-function addDays(date:string,days:number){const d=new Date(date+'T00:00:00');d.setDate(d.getDate()+days);return d.toISOString().slice(0,10)}
-function weekEnd(date:string){const d=new Date(date+'T00:00:00');const day=d.getDay();const delta=day===0?0:7-day;d.setDate(d.getDate()+delta);return d.toISOString().slice(0,10)}
-async function __bridge_GET(req:Request){
- try{
-  const u=new URL(req.url); const mode = sessionMode(req); const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1); const d=db(mode,companyId); const t=today(); const tomorrow=addDays(t,1); const week=weekEnd(t);
-  const thirdParties=d.prepare('SELECT * FROM third_parties WHERE active=1 ORDER BY name').all();
-  const parties=d.prepare(`SELECT p.*,b.bank_name,b.account_holder,b.account_number,b.ifsc,b.branch FROM parties p LEFT JOIN bank_accounts b ON b.id=(SELECT id FROM bank_accounts WHERE party_id=p.id ORDER BY is_primary DESC,id LIMIT 1) ORDER BY p.name`).all();
-  const purchases=d.prepare(`SELECT p.*,x.name party_name,x.email party_email,x.contact party_contact,bp.name broker_party_name,bp.contact broker_contact,bp.email broker_email, r.party_id receivable_party_id, rp.name receivable_party_name, r.receivable_amount, r.due_days receivable_due_days, r.due_date receivable_due_date, r.notes receivable_notes, COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) paid_amount, p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) outstanding FROM purchases p JOIN parties x ON x.id=p.party_id LEFT JOIN parties bp ON bp.id=p.broker_party_id LEFT JOIN financing_receivables r ON r.purchase_id=p.id LEFT JOIN parties rp ON rp.id=r.party_id ORDER BY p.purchase_date DESC,p.id DESC`).all();
-  const payments=d.prepare('SELECT p.*,x.name party_name,x.email,x.contact,a.account_name company_account_name,(SELECT COALESCE(SUM(amount),0) FROM payment_allocations a2 WHERE a2.payment_id=p.id) allocated FROM payments p JOIN parties x ON x.id=p.party_id LEFT JOIN company_accounts a ON a.id=p.company_account_id ORDER BY p.payment_date DESC,p.id DESC').all();
-  const paymentAllocRows=d.prepare(`SELECT a.payment_id,a.purchase_id,a.amount,q.sample_no,q.invoice_no,q.purchase_date,q.goods_description,q.bags_qty,q.gross_weight,q.net_weight,q.rate,q.gross_amount,q.unload_charge,q.freight,q.moisture,q.discount_amount,q.driver_rokdi,q.quality_deduct_amount,q.other_charges,q.net_payable,q.payment_due_date FROM payment_allocations a JOIN purchases q ON q.id=a.purchase_id JOIN payments pay ON pay.id=a.payment_id WHERE pay.status='POSTED' ORDER BY q.purchase_date,q.id`).all() as any[];
-  const paymentAllocationMap:any={}; for(const a of paymentAllocRows){(paymentAllocationMap[a.payment_id] ||= []).push(a)}; for(const p of payments as any[])p.allocations=paymentAllocationMap[p.id]||[];
-  const pendingPurchaseBills=d.prepare(`SELECT p.id,p.purchase_date,p.party_id,x.name party_name,p.invoice_no,p.sample_no,p.net_payable,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) paid_amount,p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) outstanding FROM purchases p JOIN parties x ON x.id=p.party_id WHERE p.status='POSTED' AND p.net_payable>COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) ORDER BY p.purchase_date,p.id`).all();
-  const outstanding=d.prepare(`SELECT x.id,x.name,COALESCE((SELECT SUM(net_payable) FROM purchases p WHERE p.party_id=x.id AND p.status='POSTED'),0) purchases,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE pay.party_id=x.id AND pay.status='POSTED'),0) payments,COALESCE(x.opening_balance,0)*(CASE WHEN x.opening_balance_type='PAYABLE' THEN 1 ELSE -1 END)+COALESCE((SELECT SUM(net_payable) FROM purchases p WHERE p.party_id=x.id AND p.status='POSTED'),0)-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE pay.party_id=x.id AND pay.status='POSTED'),0) outstanding FROM parties x ORDER BY outstanding DESC`).all();
-  const ledger=d.prepare(`SELECT l.*,p.name party_name,p.email party_email,p.contact party_contact FROM ledger l JOIN parties p ON p.id=l.party_id ORDER BY l.entry_date DESC,l.id DESC`).all();
-  const unmatched=d.prepare(`SELECT p.*,x.name party_name FROM payments p JOIN parties x ON x.id=p.party_id LEFT JOIN bank_matches b ON b.payment_id=p.id WHERE b.id IS NULL AND p.status='POSTED' ORDER BY p.id DESC`).all();
-  const rawSettings=d.prepare('SELECT * FROM company_settings WHERE id=1').get() as any;
-  let documentSettings:any={}; try{documentSettings={commercial_bill_settings:JSON.parse(rawSettings?.commercial_bill_settings||'{}'),payment_advice_settings:JSON.parse(rawSettings?.payment_advice_settings||'{}')}}catch{}
-  const ad=adminDb(); const isAdmin=req.headers.get('x-aksh-role')==='ADMIN'; const currentUser=String(req.headers.get('x-aksh-user')||''); const users=isAdmin?ad.prepare(`SELECT id,username,name,role,active,CASE WHEN lower(username)='admin' OR id=(SELECT id FROM admin_users WHERE role='ADMIN' ORDER BY id LIMIT 1) THEN 1 ELSE 0 END is_primary FROM admin_users ORDER BY username`).all():[]; const companies=isAdmin?ad.prepare('SELECT id,name,code,email,active FROM companies WHERE active=1 ORDER BY name').all():ad.prepare('SELECT c.id,c.name,c.code,c.email,c.active,uc.can_live,uc.can_test FROM companies c JOIN user_companies uc ON uc.company_id=c.id JOIN admin_users u ON u.id=uc.user_id WHERE u.username=? AND u.active=1 AND c.active=1 ORDER BY c.name').all(currentUser); const settings={...(rawSettings||{}),...documentSettings}; const sales=d.prepare('SELECT * FROM sales ORDER BY invoice_date DESC,id DESC').all(); const receivables=d.prepare(`SELECT r.*,p.name party_name,pu.sample_no,pu.invoice_no supplier_invoice_no,pu.status purchase_status FROM financing_receivables r JOIN parties p ON p.id=r.party_id JOIN purchases pu ON pu.id=r.purchase_id ORDER BY r.bill_date DESC,r.id DESC`).all();
-  const accounts=d.prepare(`SELECT a.*,a.opening_balance+COALESCE((SELECT SUM(CASE WHEN transaction_type='CREDIT' THEN amount ELSE -amount END) FROM account_transactions t WHERE t.account_id=a.id),0) balance FROM company_accounts a WHERE a.active=1 ORDER BY a.account_name`).all();
-  const accountMovements=d.prepare(`SELECT m.*,fa.account_name from_account_name,ta.account_name to_account_name FROM account_movements m JOIN company_accounts fa ON fa.id=m.from_account_id LEFT JOIN company_accounts ta ON ta.id=m.to_account_id ORDER BY m.movement_date DESC,m.id DESC`).all();
-  const accountTransactions=d.prepare(`SELECT t.*,a.account_name,a.account_type FROM account_transactions t JOIN company_accounts a ON a.id=t.account_id ORDER BY t.transaction_date DESC,t.id DESC`).all();
-  const moneyIn=d.prepare(`SELECT m.*,p.name party_name,a.account_name FROM money_in m LEFT JOIN parties p ON p.id=m.party_id JOIN company_accounts a ON a.id=m.account_id ORDER BY m.receipt_date DESC,m.id DESC`).all();
-  const interestPayments=d.prepare(`SELECT i.*,p.name party_name,a.account_name FROM interest_payments i LEFT JOIN parties p ON p.id=i.party_id JOIN company_accounts a ON a.id=i.account_id ORDER BY i.payment_date DESC,i.id DESC`).all();
-  const fundingLoans=d.prepare(`SELECT l.*,p.name lender_party_name,(SELECT MIN(s.due_date) FROM funding_schedule s WHERE s.loan_id=l.id AND s.status IN ('DUE','PARTIAL')) next_due_date,(SELECT COALESCE(SUM(s.interest_amount-s.paid_amount),0) FROM funding_schedule s WHERE s.loan_id=l.id AND s.status IN ('DUE','PARTIAL')) outstanding_interest FROM funding_loans l LEFT JOIN parties p ON p.id=l.lender_party_id ORDER BY l.id DESC`).all();
-  const fundingSchedule=d.prepare(`SELECT s.*,l.loan_no,l.lender_name FROM funding_schedule s JOIN funding_loans l ON l.id=s.loan_id WHERE s.status IN ('DUE','PARTIAL') ORDER BY s.due_date,s.id`).all();
-  const duePayables=d.prepare(`SELECT p.id,p.sample_no,p.invoice_no,p.purchase_date,CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END payment_due_date,p.net_payable,x.name party_name,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) paid,p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) due_amount FROM purchases p JOIN parties x ON x.id=p.party_id WHERE p.status='POSTED' AND p.payment_due_days>0 AND (CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END) BETWEEN ? AND ? AND p.net_payable>COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) ORDER BY payment_due_date,p.id`).all(t,week);
-  const dueReceivables=d.prepare(`SELECT r.*,p.name party_name,pu.sample_no,pu.invoice_no supplier_invoice_no,CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END due_date,r.receivable_amount-COALESCE(r.received_amount,0) outstanding FROM financing_receivables r JOIN parties p ON p.id=r.party_id JOIN purchases pu ON pu.id=r.purchase_id WHERE r.status='OPEN' AND r.due_days>0 AND (CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END) BETWEEN ? AND ? ORDER BY due_date,r.id`).all(t,week);
-  const todayPayable=duePayables.filter((x:any)=>x.payment_due_date===t); const tomorrowPayable=duePayables.filter((x:any)=>x.payment_due_date===tomorrow); const todayReceivable=dueReceivables.filter((x:any)=>x.due_date===t); const tomorrowReceivable=dueReceivables.filter((x:any)=>x.due_date===tomorrow);
-  const overdueReceivables=d.prepare(`SELECT r.id,r.bill_no,r.bill_date,r.party_id,p.name party_name,pu.sample_no,pu.invoice_no supplier_invoice_no,CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END due_date,r.receivable_amount-COALESCE(r.received_amount,0) outstanding,CAST(julianday(?) - julianday(CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END) AS INTEGER) days_overdue FROM financing_receivables r JOIN parties p ON p.id=r.party_id JOIN purchases pu ON pu.id=r.purchase_id WHERE r.status='OPEN' AND (CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END) < ? AND r.receivable_amount>COALESCE(r.received_amount,0) ORDER BY days_overdue DESC,r.id`).all(t,t) as any[];
-  const overduePayables=d.prepare(`SELECT p.id,p.sample_no,p.invoice_no,p.purchase_date,x.name party_name,CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END payment_due_date,p.net_payable,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) paid,p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) due_amount,CAST(julianday(?) - julianday(CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END) AS INTEGER) days_overdue FROM purchases p JOIN parties x ON x.id=p.party_id WHERE p.status='POSTED' AND p.net_payable>COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) AND (CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END) < ? ORDER BY days_overdue DESC,p.id`).all(t,t) as any[];
-  const stats=d.prepare(`SELECT (SELECT COUNT(*) FROM parties WHERE active=1) parties,(SELECT COALESCE(SUM(net_payable),0) FROM purchases WHERE status='POSTED') purchases,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='POSTED') payments`).get() as any;
-  stats.opening=(d.prepare("SELECT COALESCE(SUM(CASE WHEN opening_balance_type='PAYABLE' THEN opening_balance ELSE -opening_balance END),0) v FROM parties").get() as any).v; const allocatedPayments=(d.prepare("SELECT COALESCE(SUM(a.amount),0) v FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE p.status='POSTED'").get() as any).v; stats.outstanding=stats.opening+stats.purchases-allocatedPayments;
-  const profit=d.prepare("SELECT COALESCE(SUM(CASE WHEN received_amount>0 THEN ((discount_amount+other_charges_profit) * received_amount / CASE WHEN receivable_amount=0 THEN 1 ELSE receivable_amount END) ELSE 0 END),0) gross_profit,COALESCE(SUM(CASE WHEN received_amount>0 THEN cost_amount * received_amount / CASE WHEN receivable_amount=0 THEN 1 ELSE receivable_amount END ELSE 0 END),0) cost,COALESCE(SUM(CASE WHEN received_amount>0 THEN received_amount ELSE 0 END),0) sales FROM financing_receivables").get() as any; const interestPaid=(d.prepare("SELECT COALESCE(SUM(amount),0) v FROM interest_payments WHERE status='POSTED'").get() as any).v;
-  const monthlyProfit=d.prepare(`SELECT substr(r.bill_date,1,7) label,ROUND(SUM(CASE WHEN r.received_amount>0 THEN ((r.discount_amount+r.other_charges_profit)*r.received_amount/CASE WHEN r.receivable_amount=0 THEN 1 ELSE r.receivable_amount END) ELSE 0 END)-COALESCE((SELECT SUM(i.amount) FROM interest_payments i WHERE substr(i.payment_date,1,7)=substr(r.bill_date,1,7) AND i.status='POSTED'),0),0) value FROM financing_receivables r GROUP BY substr(r.bill_date,1,7) ORDER BY label`).all();
-  const monthlyCashIn=d.prepare(`SELECT substr(t.transaction_date,1,7) label,ROUND(SUM(CASE WHEN t.transaction_type='CREDIT' THEN t.amount ELSE 0 END)) value FROM account_transactions t GROUP BY substr(t.transaction_date,1,7) ORDER BY label`).all();
-  const fundingUpcoming=d.prepare(`SELECT substr(due_date,1,7) label,ROUND(SUM(interest_amount-paid_amount)) value FROM funding_schedule WHERE status IN ('DUE','PARTIAL') GROUP BY substr(due_date,1,7) ORDER BY label LIMIT 12`).all();
-  const fundingToday=fundingSchedule.filter((x:any)=>x.due_date===t); const fundingTomorrow=fundingSchedule.filter((x:any)=>x.due_date===tomorrow); const nextFunding=fundingSchedule[0]||null;
-  const averageMonthlyProfit=monthlyProfit.length?Math.round(monthlyProfit.reduce((a:number,x:any)=>a+Number(x.value||0),0)/monthlyProfit.length):0; profit.interest_paid=interestPaid; profit.profit=profit.gross_profit-interestPaid; profit.margin=profit.sales?profit.profit/profit.sales*100:0;
-  let menu:string[]=[];try{menu=JSON.parse(req.headers.get('x-aksh-menu')||'[]')}catch{}const can=(id:string)=>isAdmin||menu.includes(id);const canUseParties=can('parties')||can('purchase')||can('payments')||can('receivables')||can('money-in')||can('interest')||can('funding');const limitedParties=parties.map((p:any)=>({id:p.id,name:p.name,active:p.active,party_type:p.party_type,entity_type:p.entity_type}));return NextResponse.json({thirdParties:can('parties')?thirdParties:[],parties:can('parties')?parties:(canUseParties?limitedParties:[]),purchases:can('purchase')?(can('parties')?purchases:purchases.map((p:any)=>({...p,party_email:'',party_contact:'',broker_contact:'',broker_email:''}))):[],pendingPurchaseBills:can('purchase')?pendingPurchaseBills:[],payments:can('payments')?(can('parties')?payments:payments.map((p:any)=>({...p,email:'',contact:''}))):[],outstanding:can('parties')?outstanding:[],ledger:can('ledger')?ledger:[],unmatched:can('bank')?unmatched:[],users,companies,sales:can('receivables')?sales:[],receivables:can('receivables')?receivables:[],stats,settings:can('settings')||can('document-settings')?settings:{},accounts:can('accounts')?accounts:[],accountMovements:can('account-movements')?accountMovements:[],accountTransactions:can('accounts')?accountTransactions:[],moneyIn:can('money-in')?moneyIn:[],interestPayments:can('interest')?interestPayments:[],duePayables:can('purchase')?duePayables:[],dueReceivables:can('receivables')?dueReceivables:[],overdueReceivables:can('receivables')?overdueReceivables:[],overduePayables:can('purchase')?overduePayables:[],todayPayable:can('purchase')?todayPayable:[],tomorrowPayable:can('purchase')?tomorrowPayable:[],todayReceivable:can('receivables')?todayReceivable:[],tomorrowReceivable:can('receivables')?tomorrowReceivable:[],profit:can('dashboard')?profit:{},fundingLoans:can('funding')?fundingLoans:[],fundingSchedule:can('funding')?fundingSchedule:[],fundingToday:can('funding')?fundingToday:[],fundingTomorrow:can('funding')?fundingTomorrow:[],nextFunding:can('funding')?nextFunding:[],averageMonthlyProfit:can('dashboard')?averageMonthlyProfit:[],monthlyProfit:can('dashboard')?monthlyProfit:[],monthlyCashIn:can('dashboard')?monthlyCashIn:[],fundingUpcoming:can('funding')?fundingUpcoming:[]});
- }catch(e:any){return NextResponse.json({error:e.message},{status:500})}
+import { withPostgresSQLiteBridge } from "../../../lib/postgres-sqlite-bridge";
+import { sessionMode } from "../../../lib/db";
+import { NextResponse } from "next/server";
+import { db, Mode, adminDb } from "../../../lib/db";
+export const dynamic = "force-dynamic";
+function today() {
+  return new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function addDays(date: string, days: number) {
+  const d = new Date(date + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function weekEnd(date: string) {
+  const d = new Date(date + "T00:00:00");
+  const day = d.getDay();
+  const delta = day === 0 ? 0 : 7 - day;
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+async function __bridge_GET(req: Request) {
+  try {
+    const u = new URL(req.url);
+    const mode = sessionMode(req);
+    const companyId = Number(req.headers.get("x-aksh-company-id") || u.searchParams.get("company_id") || 1);
+    const d = db(mode, companyId);
+    const t = today();
+    const tomorrow = addDays(t, 1);
+    const week = weekEnd(t);
+    const thirdParties = d.prepare("SELECT * FROM third_parties WHERE active=1 ORDER BY name").all();
+    const parties = d
+      .prepare(
+        `SELECT p.*,b.bank_name,b.account_holder,b.account_number,b.ifsc,b.branch FROM parties p LEFT JOIN bank_accounts b ON b.id=(SELECT id FROM bank_accounts WHERE party_id=p.id ORDER BY is_primary DESC,id LIMIT 1) ORDER BY p.name`,
+      )
+      .all();
+    const purchases = d
+      .prepare(
+        `SELECT p.*,x.name party_name,x.email party_email,x.contact party_contact,bp.name broker_party_name,bp.contact broker_contact,bp.email broker_email, r.party_id receivable_party_id, rp.name receivable_party_name, r.receivable_amount, r.due_days receivable_due_days, r.due_date receivable_due_date, r.notes receivable_notes, COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) paid_amount, p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) outstanding FROM purchases p JOIN parties x ON x.id=p.party_id LEFT JOIN parties bp ON bp.id=p.broker_party_id LEFT JOIN financing_receivables r ON r.purchase_id=p.id LEFT JOIN parties rp ON rp.id=r.party_id ORDER BY p.purchase_date DESC,p.id DESC`,
+      )
+      .all();
+    const payments = d
+      .prepare(
+        "SELECT p.*,x.name party_name,x.email,x.contact,a.account_name company_account_name,(SELECT COALESCE(SUM(amount),0) FROM payment_allocations a2 WHERE a2.payment_id=p.id) allocated FROM payments p JOIN parties x ON x.id=p.party_id LEFT JOIN company_accounts a ON a.id=p.company_account_id ORDER BY p.payment_date DESC,p.id DESC",
+      )
+      .all();
+    const paymentAllocRows = d
+      .prepare(
+        `SELECT a.payment_id,a.purchase_id,a.amount,q.sample_no,q.invoice_no,q.purchase_date,q.goods_description,q.bags_qty,q.gross_weight,q.net_weight,q.rate,q.gross_amount,q.unload_charge,q.freight,q.moisture,q.discount_amount,q.driver_rokdi,q.quality_deduct_amount,q.other_charges,q.net_payable,q.payment_due_date FROM payment_allocations a JOIN purchases q ON q.id=a.purchase_id JOIN payments pay ON pay.id=a.payment_id WHERE pay.status='POSTED' ORDER BY q.purchase_date,q.id`,
+      )
+      .all() as any[];
+    const paymentAllocationMap: any = {};
+    for (const a of paymentAllocRows) {
+      (paymentAllocationMap[a.payment_id] ||= []).push(a);
+    }
+    for (const p of payments as any[]) p.allocations = paymentAllocationMap[p.id] || [];
+    const pendingPurchaseBills = d
+      .prepare(
+        `SELECT p.id,p.purchase_date,p.party_id,x.name party_name,p.invoice_no,p.sample_no,p.net_payable,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) paid_amount,p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) outstanding FROM purchases p JOIN parties x ON x.id=p.party_id WHERE p.status='POSTED' AND p.net_payable>COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) ORDER BY p.purchase_date,p.id`,
+      )
+      .all();
+    const outstanding = d
+      .prepare(
+        `SELECT x.id,x.name,COALESCE((SELECT SUM(net_payable) FROM purchases p WHERE p.party_id=x.id AND p.status='POSTED'),0) purchases,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE pay.party_id=x.id AND pay.status='POSTED'),0) payments,COALESCE(x.opening_balance,0)*(CASE WHEN x.opening_balance_type='PAYABLE' THEN 1 ELSE -1 END)+COALESCE((SELECT SUM(net_payable) FROM purchases p WHERE p.party_id=x.id AND p.status='POSTED'),0)-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE pay.party_id=x.id AND pay.status='POSTED'),0) outstanding FROM parties x ORDER BY outstanding DESC`,
+      )
+      .all();
+    const ledger = d.prepare(`SELECT l.*,p.name party_name,p.email party_email,p.contact party_contact FROM ledger l JOIN parties p ON p.id=l.party_id ORDER BY l.entry_date DESC,l.id DESC`).all();
+    const unmatched = d
+      .prepare(
+        `SELECT p.*,x.name party_name FROM payments p JOIN parties x ON x.id=p.party_id LEFT JOIN bank_matches b ON b.payment_id=p.id WHERE b.id IS NULL AND p.status='POSTED' ORDER BY p.id DESC`,
+      )
+      .all();
+    const rawSettings = d.prepare("SELECT * FROM company_settings WHERE id=1").get() as any;
+    let documentSettings: any = {};
+    try {
+      documentSettings = { commercial_bill_settings: JSON.parse(rawSettings?.commercial_bill_settings || "{}"), payment_advice_settings: JSON.parse(rawSettings?.payment_advice_settings || "{}") };
+    } catch {}
+    const ad = adminDb();
+    const isAdmin = req.headers.get("x-aksh-role") === "ADMIN";
+    const currentUser = String(req.headers.get("x-aksh-user") || "");
+    const users = isAdmin
+      ? ad
+          .prepare(
+            `SELECT id,username,name,role,active,CASE WHEN lower(username)='admin' OR id=(SELECT id FROM admin_users WHERE role='ADMIN' ORDER BY id LIMIT 1) THEN 1 ELSE 0 END is_primary FROM admin_users ORDER BY username`,
+          )
+          .all()
+      : [];
+    const companies = isAdmin
+      ? ad.prepare("SELECT id,name,code,email,active FROM companies WHERE active=1 ORDER BY name").all()
+      : ad
+          .prepare(
+            "SELECT c.id,c.name,c.code,c.email,c.active,uc.can_live,uc.can_test FROM companies c JOIN user_companies uc ON uc.company_id=c.id JOIN admin_users u ON u.id=uc.user_id WHERE u.username=? AND u.active=1 AND c.active=1 ORDER BY c.name",
+          )
+          .all(currentUser);
+    const settings = { ...(rawSettings || {}), ...documentSettings };
+    const sales = d.prepare("SELECT * FROM sales ORDER BY invoice_date DESC,id DESC").all();
+    const receivables = d
+      .prepare(
+        `SELECT r.*,p.name party_name,pu.sample_no,pu.invoice_no supplier_invoice_no,pu.status purchase_status FROM financing_receivables r JOIN parties p ON p.id=r.party_id JOIN purchases pu ON pu.id=r.purchase_id ORDER BY r.bill_date DESC,r.id DESC`,
+      )
+      .all();
+    const accounts = d
+      .prepare(
+        `SELECT a.*,a.opening_balance+COALESCE((SELECT SUM(CASE WHEN transaction_type='CREDIT' THEN amount ELSE -amount END) FROM account_transactions t WHERE t.account_id=a.id),0) balance FROM company_accounts a WHERE a.active=1 ORDER BY a.account_name`,
+      )
+      .all();
+    const accountMovements = d
+      .prepare(
+        `SELECT m.*,fa.account_name from_account_name,ta.account_name to_account_name FROM account_movements m JOIN company_accounts fa ON fa.id=m.from_account_id LEFT JOIN company_accounts ta ON ta.id=m.to_account_id ORDER BY m.movement_date DESC,m.id DESC`,
+      )
+      .all();
+    const accountTransactions = d
+      .prepare(`SELECT t.*,a.account_name,a.account_type FROM account_transactions t JOIN company_accounts a ON a.id=t.account_id ORDER BY t.transaction_date DESC,t.id DESC`)
+      .all();
+    const moneyIn = d
+      .prepare(`SELECT m.*,p.name party_name,a.account_name FROM money_in m LEFT JOIN parties p ON p.id=m.party_id JOIN company_accounts a ON a.id=m.account_id ORDER BY m.receipt_date DESC,m.id DESC`)
+      .all();
+    const interestPayments = d
+      .prepare(
+        `SELECT i.*,p.name party_name,a.account_name FROM interest_payments i LEFT JOIN parties p ON p.id=i.party_id JOIN company_accounts a ON a.id=i.account_id ORDER BY i.payment_date DESC,i.id DESC`,
+      )
+      .all();
+    const fundingLoans = d
+      .prepare(
+        `SELECT l.*,p.name lender_party_name,(SELECT MIN(s.due_date) FROM funding_schedule s WHERE s.loan_id=l.id AND s.status IN ('DUE','PARTIAL')) next_due_date,(SELECT COALESCE(SUM(s.interest_amount-s.paid_amount),0) FROM funding_schedule s WHERE s.loan_id=l.id AND s.status IN ('DUE','PARTIAL')) outstanding_interest FROM funding_loans l LEFT JOIN parties p ON p.id=l.lender_party_id ORDER BY l.id DESC`,
+      )
+      .all();
+    const fundingSchedule = d
+      .prepare(`SELECT s.*,l.loan_no,l.lender_name FROM funding_schedule s JOIN funding_loans l ON l.id=s.loan_id WHERE s.status IN ('DUE','PARTIAL') ORDER BY s.due_date,s.id`)
+      .all();
+    const duePayables = d
+      .prepare(
+        `SELECT p.id,p.sample_no,p.invoice_no,p.purchase_date,CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END payment_due_date,p.net_payable,x.name party_name,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) paid,p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) due_amount FROM purchases p JOIN parties x ON x.id=p.party_id WHERE p.status='POSTED' AND p.payment_due_days>0 AND (CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END) BETWEEN ? AND ? AND p.net_payable>COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) ORDER BY payment_due_date,p.id`,
+      )
+      .all(t, week);
+    const dueReceivables = d
+      .prepare(
+        `SELECT r.*,p.name party_name,pu.sample_no,pu.invoice_no supplier_invoice_no,CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END due_date,r.receivable_amount-COALESCE(r.received_amount,0) outstanding FROM financing_receivables r JOIN parties p ON p.id=r.party_id JOIN purchases pu ON pu.id=r.purchase_id WHERE r.status='OPEN' AND r.due_days>0 AND (CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END) BETWEEN ? AND ? ORDER BY due_date,r.id`,
+      )
+      .all(t, week);
+    const todayPayable = duePayables.filter((x: any) => x.payment_due_date === t);
+    const tomorrowPayable = duePayables.filter((x: any) => x.payment_due_date === tomorrow);
+    const todayReceivable = dueReceivables.filter((x: any) => x.due_date === t);
+    const tomorrowReceivable = dueReceivables.filter((x: any) => x.due_date === tomorrow);
+    const overdueReceivables = d
+      .prepare(
+        `SELECT r.id,r.bill_no,r.bill_date,r.party_id,p.name party_name,pu.sample_no,pu.invoice_no supplier_invoice_no,CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END due_date,r.receivable_amount-COALESCE(r.received_amount,0) outstanding,CAST(julianday(?) - julianday(CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END) AS INTEGER) days_overdue FROM financing_receivables r JOIN parties p ON p.id=r.party_id JOIN purchases pu ON pu.id=r.purchase_id WHERE r.status='OPEN' AND (CASE WHEN COALESCE(r.due_date,'')<>'' THEN r.due_date ELSE date(r.bill_date,'+'||r.due_days||' days') END) < ? AND r.receivable_amount>COALESCE(r.received_amount,0) ORDER BY days_overdue DESC,r.id`,
+      )
+      .all(t, t) as any[];
+    const overduePayables = d
+      .prepare(
+        `SELECT p.id,p.sample_no,p.invoice_no,p.purchase_date,x.name party_name,CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END payment_due_date,p.net_payable,COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) paid,p.net_payable-COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) due_amount,CAST(julianday(?) - julianday(CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END) AS INTEGER) days_overdue FROM purchases p JOIN parties x ON x.id=p.party_id WHERE p.status='POSTED' AND p.net_payable>COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments pay ON pay.id=a.payment_id WHERE a.purchase_id=p.id AND pay.status='POSTED'),0) AND (CASE WHEN COALESCE(p.payment_due_date,'')<>'' THEN p.payment_due_date ELSE date(p.purchase_date,'+'||p.payment_due_days||' days') END) < ? ORDER BY days_overdue DESC,p.id`,
+      )
+      .all(t, t) as any[];
+    const stats = d
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM parties WHERE active=1) parties,(SELECT COALESCE(SUM(net_payable),0) FROM purchases WHERE status='POSTED') purchases,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='POSTED') payments`,
+      )
+      .get() as any;
+    stats.opening = (d.prepare("SELECT COALESCE(SUM(CASE WHEN opening_balance_type='PAYABLE' THEN opening_balance ELSE -opening_balance END),0) v FROM parties").get() as any).v;
+    const allocatedPayments = (d.prepare("SELECT COALESCE(SUM(a.amount),0) v FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE p.status='POSTED'").get() as any).v;
+    stats.outstanding = stats.opening + stats.purchases - allocatedPayments;
+    const profit = d
+      .prepare(
+        "SELECT COALESCE(SUM(CASE WHEN received_amount>0 THEN ((discount_amount+other_charges_profit) * received_amount / CASE WHEN receivable_amount=0 THEN 1 ELSE receivable_amount END) ELSE 0 END),0) gross_profit,COALESCE(SUM(CASE WHEN received_amount>0 THEN cost_amount * received_amount / CASE WHEN receivable_amount=0 THEN 1 ELSE receivable_amount END ELSE 0 END),0) cost,COALESCE(SUM(CASE WHEN received_amount>0 THEN received_amount ELSE 0 END),0) sales FROM financing_receivables",
+      )
+      .get() as any;
+    const interestPaid = (d.prepare("SELECT COALESCE(SUM(amount),0) v FROM interest_payments WHERE status='POSTED'").get() as any).v;
+    const monthlyProfit = d
+      .prepare(
+        `SELECT substr(r.bill_date,1,7) label,ROUND(SUM(CASE WHEN r.received_amount>0 THEN ((r.discount_amount+r.other_charges_profit)*r.received_amount/CASE WHEN r.receivable_amount=0 THEN 1 ELSE r.receivable_amount END) ELSE 0 END)-COALESCE((SELECT SUM(i.amount) FROM interest_payments i WHERE substr(i.payment_date,1,7)=substr(r.bill_date,1,7) AND i.status='POSTED'),0),0) value FROM financing_receivables r GROUP BY substr(r.bill_date,1,7) ORDER BY label`,
+      )
+      .all();
+    const monthlyCashIn = d
+      .prepare(
+        `SELECT substr(t.transaction_date,1,7) label,ROUND(SUM(CASE WHEN t.transaction_type='CREDIT' THEN t.amount ELSE 0 END)) value FROM account_transactions t GROUP BY substr(t.transaction_date,1,7) ORDER BY label`,
+      )
+      .all();
+    const fundingUpcoming = d
+      .prepare(
+        `SELECT substr(due_date,1,7) label,ROUND(SUM(interest_amount-paid_amount)) value FROM funding_schedule WHERE status IN ('DUE','PARTIAL') GROUP BY substr(due_date,1,7) ORDER BY label LIMIT 12`,
+      )
+      .all();
+    const fundingToday = fundingSchedule.filter((x: any) => x.due_date === t);
+    const fundingTomorrow = fundingSchedule.filter((x: any) => x.due_date === tomorrow);
+    const nextFunding = fundingSchedule[0] || null;
+    const averageMonthlyProfit = monthlyProfit.length ? Math.round(monthlyProfit.reduce((a: number, x: any) => a + Number(x.value || 0), 0) / monthlyProfit.length) : 0;
+    profit.interest_paid = interestPaid;
+    profit.profit = profit.gross_profit - interestPaid;
+    profit.margin = profit.sales ? (profit.profit / profit.sales) * 100 : 0;
+    let menu: string[] = [];
+    try {
+      menu = JSON.parse(req.headers.get("x-aksh-menu") || "[]");
+    } catch {}
+    const can = (id: string) => isAdmin || menu.includes(id);
+    const canUseParties = can("parties") || can("purchase") || can("payments") || can("receivables") || can("money-in") || can("interest") || can("funding");
+    const limitedParties = parties.map((p: any) => ({ id: p.id, name: p.name, active: p.active, party_type: p.party_type, entity_type: p.entity_type }));
+    return NextResponse.json({
+      thirdParties: can("parties") ? thirdParties : [],
+      parties: can("parties") ? parties : canUseParties ? limitedParties : [],
+      purchases: can("purchase") ? (can("parties") ? purchases : purchases.map((p: any) => ({ ...p, party_email: "", party_contact: "", broker_contact: "", broker_email: "" }))) : [],
+      pendingPurchaseBills: can("purchase") ? pendingPurchaseBills : [],
+      payments: can("payments") ? (can("parties") ? payments : payments.map((p: any) => ({ ...p, email: "", contact: "" }))) : [],
+      outstanding: can("parties") ? outstanding : [],
+      ledger: can("ledger") ? ledger : [],
+      unmatched: can("bank") ? unmatched : [],
+      users,
+      companies,
+      sales: can("receivables") ? sales : [],
+      receivables: can("receivables") ? receivables : [],
+      stats,
+      settings: can("settings") || can("document-settings") ? settings : {},
+      accounts: can("accounts") ? accounts : [],
+      accountMovements: can("account-movements") ? accountMovements : [],
+      accountTransactions: can("accounts") ? accountTransactions : [],
+      moneyIn: can("money-in") ? moneyIn : [],
+      interestPayments: can("interest") ? interestPayments : [],
+      duePayables: can("purchase") ? duePayables : [],
+      dueReceivables: can("receivables") ? dueReceivables : [],
+      overdueReceivables: can("receivables") ? overdueReceivables : [],
+      overduePayables: can("purchase") ? overduePayables : [],
+      todayPayable: can("purchase") ? todayPayable : [],
+      tomorrowPayable: can("purchase") ? tomorrowPayable : [],
+      todayReceivable: can("receivables") ? todayReceivable : [],
+      tomorrowReceivable: can("receivables") ? tomorrowReceivable : [],
+      profit: can("dashboard") ? profit : {},
+      fundingLoans: can("funding") ? fundingLoans : [],
+      fundingSchedule: can("funding") ? fundingSchedule : [],
+      fundingToday: can("funding") ? fundingToday : [],
+      fundingTomorrow: can("funding") ? fundingTomorrow : [],
+      nextFunding: can("funding") ? nextFunding : [],
+      averageMonthlyProfit: can("dashboard") ? averageMonthlyProfit : [],
+      monthlyProfit: can("dashboard") ? monthlyProfit : [],
+      monthlyCashIn: can("dashboard") ? monthlyCashIn : [],
+      fundingUpcoming: can("funding") ? fundingUpcoming : [],
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
 }
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
 const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
-export async function GET(req: Request) { return __wrapped_GET(req); }
+export async function GET(req: Request) {
+  return __wrapped_GET(req);
+}

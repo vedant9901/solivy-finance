@@ -989,7 +989,6 @@ function LockedModulePreview({ moduleKey, moduleLabel, onClose }: { moduleKey: s
             </button>
           </div>
         </div>
-        {console.log("in")}
       </div>
     </div>
   );

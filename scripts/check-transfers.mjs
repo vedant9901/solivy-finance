@@ -16,7 +16,7 @@ const checks=[
  ['destination imports linked bank and ledger rows',/for\(const group of \(p\.accountingRows\|\|\[\]\)\)/.test(api)&&/INTERCOMPANY_TRANSFER_ACCEPTED/.test(api)],
  ['source deletes linked rows only after verified receipt',/action==='confirm-receipt'/.test(api)&&/Linked bank posting changed or is missing/.test(api)&&/INTERCOMPANY_TRANSFER_SOURCE_REMOVED/.test(api)],
  ['audit entries are written for acceptance and source removal',/INTERCOMPANY_TRANSFER_ACCEPTED/.test(api)&&/INTERCOMPANY_TRANSFER_SOURCE_REMOVED/.test(api)],
- ['UI provides select-all eligible records',/aria-label="Select all eligible records"/.test(ui)&&/>Select all<\/span>/.test(ui)],
+ ['UI provides select-all eligible records',/aria-label="Select all eligible records"/.test(ui)&&/Select all eligible loans/.test(ui)],
  ['UI provides clear-selection control',/Clear selection/.test(ui)],
  ['UI prevents selecting more than 500 records',/ids\.length>=500/.test(ui)],
 ];

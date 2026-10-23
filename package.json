@@ -1,6 +1,6 @@
 {
   "name": "solivy-finance",
-  "version": "2.5.66",
+  "version": "2.5.68",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -23,7 +23,9 @@
     "check:money-out": "node scripts/check-money-out.cjs",
     "check:multicompany-sync": "node scripts/check-multicompany-sync.cjs",
     "check:finance-mis": "node scripts/check-finance-mis.cjs",
-    "check:funding-transfer": "node scripts/check-funding-transfer.cjs"
+    "check:funding-transfer": "node scripts/check-funding-transfer.cjs",
+    "check:online-login-org": "node scripts/check-online-login-org.cjs",
+    "check:release-safety": "node scripts/check-release-safety.cjs"
   },
   "dependencies": {
     "better-sqlite3": "12.4.1",

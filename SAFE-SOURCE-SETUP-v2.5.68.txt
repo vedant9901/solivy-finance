@@ -1,0 +1,16 @@
+SOLIVY Finance v2.5.68 — SAFE SOURCE PACKAGE
+
+This is a source-code package, not a compiled Windows installer. Windows .bat/.ps1 launchers were intentionally excluded to reduce antivirus heuristic alerts associated with hidden PowerShell execution-policy bypass and recursive application-folder replacement in older convenience scripts. Application source and Node.js regression scripts remain included.
+
+MANUAL DEVELOPMENT / VERIFICATION:
+1. Install Node.js LTS (Node 20 or newer; prefer the current supported LTS).
+2. Extract this ZIP into a new folder. Do not overwrite a production folder or database.
+3. Review package.json and install dependencies with: npm install
+4. Run: npm run check:release-safety
+5. Run: npm run check:source; npm run check:security; npm run check:database-bridge; npm run check:online-login-org
+6. Run other regression checks as applicable, then: npm run build
+7. Configure secrets and database URLs using deployment environment variables or a locally-created .env.local. Never commit or share secrets.
+8. Back up the admin database and all organization LIVE/TEST databases before testing upgrades.
+
+SAFETY NOTE:
+No executable binaries, .env files, private keys, customer license files, or Windows installer/launcher scripts are included. Static source checks are not antivirus certification. Full production build and live Neon integration still must be verified in your environment.

@@ -34,18 +34,34 @@ function tableInfo(d:any, table:string) {
   return {cols,pk};
 }
 
-function mergeInitialCompanySettings(current:any, incoming:any, cols:any[]) {
+function mergeInitialCompanySettings(current:any, incoming:any, cols:any[], companyName='') {
   const merged:any = {};
   const conflicts:any[] = [];
-  const empty = (v:any) => v === null || v === undefined || v === '';
+  const empty = (name:string, value:any) => {
+    if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return true;
+    // Default empty JSON settings are placeholders, not competing user choices.
+    if (name.endsWith('_settings') && typeof value === 'string') {
+      try { const parsed=JSON.parse(value); if (parsed && typeof parsed==='object' && !Array.isArray(parsed) && Object.keys(parsed).length===0) return true; } catch { /* malformed settings are not treated as empty */ }
+    }
+    return false;
+  };
+  const orgName=String(companyName||'').trim();
   for (const col of cols) {
     const name=String(col.name), a=current?.[name], b=incoming?.[name];
     if (Number(col.pk)>0) { merged[name]=a===undefined?b:a; continue; }
+    // On a newly provisioned organization, 'SOLIVY' can be the schema default
+    // left behind if the organization row was created before its company snapshot.
+    // Only reconcile this exact placeholder when the incoming name matches the
+    // authenticated destination organization's master record.
+    if (name==='entity_name' && orgName && orgName.toUpperCase()!=='SOLIVY') {
+      if (String(a||'').trim().toUpperCase()==='SOLIVY' && String(b||'').trim().toUpperCase()===orgName.toUpperCase()) { merged[name]=b; continue; }
+      if (String(b||'').trim().toUpperCase()==='SOLIVY' && String(a||'').trim().toUpperCase()===orgName.toUpperCase()) { merged[name]=a; continue; }
+    }
     if (canon(a)===canon(b)) { merged[name]=a; continue; }
-    if (name==='updated_at' && !empty(a) && !empty(b)) { merged[name]=String(a)>=String(b)?a:b; continue; }
-    if (name==='created_at' && !empty(a) && !empty(b)) { merged[name]=String(a)<=String(b)?a:b; continue; }
-    if (empty(a)) { merged[name]=b; continue; }
-    if (empty(b)) { merged[name]=a; continue; }
+    if (name==='updated_at' && !empty(name,a) && !empty(name,b)) { merged[name]=String(a)>=String(b)?a:b; continue; }
+    if (name==='created_at' && !empty(name,a) && !empty(name,b)) { merged[name]=String(a)<=String(b)?a:b; continue; }
+    if (empty(name,a)) { merged[name]=b; continue; }
+    if (empty(name,b)) { merged[name]=a; continue; }
     conflicts.push({field:name,existing:a,incoming:b});
     merged[name]=a;
   }
@@ -73,7 +89,7 @@ function applyEvent(d:any,e:any,localDeviceId:string) {
     return 'already-current';
   }
   if (base===null && current && e.table_name==='company_settings' && e.operation==='INSERT' && desired && typeof desired==='object') {
-    const {merged,conflicts}=mergeInitialCompanySettings(current,desired,cols);
+    const {merged,conflicts}=mergeInitialCompanySettings(current,desired,cols,companyName);
     if(conflicts.length) throw Object.assign(new Error(`Conflict on company_settings: non-empty fields differ (${conflicts.map((x:any)=>x.field).join(', ')}). Review both versions.`), { conflictDetail: { table: 'company_settings', primary_key: pkObj, reason: 'Initial company settings can be merged only when fields do not disagree. Review the listed fields before retrying.', field_conflicts: conflicts, base: null, current, incoming: desired } });
     d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
     try {
@@ -119,6 +135,9 @@ async function handler(req:Request) {
   try { ctx=tokenContext(req); }
   catch(e:any) { return NextResponse.json({error:e?.message||'Unauthorized sync device.'},{status:401}); }
   const d=db(ctx.mode,ctx.companyId);
+  const organization=adminDb().prepare('SELECT name,active FROM companies WHERE id=?').get(ctx.companyId) as any;
+  if(!organization || !organization.active) return NextResponse.json({error:'The paired destination organization is missing or inactive.'},{status:403});
+  const companyName=String(organization.name||'');
   try {
     if (req.method==='GET') {
       const u=new URL(req.url);

@@ -1,0 +1,15 @@
+SOLIVY Finance v2.5.69 — Safe Source Setup
+
+1. Back up all organization databases and both LIVE and TEST data.
+2. Extract into a NEW development folder. Do not overwrite production data.
+3. Install dependencies using your approved Node/npm environment: npm install
+4. Run: npm run check:sync-company-settings
+5. Run: npm run check:sync
+6. Run: npm run check:database-bridge
+7. Run: npm run check:security
+8. Run: npm run build
+9. Deploy to a staging/preview environment and test sync for the paired organization before promoting to LIVE.
+
+This is source code, not a compiled Windows installer. No antivirus result or production certification is implied by source checks.
+
+Specific sync fix: destination online company ID is resolved from the authenticated pairing token. In the reported case, online company ID 3 is AKSH ENTERPRISE and offline company ID 2 is AKSH ENTERPRISE; the IDs are allowed to differ. Empty default company_settings values are reconciled without replacing unrelated organization data.

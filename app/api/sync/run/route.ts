@@ -1,31 +1,42 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
-import { db, type Mode } from '../../../../lib/db';
+import { adminDb, db, type Mode } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
 export const runtime = 'nodejs';
 export const dynamic='force-dynamic';
 const canon=(v:any):string=>v===null||v===undefined?'null':Array.isArray(v)?'['+v.map(canon).join(',')+']':typeof v==='object'?'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canon(v[k])).join(',')+'}':JSON.stringify(v);
 const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','users','sqlite_sequence']);
 
-function mergeInitialCompanySettings(current:any, incoming:any, cols:any[]) {
+function mergeInitialCompanySettings(current:any, incoming:any, cols:any[], companyName='') {
   const merged:any = {};
   const conflicts:any[] = [];
-  const empty = (v:any) => v === null || v === undefined || v === '';
+  const empty = (name:string, value:any) => {
+    if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return true;
+    if (name.endsWith('_settings') && typeof value === 'string') {
+      try { const parsed=JSON.parse(value); if (parsed && typeof parsed==='object' && !Array.isArray(parsed) && Object.keys(parsed).length===0) return true; } catch { /* malformed settings are not empty */ }
+    }
+    return false;
+  };
+  const orgName=String(companyName||'').trim();
   for (const col of cols) {
     const name=String(col.name), a=current?.[name], b=incoming?.[name];
     if (Number(col.pk)>0) { merged[name]=a===undefined?b:a; continue; }
+    if (name==='entity_name' && orgName && orgName.toUpperCase()!=='SOLIVY') {
+      if (String(a||'').trim().toUpperCase()==='SOLIVY' && String(b||'').trim().toUpperCase()===orgName.toUpperCase()) { merged[name]=b; continue; }
+      if (String(b||'').trim().toUpperCase()==='SOLIVY' && String(a||'').trim().toUpperCase()===orgName.toUpperCase()) { merged[name]=a; continue; }
+    }
     if (canon(a)===canon(b)) { merged[name]=a; continue; }
-    if (name==='updated_at' && !empty(a) && !empty(b)) { merged[name]=String(a)>=String(b)?a:b; continue; }
-    if (name==='created_at' && !empty(a) && !empty(b)) { merged[name]=String(a)<=String(b)?a:b; continue; }
-    if (empty(a)) { merged[name]=b; continue; }
-    if (empty(b)) { merged[name]=a; continue; }
+    if (name==='updated_at' && !empty(name,a) && !empty(name,b)) { merged[name]=String(a)>=String(b)?a:b; continue; }
+    if (name==='created_at' && !empty(name,a) && !empty(name,b)) { merged[name]=String(a)<=String(b)?a:b; continue; }
+    if (empty(name,a)) { merged[name]=b; continue; }
+    if (empty(name,b)) { merged[name]=a; continue; }
     conflicts.push({field:name,existing:a,incoming:b});
     merged[name]=a;
   }
   return {merged,conflicts};
 }
 
-function applyLocal(d:any,e:any) {
+function applyLocal(d:any,e:any,companyName='') {
   if(d.prepare('SELECT event_id FROM sync_applied_events WHERE event_id=?').get(e.event_id)) return 'duplicate';
   const table=String(e.table_name||'');
   if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)||excluded.has(table)||table.startsWith('license_')||table.startsWith('admin_')) throw new Error('Unsupported table in downloaded sync event.');
@@ -43,7 +54,7 @@ function applyLocal(d:any,e:any) {
     return 'same';
   }
   if(base===null && current && table==='company_settings' && e.operation==='INSERT' && row && typeof row==='object') {
-    const {merged,conflicts}=mergeInitialCompanySettings(current,row,cols);
+    const {merged,conflicts}=mergeInitialCompanySettings(current,row,cols,companyName);
     if(conflicts.length) throw Object.assign(new Error(`Conflict on company_settings: non-empty fields differ (${conflicts.map((x:any)=>x.field).join(', ')}). Review both versions.`), { conflictDetail: { table:'company_settings',primary_key:key,reason:'Initial company settings can be merged only when fields do not disagree. Review the listed fields before retrying.',field_conflicts:conflicts,base:null,current,incoming:row } });
     d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
     try {
@@ -106,6 +117,8 @@ async function handler(req:Request) {
     if(!token||token.length>300||!remoteCompanyId||!localCompanyId||!['LIVE','TEST'].includes(String(mode))) return NextResponse.json({error:'Remote URL, pairing token, destination company and environment are required.'},{status:400});
     if(body.remote_mode && body.remote_mode!==mode) return NextResponse.json({error:'LIVE and TEST cannot sync across environments. Pair each environment separately.'},{status:400});
     const d=db(mode as Mode,localCompanyId);
+    const localOrganization=adminDb().prepare('SELECT name FROM companies WHERE id=?').get(localCompanyId) as any;
+    const localCompanyName=String(localOrganization?.name||'');
     const meta=d.prepare('SELECT device_id,remote_cursor FROM sync_meta WHERE id=1').get() as any;
     const deviceId=String(meta.device_id);
     reserveOfflineIdRanges(d,deviceId);
@@ -130,7 +143,7 @@ async function handler(req:Request) {
     try {
       const tx=d.transaction(()=>{
         for(const e of events) {
-          const status=applyLocal(d,e);
+          const status=applyLocal(d,e,localCompanyName);
           if(status==='duplicate')summary.duplicates++;else if(status==='same')summary.unchanged++;else summary.applied++;
         }
         d.prepare('UPDATE sync_meta SET remote_cursor=?,last_sync_at=CURRENT_TIMESTAMP,paired_url=?,paired_company_id=?,sync_mode=? WHERE id=1')

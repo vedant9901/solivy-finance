@@ -1,0 +1,28 @@
+SOLIVY Finance v2.5.69 — Sync Company Settings Fix
+Corrected package: v2.5.69-SYNC-COMPANY-SETTINGS-FIX1
+Date: 2026-10-23
+
+Change
+- Fixed the TypeScript scope error in app/api/sync/exchange/route.ts.
+- applyEvent now receives the already-authenticated destination organization's name from handler().
+- The existing mergeInitialCompanySettings(current, desired, cols, companyName) logic is preserved.
+- Company name is obtained only after tokenContext validates the sync device and handler validates that the destination organization exists and is active.
+- No database schema, migration, financial records, license, or feature logic was intentionally changed.
+
+Checks run (source-level)
+PASS: scripts/check-sync-company-settings.cjs
+PASS: scripts/check-source.cjs (78 files)
+PASS: scripts/check-security.cjs
+PASS: scripts/check-database-bridge.mjs (56 API route files)
+PASS: scripts/check-transfers.mjs (17/17)
+PASS: scripts/check-user-org-conflicts.cjs
+PASS: scripts/check-multicompany-sync.cjs
+PASS: scripts/check-release-safety.cjs
+
+Not run / not verified
+- npm run build: NOT RUN; dependencies/node_modules are not included in the source ZIP and no package-lock.json is present.
+- TypeScript/Next production build, live Vercel/Neon sync, offline Windows runtime, end-to-end conflict scenarios, backup/restore, and database migration were not executed here.
+- These source checks are not a security certification or proof of production readiness.
+
+Recommended next step
+On a clean machine/environment, install the package's dependencies and run npm run build, then execute LIVE and TEST synchronization tests against database backups before deployment.

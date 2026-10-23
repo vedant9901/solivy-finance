@@ -73,7 +73,7 @@ function currentRow(d:any,table:string,pkCols:any[],pkObj:any) {
   const vals=pkCols.map(c=>pkObj[c.name]);
   return d.prepare(`SELECT * FROM "${table}" WHERE ${where}`).get(...vals) as any;
 }
-function applyEvent(d:any,e:any,localDeviceId:string) {
+function applyEvent(d:any,e:any,localDeviceId:string,companyName:string) {
   if (!e || typeof e.event_id!=='string' || e.event_id.length>100 || !['INSERT','UPDATE','DELETE'].includes(e.operation)) throw new Error('Invalid sync event.');
   if (d.prepare('SELECT event_id FROM sync_applied_events WHERE event_id=?').get(e.event_id)) return 'duplicate';
   const {cols,pk}=tableInfo(d,String(e.table_name));
@@ -157,7 +157,7 @@ async function handler(req:Request) {
       const result:any={applied:0,duplicates:0,alreadyCurrent:0};
       const tx=d.transaction(()=>{
         for (const e of events) {
-          const status=applyEvent(d,e,ctx.deviceId);
+          const status=applyEvent(d,e,ctx.deviceId,companyName);
           if(status==='duplicate') result.duplicates++;
           else if(status==='already-current') result.alreadyCurrent++;
           else result.applied++;

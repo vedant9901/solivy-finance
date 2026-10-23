@@ -14,7 +14,7 @@ function line(doc:any,label:string,value:any,x:number,y:number,w=75){if(!clean(v
 
 async function __bridge_GET(req:Request){
  try{
-  const u=new URL(req.url);const mode = sessionMode(req);const id=Number(u.searchParams.get('id'));const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1);if(!id)throw Error('Payment id is required');
+  const u=new URL(req.url);const mode = sessionMode(req);const theme=String(u.searchParams.get('theme')||'teal');const id=Number(u.searchParams.get('id'));const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1);if(!id)throw Error('Payment id is required');
   const d=db(mode,companyId);
   const p=d.prepare(`SELECT p.*,x.name party_name,x.address,x.contact,x.gst,x.pan,b.bank_name,b.account_number,b.ifsc,b.branch,a.account_name company_account_name FROM payments p JOIN parties x ON x.id=p.party_id LEFT JOIN bank_accounts b ON b.id=(SELECT id FROM bank_accounts WHERE party_id=x.id ORDER BY is_primary DESC,id LIMIT 1) LEFT JOIN company_accounts a ON a.id=p.company_account_id WHERE p.id=?`).get(id) as any;
   if(!p)throw Error('Payment not found');
@@ -24,7 +24,7 @@ async function __bridge_GET(req:Request){
   const doc=new jsPDF({unit:'mm',format:'a4'});
   const L=14,R=196,W=R-L,PAGE_BOTTOM=282;
   let y=14;
-  const ink: [number,number,number]=[28,39,56], muted: [number,number,number]=[93,105,120], border: [number,number,number]=[214,220,228], pale: [number,number,number]=[245,248,251];const palette:Record<string,[number,number,number]>={teal:[15,118,110],blue:[29,78,216],violet:[109,40,217],emerald:[4,120,87],amber:[180,83,9],rose:[190,18,60]};const accent=palette[String(u.searchParams.get('theme')||'teal')]||palette.teal;
+  const ink: [number,number,number]=[28,39,56], muted: [number,number,number]=[93,105,120], border: [number,number,number]=[214,220,228], pale: [number,number,number]=[245,248,251];const accents:Record<string,[number,number,number]>={teal:[15,118,110],blue:[37,99,235],violet:[124,58,237],emerald:[5,150,105],rose:[225,29,72]};const accent: [number,number,number]=accents[theme]||accents.teal;
   doc.setTextColor(...ink);doc.setDrawColor(...border);doc.setLineWidth(.25);
   const moneyRight=(v:any,x=R-4,yy=y)=>{doc.setFont('helvetica','bold');doc.text(money(v),x,yy,{align:'right'});};
   const rule=(yy:number)=>{doc.setDrawColor(...border);doc.line(L,yy,R,yy);};

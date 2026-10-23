@@ -14,8 +14,8 @@ function walk(dir) {
       if (hasDbImport && !usesBridge) failures.push(`${path.relative(process.cwd(), file)} imports lib/db but is not wrapped`);
       if (usesBridge) {
         routes++;
-        if (!/export const runtime\s*=\s*['\"]nodejs['\"]/.test(source)) failures.push(`${path.relative(process.cwd(), file)} must use Node.js runtime`);
-        if (/export async function (GET|POST|PUT|PATCH|DELETE)\s*\(/.test(source) && !/(const __wrapped_|const wrapped\s*=)/.test(source)) failures.push(`${path.relative(process.cwd(), file)} has an unwrapped handler`);
+        if (!source.includes("export const runtime = 'nodejs';") && !source.includes('export const runtime="nodejs"')) failures.push(`${path.relative(process.cwd(), file)} must use Node.js runtime`);
+        if (/export async function (GET|POST|PUT|PATCH|DELETE)\s*\(/.test(source) && !/const __wrapped_/.test(source)) failures.push(`${path.relative(process.cwd(), file)} has an unwrapped handler`);
       }
     }
   }

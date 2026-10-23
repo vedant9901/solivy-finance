@@ -1,0 +1,13 @@
+SOLIVY Finance v2.5.64 verification status
+
+PASS: CommercialBills receives the theme prop from app/page.tsx.
+PASS: release fix source checks.
+PASS: source audit.
+PASS: security audit.
+PASS: sync audit.
+PASS: Money Out regression audit.
+PASS: multi-company/sync regression audit.
+PASS: license sign/verify self-test.
+PASS: ZIP integrity (verified after packaging).
+
+NOT VERIFIED: npm install timed out in the packaging environment; therefore a full `next build` and semantic TypeScript check were not completed here. Run `npm install` and `npm run build` before production deployment.

@@ -26,6 +26,7 @@ async function __bridge_GET(req:Request){
  try{
   const u=new URL(req.url);
   const mode = sessionMode(req);
+  const theme=String(u.searchParams.get('theme')||'teal');
   const id=Number(u.searchParams.get('id'));
   const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1);
   const billType=u.searchParams.get('bill_type')||'purchase';
@@ -55,9 +56,9 @@ async function __bridge_GET(req:Request){
 
   const doc=new jsPDF({unit:'mm',format:'a4'});
   const pageW=210,pageH=297,L=11.5,R=198.5,W=R-L;
-  const black=[25,25,25] as const;const palette:Record<string,[number,number,number]>={teal:[15,118,110],blue:[29,78,216],violet:[109,40,217],emerald:[4,120,87],amber:[180,83,9],rose:[190,18,60]};const accent=palette[String(u.searchParams.get('theme')||'teal')]||palette.teal;
+  const black=[25,25,25] as const;const accents:Record<string,[number,number,number]>={teal:[15,118,110],blue:[37,99,235],violet:[124,58,237],emerald:[5,150,105],rose:[225,29,72]};const accent: [number,number,number]=accents[theme]||accents.teal;
   doc.setTextColor(...black);doc.setDrawColor(...black);doc.setLineWidth(.28);
-  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(...accent);doc.text('INVOICE',105,9,{align:'center'});doc.setTextColor(...black);
+  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(...accent);doc.text('INVOICE',105,9,{align:'center'});doc.setDrawColor(...accent);doc.setLineWidth(.6);doc.line(85,11,125,11);doc.setTextColor(...black);doc.setDrawColor(...black);doc.setLineWidth(.28);
 
   // This follows the supplied one-page invoice: company + invoice meta, buyer, goods grid, deductions, total, words, declaration and bank block.
   const top=14.5, metaX=137, buyerTop=58, buyerBottom=88, metaBottom=58;

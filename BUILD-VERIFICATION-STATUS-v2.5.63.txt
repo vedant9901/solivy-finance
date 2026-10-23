@@ -1,0 +1,16 @@
+SOLIVY Finance v2.5.63 — verification status
+
+PASSED:
+- TypeScript/TSX syntax transpile: 75 files, zero syntax errors.
+- Duplicate object-key audit: zero duplicate keys.
+- Source/security/database-bridge/import/transfers/sync/TEST-to-LIVE/user-org/Money Out/multi-company/Group MIS and license regression scripts.
+- SQLite schema migration/inter-company linkage smoke test.
+- Group MIS SQL query smoke test.
+
+NOT CERTIFIED:
+- Full Next.js production build and full semantic TypeScript check: dependency installation timed out; required npm metadata is not cached offline.
+- Live PostgreSQL integration and browser end-to-end tests across all organizations/environments.
+
+Localization: English/Hindi/Gujarati support is improved for navigation, common form labels, table columns, theme options and Group MIS. Not every hard-coded paragraph, validation message, module heading or PDF text has been translated yet.
+
+Accounting: Paid against purchases is based on posted bill allocations. Book Profit after Interest is recorded financing receivable margin less posted interest. Funding Headroom is book-profit based and is not actual bank cash. Totals across organizations assume a common currency; no FX conversion is performed.

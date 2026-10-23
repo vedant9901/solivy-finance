@@ -42,6 +42,10 @@ npm run check:source
 if ($LASTEXITCODE -ne 0) { throw 'Source check failed.' }
 npm run check:security
 if ($LASTEXITCODE -ne 0) { throw 'Security check failed.' }
+npm run check:money-out
+if ($LASTEXITCODE -ne 0) { throw 'Money Out regression check failed.' }
+npm run check:multicompany-sync
+if ($LASTEXITCODE -ne 0) { throw 'Multi-company / background sync regression check failed.' }
 node scripts/check-import-schema.mjs
 if ($LASTEXITCODE -ne 0) { throw 'Import schema check failed.' }
 node scripts/license-tool.cjs self-test

@@ -42,6 +42,7 @@ function tableInfo(d: any, table: string) {
   return { cols, pk };
 }
 
+<<<<<<< HEAD
 function mergeInitialCompanySettings(current: any, incoming: any, cols: any[]) {
   const merged: any = {};
   const conflicts: any[] = [];
@@ -83,6 +84,29 @@ function mergeInitialCompanySettings(current: any, incoming: any, cols: any[]) {
 function currentRow(d: any, table: string, pkCols: any[], pkObj: any) {
   const where = pkCols.map((c) => `"${c.name}"=?`).join(" AND ");
   const vals = pkCols.map((c) => pkObj[c.name]);
+=======
+function mergeInitialCompanySettings(current:any, incoming:any, cols:any[]) {
+  const merged:any = {};
+  const conflicts:any[] = [];
+  const empty = (v:any) => v === null || v === undefined || v === '';
+  for (const col of cols) {
+    const name=String(col.name), a=current?.[name], b=incoming?.[name];
+    if (Number(col.pk)>0) { merged[name]=a===undefined?b:a; continue; }
+    if (canon(a)===canon(b)) { merged[name]=a; continue; }
+    if (name==='updated_at' && !empty(a) && !empty(b)) { merged[name]=String(a)>=String(b)?a:b; continue; }
+    if (name==='created_at' && !empty(a) && !empty(b)) { merged[name]=String(a)<=String(b)?a:b; continue; }
+    if (empty(a)) { merged[name]=b; continue; }
+    if (empty(b)) { merged[name]=a; continue; }
+    conflicts.push({field:name,existing:a,incoming:b});
+    merged[name]=a;
+  }
+  return {merged,conflicts};
+}
+
+function currentRow(d:any,table:string,pkCols:any[],pkObj:any) {
+  const where=pkCols.map(c=>`"${c.name}"=?`).join(' AND ');
+  const vals=pkCols.map(c=>pkObj[c.name]);
+>>>>>>> 3cf4b25 (new update)
   return d.prepare(`SELECT * FROM "${table}" WHERE ${where}`).get(...vals) as any;
 }
 function applyEvent(d: any, e: any, localDeviceId: string) {
@@ -107,6 +131,7 @@ function applyEvent(d: any, e: any, localDeviceId: string) {
     );
     return "already-current";
   }
+<<<<<<< HEAD
   if (base === null && current && e.table_name === "company_settings" && e.operation === "INSERT" && desired && typeof desired === "object") {
     const { merged, conflicts } = mergeInitialCompanySettings(current, desired, cols);
     if (conflicts.length)
@@ -153,6 +178,26 @@ function applyEvent(d: any, e: any, localDeviceId: string) {
       d.prepare("UPDATE sync_meta SET suppress_triggers=0 WHERE id=1").run();
     }
     return "merged-settings";
+=======
+  if (base===null && current && e.table_name==='company_settings' && e.operation==='INSERT' && desired && typeof desired==='object') {
+    const {merged,conflicts}=mergeInitialCompanySettings(current,desired,cols);
+    if(conflicts.length) throw Object.assign(new Error(`Conflict on company_settings: non-empty fields differ (${conflicts.map((x:any)=>x.field).join(', ')}). Review both versions.`), { conflictDetail: { table: 'company_settings', primary_key: pkObj, reason: 'Initial company settings can be merged only when fields do not disagree. Review the listed fields before retrying.', field_conflicts: conflicts, base: null, current, incoming: desired } });
+    d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
+    try {
+      const names=cols.map((c:any)=>String(c.name)).filter((n:string)=>!pk.some((c:any)=>c.name===n));
+      if(names.length)d.prepare(`UPDATE "company_settings" SET ${names.map((n:string)=>`"${n}"=?`).join(',')} WHERE ${pk.map((c:any)=>`"${c.name}"=?`).join(' AND ')}`).run(...names.map((n:string)=>merged[n]===undefined?null:merged[n]),...pk.map((c:any)=>pkObj[c.name]));
+      d.prepare('INSERT OR IGNORE INTO sync_applied_events(event_id) VALUES(?)').run(e.event_id);
+      d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)').run(e.event_id,e.table_name,e.pk_json,e.operation,e.base_json,e.row_json,e.origin_device||'remote');
+      const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
+      d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)').run(crypto.randomUUID(),'company_settings',e.pk_json,'UPDATE',JSON.stringify(desired),JSON.stringify(merged),ownDevice);
+    } finally { d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run(); }
+    return 'merged-settings';
+  }
+  if (base===null) {
+    if (current) throw Object.assign(new Error(`Conflict on ${e.table_name}: record already exists.`), { conflictDetail: { table: String(e.table_name), primary_key: pkObj, reason: 'A record with this key already exists on the destination.', base: null, current, incoming: desired } });
+  } else if (!current || canon(current)!==canon(base)) {
+    throw Object.assign(new Error(`Conflict on ${e.table_name}: record changed on this side. Review before retrying.`), { conflictDetail: { table: String(e.table_name), primary_key: pkObj, reason: 'The destination record differs from the version this device edited.', base, current: current || null, incoming: desired } });
+>>>>>>> 3cf4b25 (new update)
   }
   if (base === null) {
     if (current)
@@ -239,12 +284,17 @@ async function handler(req: Request) {
           else result.applied++;
         }
       });
+<<<<<<< HEAD
       try {
         tx();
       } catch (e: any) {
         return NextResponse.json({ error: e?.message || "Sync batch rejected; no changes in this batch were committed.", conflict: true, conflict_detail: e?.conflictDetail || null }, { status: 409 });
       }
       return NextResponse.json({ ok: true, ...result });
+=======
+      try { tx(); } catch(e:any) { return NextResponse.json({error:e?.message||'Sync batch rejected; no changes in this batch were committed.',conflict:true,conflict_detail:e?.conflictDetail||null},{status:409}); }
+      return NextResponse.json({ok:true,...result});
+>>>>>>> 3cf4b25 (new update)
     }
     return NextResponse.json({ error: "Method not allowed." }, { status: 405 });
   } catch (e: any) {

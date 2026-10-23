@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '../../../lib/db';
 import { hashPassword } from '../../../lib/session';
 
-const DEFAULT_MENU_IDS = ['dashboard','accounts','account-movements','parties','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','gst','commercial-bills','document-settings','settings'];
+const DEFAULT_MENU_IDS = ['dashboard','accounts','account-movements','parties','purchase','payments','money-in','money-out','interest','funding','import','ledger','receivables','reports','bank','backup','gst','commercial-bills','document-settings','settings'];
 
 async function __bridge_GET() {
   try {

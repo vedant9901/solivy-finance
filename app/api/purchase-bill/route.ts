@@ -55,9 +55,9 @@ async function __bridge_GET(req:Request){
 
   const doc=new jsPDF({unit:'mm',format:'a4'});
   const pageW=210,pageH=297,L=11.5,R=198.5,W=R-L;
-  const black=[25,25,25] as const;
+  const black=[25,25,25] as const;const palette:Record<string,[number,number,number]>={teal:[15,118,110],blue:[29,78,216],violet:[109,40,217],emerald:[4,120,87],amber:[180,83,9],rose:[190,18,60]};const accent=palette[String(u.searchParams.get('theme')||'teal')]||palette.teal;
   doc.setTextColor(...black);doc.setDrawColor(...black);doc.setLineWidth(.28);
-  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text('INVOICE',105,9,{align:'center'});
+  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(...accent);doc.text('INVOICE',105,9,{align:'center'});doc.setTextColor(...black);
 
   // This follows the supplied one-page invoice: company + invoice meta, buyer, goods grid, deductions, total, words, declaration and bank block.
   const top=14.5, metaX=137, buyerTop=58, buyerBottom=88, metaBottom=58;

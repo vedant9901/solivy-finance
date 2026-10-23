@@ -53,13 +53,13 @@ function requiredFeatureForPath(path: string): string {
     ['/api/parties','parties'], ['/api/third-parties','parties'], ['/api/parties-delete','parties'], ['/api/party-aliases','party-aliases'],
     ['/api/purchases','purchase'], ['/api/purchase-bill','purchase'],
     ['/api/payments','payments'], ['/api/payment-advice','payments'], ['/api/reverse','payments'],
-    ['/api/money-in','money-in'], ['/api/receipts','money-in'], ['/api/sales','receivables'],
+    ['/api/money-in','money-in'], ['/api/money-out','money-out'], ['/api/receipts','money-in'], ['/api/sales','receivables'],
     ['/api/interest-payments','interest'], ['/api/funding','funding'], ['/api/import-finance','import'],
     ['/api/tally-export','tally-export'], ['/api/tally-mapping','tally-export'], ['/api/bank-statement-import','bank-statement-import'], ['/api/secondary-backup','secondary-backup'], ['/api/export/ledger','ledger'], ['/api/receivables','receivables'], ['/api/bank','bank'],
     ['/api/backup','backup'], ['/api/admin-backup-all','backup'], ['/api/export/gst','gst'],
     ['/api/export/payments','reports'], ['/api/export/purchases','reports'], ['/api/document-settings','document-settings'],
     ['/api/settings','settings'], ['/api/tds-check','payments'], ['/api/test-to-live','backup'], ['/api/transfers','intercompany-transfers'],
-    ['/api/data','dashboard'], ['/api/transfers','intercompany-transfers'],
+    ['/api/data','dashboard'], ['/api/group-mis','dashboard'], ['/api/transfers','intercompany-transfers'],
   ];
   const match = rules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
   return match?.[1] || 'core';

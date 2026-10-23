@@ -1,6 +1,10 @@
 {
   "name": "solivy-finance",
+<<<<<<< HEAD
   "version": "2.5.59",
+=======
+  "version": "2.5.63",
+>>>>>>> 3cf4b25 (new update)
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,7 +23,15 @@
     "check:transfers": "node scripts/check-transfers.mjs",
     "check:sync": "node scripts/check-sync.mjs",
     "check:test-to-live": "node scripts/check-test-to-live-purge-fix.mjs",
+<<<<<<< HEAD
     "check:user-org-conflicts": "node scripts/check-user-org-conflicts.cjs"
+=======
+    "check:user-org-conflicts": "node scripts/check-user-org-conflicts.cjs",
+    "check:money-out": "node scripts/check-money-out.cjs",
+    "check:multicompany-sync": "node scripts/check-multicompany-sync.cjs",
+    "check:group-mis": "node scripts/check-group-mis.cjs",
+    "check:bank-mis": "node scripts/check-group-mis.cjs"
+>>>>>>> 3cf4b25 (new update)
   },
   "dependencies": {
     "better-sqlite3": "12.4.1",

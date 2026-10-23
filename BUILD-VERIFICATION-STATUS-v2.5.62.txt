@@ -1,0 +1,22 @@
+SOLIVY Finance v2.5.62 — verification status
+
+PASSED:
+- TypeScript source parser audit: 75 files.
+- Source/security/sync/TEST-to-LIVE/user-org/Money Out/multi-company transfer/license regression scripts.
+- Group MIS and Bank Matching focused source checks: 12/12.
+- SQLite smoke execution of the bank matching query.
+- SQLite smoke execution of revised finance profit and purchase-ranked party aggregation SQL.
+- Manual package audit for environment files, databases, PEM/private keys, and customer license artifacts.
+
+NOT COMPLETED:
+- `npm install` timed out in the build environment.
+- Next.js `npm run build` and full TypeScript semantic check could not be run without dependencies.
+- Browser end-to-end testing and live PostgreSQL/Neon multi-organization posting/reversal tests were not run.
+
+Release gate: regression-checked candidate only. Run `npm install`, `npm run check:group-mis`, the other `check:*` scripts, and `npm run build` on the target build machine. Test inter-company posting and reversal in TEST with backups before using LIVE.
+
+Known limitations:
+- Hindi/Gujarati translation currently covers navigation labels, not every form label, validation message, report column, or PDF text.
+- Theme palettes affect primary controls and selected PDF accents; not every hard-coded chart/status/document color is theme-driven.
+- Cross-organization paired postings use compensating reversal because per-organization databases may not support one atomic distributed transaction. Reconcile both organizations if an operation is interrupted.
+- Group MIS currency totals assume a common currency. Funding capacity is a book-profit indicator, not available bank cash.

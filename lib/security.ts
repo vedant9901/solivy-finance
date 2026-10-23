@@ -135,7 +135,7 @@ export function authorizeRequest(req: NextRequest, role: string, session?: any) 
       ['/api/parties', ['parties']], ['/api/third-parties', ['parties']], ['/api/parties-delete', ['parties']], ['/api/party-aliases', ['party-aliases','parties']],
       ['/api/purchases', ['purchase']], ['/api/purchase-bill', ['purchase']],
       ['/api/payments', ['payments']], ['/api/payment-advice', ['payments']],
-      ['/api/money-in', ['money-in']], ['/api/money-out', ['money-out']], ['/api/receipts', ['money-in']], ['/api/sales', ['receivables']],
+      ['/api/money-in', ['money-in']], ['/api/money-out', ['money-out']], ['/api/intercompany-targets', ['money-out']], ['/api/receipts', ['money-in']], ['/api/sales', ['receivables']],
       ['/api/interest-payments', ['interest']], ['/api/funding', ['funding']],
       ['/api/import-finance', ['import']], ['/api/export/ledger', ['ledger']],
       ['/api/receivables', ['receivables']], ['/api/bank', ['bank']],

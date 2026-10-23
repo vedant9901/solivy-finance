@@ -10,7 +10,7 @@ const checks = [
   ['average billing value shown', /Average billing value/],
   ['realised margin is separate', /Realised profit margin/],
   ['book margin is separate', /Book profit margin/],
-  ['funding is loans plus cumulative net profit', /activeLoanPrincipal\+netProfitToDate/],
+  ['funding capacity uses outstanding loan principal plus cumulative net book profit', /activeLoanPrincipal\+netBookProfitToDate/],
   ['sales shown separately', /Sales invoices · \{fyLabel\}/],
   ['supplier payments shown separately', /Supplier payments · \{fyLabel\}/],
   ['money-in shown separately', /Money received · \{fyLabel\}/],

@@ -14,17 +14,17 @@ function line(doc:any,label:string,value:any,x:number,y:number,w=75){if(!clean(v
 
 async function __bridge_GET(req:Request){
  try{
-  const u=new URL(req.url);const mode = sessionMode(req);const theme=String(u.searchParams.get('theme')||'teal');const id=Number(u.searchParams.get('id'));const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1);if(!id)throw Error('Payment id is required');
+  const u=new URL(req.url);const mode = sessionMode(req);const id=Number(u.searchParams.get('id'));const companyId=Number(req.headers.get('x-aksh-company-id')||u.searchParams.get('company_id')||1);if(!id)throw Error('Payment id is required');
   const d=db(mode,companyId);
   const p=d.prepare(`SELECT p.*,x.name party_name,x.address,x.contact,x.gst,x.pan,b.bank_name,b.account_number,b.ifsc,b.branch,a.account_name company_account_name FROM payments p JOIN parties x ON x.id=p.party_id LEFT JOIN bank_accounts b ON b.id=(SELECT id FROM bank_accounts WHERE party_id=x.id ORDER BY is_primary DESC,id LIMIT 1) LEFT JOIN company_accounts a ON a.id=p.company_account_id WHERE p.id=?`).get(id) as any;
   if(!p)throw Error('Payment not found');
   const allocations=d.prepare(`SELECT a.amount allocation_amount,q.id purchase_id,q.sample_no,q.invoice_no,q.purchase_date,q.goods_description,q.bags_qty,q.gross_weight,q.net_weight,q.rate,q.discount_pct,q.gross_amount,q.unload_charge,q.freight,q.moisture,q.discount_amount,q.driver_rokdi,q.quality_deduct_amount,q.other_charges,q.net_payable, q.net_payable-COALESCE((SELECT SUM(a2.amount) FROM payment_allocations a2 JOIN payments p2 ON p2.id=a2.payment_id WHERE a2.purchase_id=q.id AND p2.status='POSTED'),0) outstanding_after FROM payment_allocations a JOIN purchases q ON q.id=a.purchase_id WHERE a.payment_id=? ORDER BY q.purchase_date,q.id`).all(id) as any[];
   const company=adminDb().prepare('SELECT id,name,code,address,city,state,email,gstin,pan,financial_year FROM companies WHERE id=?').get(companyId) as any;if(!company)throw Error('Company not found');
   const raw=d.prepare('SELECT payment_advice_settings FROM company_settings WHERE id=1').get() as any;let s:any={};try{s=JSON.parse(raw?.payment_advice_settings||'{}')}catch{}
-  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const doc=new jsPDF({unit:'mm',format:'a4'});const themePalette:Record<string,[number,number,number]>={teal:[15,118,110],blue:[37,99,235],violet:[124,58,237],emerald:[5,150,105],amber:[217,119,6],rose:[225,29,72]};
   const L=14,R=196,W=R-L,PAGE_BOTTOM=282;
   let y=14;
-  const ink: [number,number,number]=[28,39,56], muted: [number,number,number]=[93,105,120], border: [number,number,number]=[214,220,228], pale: [number,number,number]=[245,248,251];const accents:Record<string,[number,number,number]>={teal:[15,118,110],blue:[37,99,235],violet:[124,58,237],emerald:[5,150,105],rose:[225,29,72]};const accent: [number,number,number]=accents[theme]||accents.teal;
+  const ink: [number,number,number]=[28,39,56], muted: [number,number,number]=[93,105,120], border: [number,number,number]=[214,220,228], pale: [number,number,number]=[245,248,251], accent: [number,number,number]=themePalette[new URL(req.url).searchParams.get('theme')||'teal']||[15,118,110];
   doc.setTextColor(...ink);doc.setDrawColor(...border);doc.setLineWidth(.25);
   const moneyRight=(v:any,x=R-4,yy=y)=>{doc.setFont('helvetica','bold');doc.text(money(v),x,yy,{align:'right'});};
   const rule=(yy:number)=>{doc.setDrawColor(...border);doc.line(L,yy,R,yy);};

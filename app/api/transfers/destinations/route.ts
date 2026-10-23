@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
-export const runtime='nodejs';
+export const runtime = 'nodejs';
 async function handler(req:Request){try{const companyId=Number(req.headers.get('x-aksh-company-id')||0);const username=String(req.headers.get('x-aksh-user')||'');const role=String(req.headers.get('x-aksh-role')||'');const mode=String(req.headers.get('x-aksh-mode')||'LIVE');if(!companyId||!username||!['LIVE','TEST'].includes(mode))return NextResponse.json({error:'Choose an organization and environment first.'},{status:400});const a=adminDb();let rows:any[]=[];if(role==='ADMIN'){rows=a.prepare('SELECT id,name,code,active FROM companies WHERE active=1 AND id<>? ORDER BY name').all(companyId) as any[];}else{const u=a.prepare('SELECT id FROM admin_users WHERE username=? AND active=1').get(username) as any;if(!u)return NextResponse.json({error:'Active user not found.'},{status:403});rows=a.prepare(`SELECT c.id,c.name,c.code,c.active,uc.can_live,uc.can_test FROM companies c JOIN user_companies uc ON uc.company_id=c.id WHERE uc.user_id=? AND c.active=1 AND c.id<>? AND ${mode==='TEST'?'uc.can_test=1':'uc.can_live=1'} ORDER BY c.name`).all(u.id,companyId) as any[];}return NextResponse.json({destinations:rows,mode,source_company_id:companyId});}catch(e:any){return NextResponse.json({error:e?.message||'Unable to load mapped destination organizations.'},{status:500})}}
-const wrapped=withPostgresSQLiteBridge(handler);export async function GET(req:Request){return wrapped(req)}
+const __wrapped_GET = withPostgresSQLiteBridge(handler);
+export async function GET(req:Request){return __wrapped_GET(req)}

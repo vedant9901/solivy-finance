@@ -23,11 +23,14 @@ const SNAPSHOT_TABLE = 'solivy_sqlite_snapshots';
 
 type RouteHandler = (req: Request, ...args: any[]) => Promise<Response> | Response;
 
-function logicalFiles(req: Request) {
+async function logicalFiles(req: Request) {
   const headers = req.headers;
   const companyId = Math.max(1, Number(headers.get('x-aksh-company-id') || new URL(req.url).searchParams.get('company_id') || 1) || 1);
   const mode = headers.get('x-aksh-mode') === 'TEST' ? 'TEST' : 'LIVE';
   const ids = new Set<number>([1, companyId]);
+  // Cross-company accounting routes may write into a second company's LIVE/TEST snapshot.
+  // Read a clone so the original request body remains available to the route handler.
+  try { const body = await req.clone().json(); const destination = Number(body?.destination_company_id || body?.destinationCompanyId || 0); if (Number.isSafeInteger(destination) && destination > 0) ids.add(destination); } catch { /* GET, non-JSON and bodyless requests have no destination */ }
   const files: Array<{ key: string; file: string }> = [{ key: 'admin', file: adminDatabasePath() }];
   for (const id of ids) {
     for (const m of ['LIVE', 'TEST'] as const) files.push({ key: `company:${id}:${m}`, file: databasePath(m, id) });
@@ -73,7 +76,7 @@ export function withPostgresSQLiteBridge(handler: RouteHandler): (req: Request, 
     }
 
     const client = await postgresPool().connect();
-    let files = logicalFiles(req);
+    let files = await logicalFiles(req);
     let response: Response | undefined;
     let requestError: any;
     let persistenceError: any;

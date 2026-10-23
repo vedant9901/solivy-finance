@@ -1,13 +1,21 @@
 SOLIVY Finance v2.5.64 verification status
 
-PASS: CommercialBills receives the theme prop from app/page.tsx.
-PASS: release fix source checks.
-PASS: source audit.
-PASS: security audit.
-PASS: sync audit.
-PASS: Money Out regression audit.
-PASS: multi-company/sync regression audit.
-PASS: license sign/verify self-test.
-PASS: ZIP integrity (verified after packaging).
+PASSED
+- TypeScript/TSX transpile/syntax audit across 78 source files (scripts/check-source.cjs).
+- Funding transfer regression checks, including active-loan selection from Inter-Company Data Transfer and routing through /api/funding/transfer.
+- Group MIS finance checks, including loan principal outstanding after posted repayments and consolidated book-based funding capacity.
+- Dashboard metrics checks (13/13).
+- Existing source, security, sync, TEST-to-LIVE, user/company access, Money Out, multi-company sync, license self-test and database bridge checks.
+- SQLite smoke test for loan principal outstanding and book-based funding capacity.
+- Package file audit and ZIP integrity check.
 
-NOT VERIFIED: npm install timed out in the packaging environment; therefore a full `next build` and semantic TypeScript check were not completed here. Run `npm install` and `npm run build` before production deployment.
+NOT VERIFIED IN THIS ENVIRONMENT
+- Full Next.js production build and semantic TypeScript typecheck. The package does not have node_modules/.bin/next installed in this workspace, and dependencies were not installed during this run.
+- End-to-end UI tests and live Neon/PostgreSQL cross-company persistence/reversal tests.
+
+Before LIVE deployment
+1. Back up all organization LIVE and TEST data.
+2. Run npm install on the build machine.
+3. Run npm run build and all regression scripts.
+4. Test a loan transfer in TEST with at least one prior principal repayment; verify destination principal, source status, audit rows and reversal refusal after destination activity.
+5. Compare Group MIS funding capacity against its displayed components and keep Available Bank/Cash separate.

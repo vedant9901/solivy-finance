@@ -180,7 +180,7 @@ async function __bridge_GET(req:Request){
     ['Other Charges',Number(row.other_charges||0),'include_other_charges']
   ];
   const showDeductions=billType!=='third-party'||bool(s,'show_deductions',true);
-  const visibleDeductions=showDeductions&&descIndex>=0?less.filter(([,v,k])=>v!==0&&bool(s,k,true)):[];
+  const visibleDeductions=showDeductions&&descIndex>=0?less.filter(([label,v,k])=>v!==0&&bool(s,k,true)&&!(label==='Moisture'&&Number(row.quality_deduct_rate_per_kg||0)>0)):[];
   let ly=yy+17;
   for(const [label,val] of visibleDeductions){
     doc.setFont('helvetica','normal');doc.setFontSize(7.5);text(doc,'Less :',xs[descIndex]+2,ly);

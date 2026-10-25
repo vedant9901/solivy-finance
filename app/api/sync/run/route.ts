@@ -139,7 +139,7 @@ async function handler(req:Request) {
     if(pending.length || outgoingMappings.length) {
       const resp=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,body:JSON.stringify({events:pending,mappings:outgoingMappings}),cache:'no-store'});
       const data=await resp.json().catch(()=>({}));
-      if(!resp.ok) return NextResponse.json({error:data.error||`Remote push failed (${resp.status}).`,conflict:resp.status===409,conflict_detail:data.conflict_detail||null,pending:pending.length},{status:resp.status===409?409:502});
+      if(!resp.ok) return NextResponse.json({error:data.error||`Remote push failed (${resp.status}).`,conflict:resp.status===409,conflict_detail:data.conflict_detail||null,conflict_event:data.conflict_event||null,conflict_phase:data.conflict_phase||'push',pending:pending.length},{status:resp.status===409?409:502});
       if (Array.isArray(data.mappings)) storeInverseMappings(d,data.mappings,String(data.destination_device_id||'remote-device'));
       if (data.destination_device_id) d.prepare('UPDATE sync_meta SET remote_device_id=? WHERE id=1').run(String(data.destination_device_id));
       const ids=pending.map(e=>e.event_id);
@@ -155,9 +155,11 @@ async function handler(req:Request) {
     const events=Array.isArray(pulled.events)?pulled.events:[];
     const summary={applied:0,duplicates:0,unchanged:0};
     const localMappings:any[]=[];
+    let activePullEvent:any=null;
     try {
       const tx=d.transaction(()=>{
         for(const rawEvent of events) {
+          activePullEvent=rawEvent;
           const e=reconcileIncomingEvent(d,rawEvent,String(rawEvent?.origin_device||meta.remote_device_id||'remote-device'),localMappings);
           const status=applyLocal(d,e,localCompanyName);
           if(status==='duplicate')summary.duplicates++;else if(status==='same')summary.unchanged++;else summary.applied++;
@@ -167,7 +169,7 @@ async function handler(req:Request) {
       });
       tx();
     } catch(e:any) {
-      return NextResponse.json({error:e?.message||'Local apply failed; downloaded batch was not committed.',conflict:true,conflict_detail:e?.conflictDetail||null,pushed,pending_downloads:events.length},{status:409});
+      return NextResponse.json({error:e?.message||'Local apply failed; downloaded batch was not committed.',conflict:true,conflict_phase:'pull',conflict_event:activePullEvent?{event_id:activePullEvent.event_id,table_name:activePullEvent.table_name,pk_json:activePullEvent.pk_json,operation:activePullEvent.operation,base_json:activePullEvent.base_json,row_json:activePullEvent.row_json}:null,conflict_detail:e?.conflictDetail||null,pushed,pending_downloads:events.length,remote_cursor:Number(pulled.cursor||meta.remote_cursor||0)},{status:409});
     }
     return NextResponse.json({ok:true,mode,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,pushed,pulled:events.length,...summary,id_mappings_created:localMappings.length,last_sync_at:new Date().toISOString(),has_more:Boolean(pulled.has_more)});
   } catch(e:any) { return NextResponse.json({error:e?.message||'Sync failed.'},{status:400}); }

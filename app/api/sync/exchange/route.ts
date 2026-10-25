@@ -153,16 +153,49 @@ async function handler(req:Request) {
     }
     if (req.method==='POST') {
       const body=await req.json().catch(()=>({}));
+      if (body.force_resolution && typeof body.force_resolution==='object') {
+        const f=body.force_resolution as any;
+        const table=String(f.table||'');
+        const {cols,pk}=tableInfo(d,table);
+        const key=f.primary_key && typeof f.primary_key==='object' ? f.primary_key : {};
+        if(!pk.every((c:any)=>Object.prototype.hasOwnProperty.call(key,c.name))) return NextResponse.json({error:'Invalid conflict primary key.'},{status:400});
+        const row=f.row && typeof f.row==='object' ? f.row : null;
+        if(!row || !pk.every((c:any)=>Object.prototype.hasOwnProperty.call(row,c.name))) return NextResponse.json({error:'The selected source version is incomplete.'},{status:400});
+        const resolutionId=String(f.resolution_id||'');
+        if(!resolutionId || resolutionId.length>120) return NextResponse.json({error:'Missing conflict resolution ID.'},{status:400});
+        d.exec(`CREATE TABLE IF NOT EXISTS sync_resolution_log (resolution_id TEXT PRIMARY KEY, table_name TEXT NOT NULL, pk_json TEXT NOT NULL, action TEXT NOT NULL, before_json TEXT, after_json TEXT, device_id TEXT, resolved_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+        const prior=d.prepare('SELECT resolution_id FROM sync_resolution_log WHERE resolution_id=?').get(resolutionId);
+        if(prior) return NextResponse.json({ok:true,already_resolved:true,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
+        const where=pk.map((c:any)=>`"${c.name}"=?`).join(' AND ');
+        const old=d.prepare(`SELECT * FROM "${table}" WHERE ${where}`).get(...pk.map((c:any)=>key[c.name])) as any;
+        const names=cols.map((c:any)=>String(c.name)).filter((n:string)=>Object.prototype.hasOwnProperty.call(row,n));
+        if(!names.length) return NextResponse.json({error:'No compatible fields were provided.'},{status:400});
+        const updates=names.filter((n:string)=>!pk.some((c:any)=>c.name===n)).map((n:string)=>`"${n}"=excluded."${n}"`).join(',');
+        const sql=`INSERT INTO "${table}" (${names.map((n:string)=>`"${n}"`).join(',')}) VALUES (${names.map(()=>'?').join(',')}) ON CONFLICT (${pk.map((c:any)=>`"${c.name}"`).join(',')}) ${updates?`DO UPDATE SET ${updates}`:'DO NOTHING'}`;
+        const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||ctx.deviceId);
+        const tx=d.transaction(()=>{
+          d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
+          try { d.prepare(sql).run(...names.map((n:string)=>row[n]===undefined?null:row[n])); }
+          finally { d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run(); }
+          d.prepare('INSERT INTO sync_resolution_log(resolution_id,table_name,pk_json,action,before_json,after_json,device_id) VALUES(?,?,?,?,?,?,?)').run(resolutionId,table,JSON.stringify(key),String(f.action||'push-source'),old?JSON.stringify(old):null,JSON.stringify(row),ctx.deviceId);
+          const newEventId=crypto.randomUUID();
+          d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)').run(newEventId,table,JSON.stringify(key),old?'UPDATE':'INSERT',old?JSON.stringify(old):null,JSON.stringify(row),ownDevice);
+        });
+        try { tx(); } catch(err:any) { return NextResponse.json({error:err?.message||'Conflict resolution failed; no changes were committed.'},{status:409}); }
+        return NextResponse.json({ok:true,resolved:true,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
+      }
       const events=Array.isArray(body.events)?body.events:[];
       const peerMappings=Array.isArray(body.mappings)?body.mappings:[];
       if (!events.length && !peerMappings.length) { const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device'); return NextResponse.json({ok:true,applied:0,duplicates:0,mappings:[],destination_device_id:ownDevice}); }
       if (events.length>500) return NextResponse.json({error:'Maximum 500 events per batch.'},{status:413});
       const result:any={applied:0,duplicates:0,alreadyCurrent:0};
       const mappings:any[]=[];
+      let activeEvent:any=null;
       const tx=d.transaction(()=>{
         importPeerMappings(d,peerMappings);
         const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
         for (const rawEvent of events) {
+          activeEvent=rawEvent;
           const e=reconcileIncomingEvent(d,rawEvent,String(rawEvent?.origin_device||'unknown-device'),mappings);
           // A remapped row now has destination-local identity. Advertise it as a
           // destination-originated canonical event; the source has the inverse map.
@@ -173,7 +206,7 @@ async function handler(req:Request) {
           else result.applied++;
         }
       });
-      try { tx(); } catch(e:any) { return NextResponse.json({error:e?.message||'Sync batch rejected; no changes in this batch were committed.',conflict:true,conflict_detail:e?.conflictDetail||null},{status:409}); }
+      try { tx(); } catch(e:any) { return NextResponse.json({error:e?.message||'Sync batch rejected; no changes in this batch were committed.',conflict:true,conflict_phase:'push',conflict_event:activeEvent?{event_id:activeEvent.event_id,table_name:activeEvent.table_name,pk_json:activeEvent.pk_json,operation:activeEvent.operation,base_json:activeEvent.base_json,row_json:activeEvent.row_json}:null,conflict_detail:e?.conflictDetail||null},{status:409}); }
       const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
       return NextResponse.json({ok:true,...result,mappings,destination_device_id:ownDevice,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
     }

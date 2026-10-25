@@ -35,6 +35,18 @@ function remapForeignKeys(d:any, table:string, sourceDevice:string, row:any) {
   }
   return out;
 }
+/** Tables whose schema enforces a fixed singleton key (for example company_settings CHECK(id=1))
+ * represent one row per organization, not independently-created entities. Never allocate a new ID
+ * for these tables: doing so violates the schema and can abort an entire sync batch.
+ */
+function fixedSingletonId(d:any, table:string, pk:any[]):number|null {
+  if (pk.length !== 1 || String(pk[0]?.name) !== 'id') return null;
+  const schema=d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table) as any;
+  const sql=String(schema?.sql||'');
+  if (/CHECK\s*\(\s*[\"`\[]?id[\"`\]]?\s*=\s*1\s*\)/i.test(sql)) return 1;
+  return null;
+}
+
 function nextIntegerId(d:any, table:string):number {
   const row=d.prepare(`SELECT COALESCE(MAX(CAST(id AS INTEGER)),0) AS max_id FROM "${table}"`).get() as any;
   let next=Number(row?.max_id||0)+1;
@@ -58,6 +70,18 @@ export function reconcileIncomingEvent(d:any, raw:any, sourceDeviceRaw:string, m
   const pk=cols.filter((c:any)=>Number(c.pk)>0).sort((a:any,b:any)=>a.pk-b.pk);
   if (!pk.length) return e;
   const sourcePk=parseJson(e.pk_json)||{};
+  const fixedId=fixedSingletonId(d,table,pk);
+  if (fixedId !== null) {
+    // Normalize the singleton key to its schema-required value. Do not persist an ID mapping
+    // for singleton settings rows: both organizations have their own row id=1.
+    const normalized={...sourcePk,id:fixedId};
+    e.pk_json=JSON.stringify(normalized);
+    for (const field of ['row_json','base_json']) {
+      const parsed=parseJson((e as any)[field]);
+      if (parsed && typeof parsed==='object') (e as any)[field]=JSON.stringify({...parsed,id:fixedId});
+    }
+    return e;
+  }
   const existingMap=mapLookup(d,sourceDevice,table,sourcePk);
   let destinationPk=existingMap?parseJson(existingMap.destination_pk_json):null;
   if (destinationPk) {

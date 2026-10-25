@@ -15,5 +15,8 @@ for(const [file,markers] of checks){
 }
 const helper=fs.readFileSync(path.join(root,'lib/sync-id-mapping.ts'),'utf8');
 if(!helper.includes('Existing records are never overwritten')){console.error('FAIL safe collision comment missing');failed++;}
+if(!helper.includes('fixedSingletonId') || !helper.includes('schema-required value') || !helper.includes('CHECK\\s*')){console.error('FAIL fixed singleton ID guard missing');failed++;}
+const runRoute=fs.readFileSync(path.join(root,'app/api/sync/run/route.ts'),'utf8');
+if(!runRoute.includes('token-authorized destination BEFORE pushing any events') || !runRoute.includes('remoteOrganizationName.localeCompare(localCompanyName')){console.error('FAIL company identity preflight missing');failed++;}
 if(failed){console.error(`Sync ID mapping checks failed: ${failed}`);process.exit(1);}
 console.log('PASS persistent ID mapping source checks: schema, collision allocation, FK remapping, inverse mapping exchange, and peer mapping propagation.');

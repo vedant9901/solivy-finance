@@ -8,6 +8,7 @@ type Notice={kind:'success'|'error'|'info'|'warning';title:string;message:string
 const KEY='solivy.sync.config.v1';
 function explainError(message:string,code?:string,status?:number): Notice{
  const m=String(message||'').trim();
+ if(/CHECK constraint failed:\s*id\s*=\s*1/i.test(m))return {kind:'error',title:'Protected singleton row needs the sync fix',message:'Do not delete or edit company settings manually. This error means a fixed ID=1 settings row was incorrectly treated as an ordinary record. Install the safe-sync build, verify the AKSH ENTERPRISE pairing, then retry Sync Now.',detail:'Your pending events are retained. The failed batch should not be force-skipped.'};
  if(!navigator.onLine)return {kind:'warning',title:'No internet connection',message:'Your local records are unchanged. Connect to the internet and choose Sync Now, or keep automatic sync enabled.',detail:'Pending changes remain queued on this device.'};
  if(status===401||/authentication required|unauthorized/i.test(m))return {kind:'error',title:'Sign-in required',message:'Sign in again on this installation, then retry synchronization.',detail:m};
  if(status===402||code==='LICENSE_REQUIRED')return {kind:'error',title:'Online license check failed',message:'The destination organization needs a valid license for this environment. No successful sync was confirmed.',detail:m};

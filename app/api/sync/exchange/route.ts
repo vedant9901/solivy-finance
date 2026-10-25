@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { adminDb, db, type Mode } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
+import { reconcileIncomingEvent, importPeerMappings } from '../../../../lib/sync-id-mapping';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','users','sqlite_sequence']);
+const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
 const canon = (v:any):string => {
   if (v === null || v === undefined) return 'null';
   if (Array.isArray(v)) return '['+v.map(canon).join(',')+']';
@@ -147,16 +148,25 @@ async function handler(req:Request) {
       const max=d.prepare('SELECT COALESCE(MAX(seq),0) AS n FROM sync_changes').get() as any;
       const hasMore=events.length===limit;
       const nextCursor=hasMore?Number(events[events.length-1]?.seq||cursor):Number(max?.n||cursor);
-      return NextResponse.json({ok:true,events,cursor:nextCursor,has_more:hasMore});
+      const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
+      return NextResponse.json({ok:true,events,cursor:nextCursor,has_more:hasMore,destination_device_id:ownDevice,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
     }
     if (req.method==='POST') {
       const body=await req.json().catch(()=>({}));
       const events=Array.isArray(body.events)?body.events:[];
-      if (!events.length) return NextResponse.json({ok:true,applied:0,duplicates:0});
+      const peerMappings=Array.isArray(body.mappings)?body.mappings:[];
+      if (!events.length && !peerMappings.length) { const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device'); return NextResponse.json({ok:true,applied:0,duplicates:0,mappings:[],destination_device_id:ownDevice}); }
       if (events.length>500) return NextResponse.json({error:'Maximum 500 events per batch.'},{status:413});
       const result:any={applied:0,duplicates:0,alreadyCurrent:0};
+      const mappings:any[]=[];
       const tx=d.transaction(()=>{
-        for (const e of events) {
+        importPeerMappings(d,peerMappings);
+        const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
+        for (const rawEvent of events) {
+          const e=reconcileIncomingEvent(d,rawEvent,String(rawEvent?.origin_device||'unknown-device'),mappings);
+          // A remapped row now has destination-local identity. Advertise it as a
+          // destination-originated canonical event; the source has the inverse map.
+          if (String(e.pk_json||'')!==String(rawEvent?.pk_json||'')) e.origin_device=ownDevice;
           const status=applyEvent(d,e,ctx.deviceId,companyName);
           if(status==='duplicate') result.duplicates++;
           else if(status==='already-current') result.alreadyCurrent++;
@@ -164,7 +174,8 @@ async function handler(req:Request) {
         }
       });
       try { tx(); } catch(e:any) { return NextResponse.json({error:e?.message||'Sync batch rejected; no changes in this batch were committed.',conflict:true,conflict_detail:e?.conflictDetail||null},{status:409}); }
-      return NextResponse.json({ok:true,...result});
+      const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
+      return NextResponse.json({ok:true,...result,mappings,destination_device_id:ownDevice,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
     }
     return NextResponse.json({error:'Method not allowed.'},{status:405});
   } catch(e:any) { return NextResponse.json({error:e?.message||'Sync exchange failed.'},{status:400}); }

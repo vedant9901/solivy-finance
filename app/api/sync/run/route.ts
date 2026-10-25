@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { adminDb, db, type Mode } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
+import { reconcileIncomingEvent, storeInverseMappings, mappingsForPeer } from '../../../../lib/sync-id-mapping';
 export const runtime = 'nodejs';
 export const dynamic='force-dynamic';
 const canon=(v:any):string=>v===null||v===undefined?'null':Array.isArray(v)?'['+v.map(canon).join(',')+']':typeof v==='object'?'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canon(v[k])).join(',')+'}':JSON.stringify(v);
-const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','users','sqlite_sequence']);
+const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
 
 function mergeInitialCompanySettings(current:any, incoming:any, cols:any[], companyName='') {
   const merged:any = {};
@@ -119,16 +120,28 @@ async function handler(req:Request) {
     const d=db(mode as Mode,localCompanyId);
     const localOrganization=adminDb().prepare('SELECT name FROM companies WHERE id=?').get(localCompanyId) as any;
     const localCompanyName=String(localOrganization?.name||'');
-    const meta=d.prepare('SELECT device_id,remote_cursor FROM sync_meta WHERE id=1').get() as any;
+    const meta=d.prepare('SELECT device_id,remote_cursor,remote_device_id FROM sync_meta WHERE id=1').get() as any;
     const deviceId=String(meta.device_id);
     reserveOfflineIdRanges(d,deviceId);
     const headers={'content-type':'application/json','x-solivy-device-token':token,'x-solivy-device-id':deviceId,'x-aksh-company-id':String(remoteCompanyId),'x-aksh-mode':String(mode)};
+    // Preflight the token-authorized destination BEFORE pushing any events. Company IDs
+    // may differ between offline and online databases, but the selected organization must match.
+    const preflight=await fetch(remoteUrl+'/api/sync/exchange?cursor=0&limit=1',{method:'GET',headers,cache:'no-store',signal:AbortSignal.timeout(12000)});
+    const preflightData=await preflight.json().catch(()=>({}));
+    if(!preflight.ok) return NextResponse.json({error:preflightData.error||`Remote authorization failed (${preflight.status}).`,http_status:preflight.status},{status:preflight.status===401||preflight.status===403?preflight.status:502});
+    const remoteOrganizationName=String(preflightData.company_name||'').trim();
+    if(!remoteOrganizationName || remoteOrganizationName.localeCompare(localCompanyName,undefined,{sensitivity:'accent'})!==0) {
+      return NextResponse.json({error:`Sync blocked: selected offline company "${localCompanyName}" does not match the token-authorized online company "${remoteOrganizationName||'unknown'}". Select AKSH ENTERPRISE on both sides and use the token generated while AKSH ENTERPRISE (online company ID ${remoteCompanyId}) is selected. No sync changes were pushed.`},{status:409});
+    }
     const pending=d.prepare('SELECT seq,event_id,table_name,pk_json,operation,base_json,row_json,origin_device,created_at FROM sync_changes WHERE pushed=0 ORDER BY seq LIMIT 500').all() as any[];
+    const outgoingMappings=meta.remote_device_id ? mappingsForPeer(d,String(meta.remote_device_id),deviceId) : [];
     let pushed=0;
-    if(pending.length) {
-      const resp=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,body:JSON.stringify({events:pending}),cache:'no-store'});
+    if(pending.length || outgoingMappings.length) {
+      const resp=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,body:JSON.stringify({events:pending,mappings:outgoingMappings}),cache:'no-store'});
       const data=await resp.json().catch(()=>({}));
       if(!resp.ok) return NextResponse.json({error:data.error||`Remote push failed (${resp.status}).`,conflict:resp.status===409,conflict_detail:data.conflict_detail||null,pending:pending.length},{status:resp.status===409?409:502});
+      if (Array.isArray(data.mappings)) storeInverseMappings(d,data.mappings,String(data.destination_device_id||'remote-device'));
+      if (data.destination_device_id) d.prepare('UPDATE sync_meta SET remote_device_id=? WHERE id=1').run(String(data.destination_device_id));
       const ids=pending.map(e=>e.event_id);
       const mark=d.prepare('UPDATE sync_changes SET pushed=1 WHERE event_id=?');
       const tx=d.transaction(()=>{for(const id of ids)mark.run(id)});tx();
@@ -138,22 +151,25 @@ async function handler(req:Request) {
     const pull=await fetch(pullUrl,{method:'GET',headers,cache:'no-store'});
     const pulled=await pull.json().catch(()=>({}));
     if(!pull.ok) return NextResponse.json({error:pulled.error||`Remote pull failed (${pull.status}).`,pushed},{status:502});
+    if (pulled.destination_device_id) { d.prepare('UPDATE sync_meta SET remote_device_id=? WHERE id=1').run(String(pulled.destination_device_id)); }
     const events=Array.isArray(pulled.events)?pulled.events:[];
     const summary={applied:0,duplicates:0,unchanged:0};
+    const localMappings:any[]=[];
     try {
       const tx=d.transaction(()=>{
-        for(const e of events) {
+        for(const rawEvent of events) {
+          const e=reconcileIncomingEvent(d,rawEvent,String(rawEvent?.origin_device||meta.remote_device_id||'remote-device'),localMappings);
           const status=applyLocal(d,e,localCompanyName);
           if(status==='duplicate')summary.duplicates++;else if(status==='same')summary.unchanged++;else summary.applied++;
         }
-        d.prepare('UPDATE sync_meta SET remote_cursor=?,last_sync_at=CURRENT_TIMESTAMP,paired_url=?,paired_company_id=?,sync_mode=? WHERE id=1')
-          .run(Number(pulled.cursor||meta.remote_cursor||0),remoteUrl,remoteCompanyId,mode);
+        d.prepare('UPDATE sync_meta SET remote_cursor=?,last_sync_at=CURRENT_TIMESTAMP,paired_url=?,paired_company_id=?,sync_mode=?,remote_device_id=? WHERE id=1')
+          .run(Number(pulled.cursor||meta.remote_cursor||0),remoteUrl,remoteCompanyId,mode,String(pulled.destination_device_id||meta.remote_device_id||'remote-device'));
       });
       tx();
     } catch(e:any) {
       return NextResponse.json({error:e?.message||'Local apply failed; downloaded batch was not committed.',conflict:true,conflict_detail:e?.conflictDetail||null,pushed,pending_downloads:events.length},{status:409});
     }
-    return NextResponse.json({ok:true,mode,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,pushed,pulled:events.length,...summary,last_sync_at:new Date().toISOString(),has_more:Boolean(pulled.has_more)});
+    return NextResponse.json({ok:true,mode,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,pushed,pulled:events.length,...summary,id_mappings_created:localMappings.length,last_sync_at:new Date().toISOString(),has_more:Boolean(pulled.has_more)});
   } catch(e:any) { return NextResponse.json({error:e?.message||'Sync failed.'},{status:400}); }
 }
 const __wrapped_POST=withPostgresSQLiteBridge(handler);

@@ -92,6 +92,7 @@ function ensureSyncSchema(d: Database.Database) {
       device_token TEXT DEFAULT '',
       sync_mode TEXT NOT NULL DEFAULT 'LIVE',
       paired_company_id INTEGER DEFAULT NULL,
+      remote_device_id TEXT DEFAULT NULL,
       last_sync_at TEXT DEFAULT NULL
     );
     CREATE TABLE IF NOT EXISTS sync_changes (
@@ -111,13 +112,25 @@ function ensureSyncSchema(d: Database.Database) {
       event_id TEXT PRIMARY KEY,
       applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS sync_id_mappings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_device_id TEXT NOT NULL,
+      table_name TEXT NOT NULL,
+      source_pk_json TEXT NOT NULL,
+      destination_pk_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(source_device_id, table_name, source_pk_json)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_id_mappings_lookup ON sync_id_mappings(source_device_id, table_name);
   `);
+  const syncMetaCols=d.prepare('PRAGMA table_info(sync_meta)').all() as any[];
+  if(!syncMetaCols.some((c:any)=>c.name==='remote_device_id')) d.exec('ALTER TABLE sync_meta ADD COLUMN remote_device_id TEXT DEFAULT NULL');
   const cryptoId = () => crypto.randomUUID();
   const meta = d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any;
   if (!meta) d.prepare('INSERT INTO sync_meta(id,device_id) VALUES(1,?)').run(cryptoId());
   // Install change-capture triggers for existing business tables. System, identity,
   // licensing and sync tables are deliberately excluded from financial synchronization.
-  const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','users','sqlite_sequence']);
+  const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
   const tables = d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as Array<{name:string}>;
   for (const {name} of tables) {
     if (excluded.has(name) || name.startsWith('license_') || name.startsWith('admin_')) continue;

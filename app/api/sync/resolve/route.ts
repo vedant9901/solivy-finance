@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { db, type Mode } from '../../../../lib/db';
+import { storeInverseMappings } from '../../../../lib/sync-id-mapping';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
-export const runtime='nodejs';
-export const dynamic='force-dynamic';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
 function safeRemote(raw:string){const u=new URL(raw);if(u.username||u.password||u.search||u.hash)throw new Error('Remote URL must not contain credentials, query strings or fragments.');const local=['localhost','127.0.0.1','::1'].includes(u.hostname);if(u.protocol!=='https:'&&!(local&&u.protocol==='http:'))throw new Error('Remote sync URL must use HTTPS.');return u.toString().replace(/\/+$/,'');}
 async function handler(req:Request){
@@ -26,7 +27,8 @@ async function handler(req:Request){
   const headers={'content-type':'application/json','x-solivy-device-token':token,'x-solivy-device-id':deviceId,'x-aksh-company-id':String(remoteCompanyId),'x-aksh-mode':mode};
   const resolutionId=crypto.randomUUID();
   if(action==='push_local'){
-   const response=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,cache:'no-store',body:JSON.stringify({force_resolution:{resolution_id:resolutionId,table,primary_key:key,row,action:'push-local-version'}})});const data=await response.json().catch(()=>({}));if(!response.ok||!data.ok)return NextResponse.json({error:data.error||`Remote conflict resolution failed (HTTP ${response.status}).`},{status:response.status||502});
+   const response=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,cache:'no-store',body:JSON.stringify({force_resolution:{resolution_id:resolutionId,table,primary_key:key,row,action:'push-local-version',operation:String(event.operation||'INSERT'),base_json:event.base_json??null}})});const data=await response.json().catch(()=>({}));if(!response.ok||!data.ok)return NextResponse.json({error:data.error||`Remote conflict resolution failed (HTTP ${response.status}).`},{status:response.status||502});
+   if(Array.isArray(data.mappings)&&data.mappings.length)storeInverseMappings(local,data.mappings,String(data.destination_device_id||'remote-device'));
    local.exec('CREATE TABLE IF NOT EXISTS sync_resolution_log (resolution_id TEXT PRIMARY KEY, table_name TEXT NOT NULL, pk_json TEXT NOT NULL, action TEXT NOT NULL, before_json TEXT, after_json TEXT, device_id TEXT, resolved_at TEXT DEFAULT CURRENT_TIMESTAMP)');
    const tx=local.transaction(()=>{local.prepare('INSERT OR IGNORE INTO sync_resolution_log(resolution_id,table_name,pk_json,action,before_json,after_json,device_id) VALUES(?,?,?,?,?,?,?)').run(resolutionId,table,JSON.stringify(key),'push-local-version',localRow?JSON.stringify(localRow):null,JSON.stringify(row),deviceId);if(phase==='push'&&event.event_id)local.prepare('UPDATE sync_changes SET pushed=1 WHERE event_id=?').run(String(event.event_id));if(phase==='pull')local.prepare('UPDATE sync_changes SET pushed=1 WHERE table_name=? AND pk_json=?').run(table,JSON.stringify(key));});tx();
    return NextResponse.json({ok:true,resolved:true,action,phase,message:'This device version was sent to the token-authorized destination. Retry Sync Now to exchange remaining changes.'});
@@ -40,4 +42,5 @@ async function handler(req:Request){
   return NextResponse.json({ok:true,resolved:true,action,phase,message:'The other company version was accepted on this device. Retry Sync Now to continue processing queued events.'});
  }catch(e:any){return NextResponse.json({error:e?.message||'Conflict resolution failed; no further changes were attempted.'},{status:400});}
 }
-const wrapped=withPostgresSQLiteBridge(handler);export async function POST(req:Request){return wrapped(req);}
+const __wrapped_POST=withPostgresSQLiteBridge(handler);
+export async function POST(req:Request){return __wrapped_POST(req);}

@@ -6,6 +6,25 @@ import { reconcileIncomingEvent, storeInverseMappings, mappingsForPeer } from '.
 export const runtime = 'nodejs';
 export const dynamic='force-dynamic';
 const canon=(v:any):string=>v===null||v===undefined?'null':Array.isArray(v)?'['+v.map(canon).join(',')+']':typeof v==='object'?'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canon(v[k])).join(',')+'}':JSON.stringify(v);
+
+function mergeChangedFields(base:any, current:any, incoming:any, cols:any[]) {
+  const merged:any={}; const conflicts:any[]=[];
+  for (const c of cols) {
+    const k=String(c.name); const b=base?.[k], a=current?.[k], n=incoming?.[k];
+    if (Number(c.pk)>0) { merged[k]=a===undefined?n:a; continue; }
+    if (canon(a)===canon(n)) { merged[k]=a; continue; }
+    if (canon(a)===canon(b)) { merged[k]=n; continue; }
+    if (canon(n)===canon(b)) { merged[k]=a; continue; }
+    // Same field changed differently on both sides: retain the local value in the live row
+    // and preserve both values in the conflict audit so neither edit is silently discarded.
+    merged[k]=canon(a)<=canon(n)?a:n; conflicts.push({field:k,base:b,local:a,incoming:n,chosen:merged[k]});
+  }
+  return {merged,conflicts};
+}
+function ensureConflictHistory(d:any) {
+  d.exec("CREATE TABLE IF NOT EXISTS sync_conflict_history (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, table_name TEXT NOT NULL, pk_json TEXT NOT NULL, field_name TEXT NOT NULL, base_value TEXT, local_value TEXT, incoming_value TEXT, resolution TEXT NOT NULL DEFAULT 'kept_local_audit_both', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+}
+
 const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
 
 function mergeInitialCompanySettings(current:any, incoming:any, cols:any[], companyName='') {
@@ -68,20 +87,30 @@ function applyLocal(d:any,e:any,companyName='') {
     } finally { d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run(); }
     return 'merged-settings';
   }
-  if(base===null) { if(current) throw Object.assign(new Error(`Conflict on ${table}: record already exists.`), { conflictDetail: { table, primary_key: key, reason: 'A record with this key already exists on this device.', base: null, current, incoming: row } }); }
-  else if(!current||canon(current)!==canon(base)) throw Object.assign(new Error(`Conflict on ${table}: record changed locally.`), { conflictDetail: { table, primary_key: key, reason: 'This device record differs from the version last seen by the other device.', base, current: current || null, incoming: row } });
+  let effectiveRow=row; let fieldConflicts:any[]=[];
+  if(base===null && current && table!=='company_settings' && e.operation==='INSERT' && row && typeof row==='object') {
+    // A true new-row PK collision should have been remapped by reconcileIncomingEvent. If it
+    // still reaches here, do not overwrite the unrelated row or silently discard the insert.
+    throw Object.assign(new Error(`Identity collision on ${table}; safe ID mapping is required before applying this insert.`), { conflictDetail: { table, primary_key:key, reason:'The source record has a colliding primary key and no safe mapping was supplied.', base:null, current, incoming:row } });
+  } else if(base!==null && current && row && typeof row==='object' && canon(current)!==canon(base)) {
+    const merged=mergeChangedFields(base,current,row,cols); effectiveRow=merged.merged; fieldConflicts=merged.conflicts;
+    if(fieldConflicts.length){ ensureConflictHistory(d); const log=d.prepare('INSERT INTO sync_conflict_history(event_id,table_name,pk_json,field_name,base_value,local_value,incoming_value) VALUES(?,?,?,?,?,?,?)'); for(const c of fieldConflicts)log.run(String(e.event_id),table,JSON.stringify(key),c.field,JSON.stringify(c.base),JSON.stringify(c.local),JSON.stringify(c.incoming)); }
+  } else if(base!==null && !current) {
+    throw Object.assign(new Error(`Cannot merge ${table}: the base record was deleted locally.`), { conflictDetail: { table, primary_key:key, reason:'The record was deleted on this device while the other side edited it.', base, current:null, incoming:row } });
+  }
   d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
   try {
     if(e.operation==='DELETE') { if(current)d.prepare(`DELETE FROM "${table}" WHERE ${where}`).run(...pk.map((c:any)=>key[c.name])); }
     else {
-      if(!row||typeof row!=='object') throw new Error('Missing row data.');
-      const names=cols.map((c:any)=>c.name).filter((n:string)=>Object.prototype.hasOwnProperty.call(row,n));
+      if(!effectiveRow||typeof effectiveRow!=='object') throw new Error('Missing row data.');
+      const names=cols.map((c:any)=>c.name).filter((n:string)=>Object.prototype.hasOwnProperty.call(effectiveRow,n));
       const conflict=pk.map((c:any)=>`"${c.name}"`).join(',');
       const updates=names.filter((n:string)=>!pk.some((c:any)=>c.name===n)).map((n:string)=>`"${n}"=excluded."${n}"`).join(',');
-      d.prepare(`INSERT INTO "${table}" (${names.map((n:string)=>`"${n}"`).join(',')}) VALUES (${names.map(()=>'?').join(',')}) ON CONFLICT (${conflict}) ${updates?`DO UPDATE SET ${updates}`:'DO NOTHING'}`).run(...names.map((n:string)=>row[n]===undefined?null:row[n]));
+      d.prepare(`INSERT INTO "${table}" (${names.map((n:string)=>`"${n}"`).join(',')}) VALUES (${names.map(()=>'?').join(',')}) ON CONFLICT (${conflict}) ${updates?`DO UPDATE SET ${updates}`:'DO NOTHING'}`).run(...names.map((n:string)=>effectiveRow[n]===undefined?null:effectiveRow[n]));
     }
     d.prepare('INSERT OR IGNORE INTO sync_applied_events(event_id) VALUES(?)').run(e.event_id);
-    d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)').run(e.event_id,table,e.pk_json,e.operation,e.base_json,e.row_json,e.origin_device||'remote');
+    d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)').run(e.event_id,table,e.pk_json,e.operation,e.base_json,JSON.stringify(effectiveRow),e.origin_device||'remote');
+    if(fieldConflicts.length){const own=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'offline-device');d.prepare('INSERT INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,0)').run(crypto.randomUUID(),table,e.pk_json,'UPDATE',JSON.stringify(current),JSON.stringify(effectiveRow),own);}
   } finally { d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run(); }
   return 'applied';
 }

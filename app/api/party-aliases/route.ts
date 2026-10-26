@@ -1,15 +1,15 @@
 import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
-import { sessionMode, db } from '../../../lib/db';
+import { sessionMode, db, adminDb } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 
 async function __bridge_GET(req: Request) {
   try {
     const u = new URL(req.url); const mode = sessionMode(req);
     const companyId = Number(req.headers.get('x-aksh-company-id') || u.searchParams.get('company_id') || 1);
-    const d = db(mode, companyId);
-    const rows = d.prepare(`SELECT p.id AS party_id,p.name AS party_name,COALESCE(p.party_type,'') AS party_type,a.id AS alias_id,a.alias FROM parties p LEFT JOIN party_aliases a ON a.party_id=p.id ORDER BY lower(p.name),lower(a.alias)`).all();
-    const parties = d.prepare(`SELECT id AS party_id,name AS party_name,COALESCE(party_type,'') AS party_type FROM parties ORDER BY lower(name)`).all();
-    const thirdParties = d.prepare(`SELECT id,name,COALESCE(contact,'') AS contact,COALESCE(email,'') AS email,COALESCE(gst,'') AS gst,active FROM third_parties ORDER BY lower(name)`).all();
+    const d = db(mode, companyId); const admin=adminDb(); const username=String(req.headers.get('x-aksh-user')||''); const user=admin.prepare('SELECT id FROM admin_users WHERE username=? AND active=1').get(username) as any; const grants=user?admin.prepare(`SELECT company_id FROM user_companies WHERE user_id=? AND ${mode==='TEST'?'can_test=1':'can_live=1'}`).all(user.id) as any[]:[]; const allowed=grants.map((g:any)=>Number(g.company_id)).filter((id:number)=>id!==companyId); const suffix=allowed.length?` OR p.source_company_id IN (${allowed.map(()=>'?').join(',')})`:''; const tSuffix=allowed.length?` OR tp.source_company_id IN (${allowed.map(()=>'?').join(',')})`:'';
+    const rows = d.prepare(`SELECT p.id AS party_id,p.name AS party_name,COALESCE(p.party_type,'') AS party_type,a.id AS alias_id,a.alias FROM parties p LEFT JOIN party_aliases a ON a.party_id=p.id WHERE (COALESCE(p.source_company_id,0)=0${suffix}) ORDER BY lower(p.name),lower(a.alias)`).all(...allowed);
+    const parties = d.prepare(`SELECT p.id AS party_id,p.name AS party_name,COALESCE(p.party_type,'') AS party_type FROM parties p WHERE (COALESCE(p.source_company_id,0)=0${suffix}) ORDER BY lower(p.name)`).all(...allowed);
+    const thirdParties = d.prepare(`SELECT tp.id,tp.name,COALESCE(tp.contact,'') AS contact,COALESCE(tp.email,'') AS email,COALESCE(tp.gst,'') AS gst,tp.active FROM third_parties tp WHERE (COALESCE(tp.source_company_id,0)=0${tSuffix}) ORDER BY lower(tp.name)`).all(...allowed);
     return NextResponse.json({ok:true,rows,parties,thirdParties});
   } catch(e:any) { return NextResponse.json({error:e.message},{status:400}); }
 }

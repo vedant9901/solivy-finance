@@ -199,9 +199,30 @@ async function handler(req:Request) {
     // disabling foreign keys or dropping the child transaction. The destination still runs its
     // normal ID-collision reconciliation and records mappings before applying dependent rows.
     const outgoingEvents:any[]=[...pending];
+    // Explicitly recover company-account parents for bank-ledger events. Some older
+    // installations recorded account_transactions changes without a corresponding
+    // company_accounts sync event. Include the authoritative parent row from this
+    // source database, then let destination ID reconciliation map account_id safely.
+    // Never fabricate a company account: if it is absent locally, the preflight below
+    // returns a precise error rather than disabling FK enforcement.
     const seenParents=new Set<string>();
     for (const e of pending) { try { const pk=JSON.parse(String(e.pk_json||'{}')); seenParents.add(String(e.table_name)+'|'+canon(pk)); } catch {} }
     const parentQueue:any[]=[...pending.filter((e:any)=>String(e.operation||'').toUpperCase()!=='DELETE' && e.row_json).map((e:any)=>({table:String(e.table_name),row:JSON.parse(String(e.row_json))}))];
+    // Seed direct account_transactions -> company_accounts parents first. This avoids
+    // a generic traversal limit starving a bank-account parent when a batch is large.
+    for (const e of pending) {
+      if (String(e.table_name)!=='account_transactions' || String(e.operation||'').toUpperCase()==='DELETE' || !e.row_json) continue;
+      let child:any=null; try { child=JSON.parse(String(e.row_json)); } catch { continue; }
+      const accountId=child?.account_id;
+      if (accountId===null || accountId===undefined) continue;
+      const parent=d.prepare('SELECT * FROM company_accounts WHERE id=?').get(accountId) as any;
+      if (!parent) continue;
+      const signature='company_accounts|'+canon({id:parent.id});
+      if (seenParents.has(signature)) continue;
+      seenParents.add(signature);
+      outgoingEvents.push({seq:-1,event_id:crypto.randomUUID(),table_name:'company_accounts',pk_json:JSON.stringify({id:parent.id}),operation:'INSERT',base_json:null,row_json:JSON.stringify(parent),origin_device:deviceId,created_at:new Date().toISOString()});
+      parentQueue.push({table:'company_accounts',row:parent});
+    }
     let parentScan=0;
     while(parentQueue.length && parentScan++<2000 && outgoingEvents.length<700) {
       const item=parentQueue.shift();

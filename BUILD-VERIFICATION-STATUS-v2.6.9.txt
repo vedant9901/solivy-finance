@@ -1,0 +1,14 @@
+SOLIVY Finance v2.6.9 — Financial Repair + TDS Credit Tracking
+Baseline: SOLIVY-Finance-v2.6.8-ADMIN-FINANCIAL-REPAIR.zip
+
+PASS: scripts/check-source.cjs (84 TypeScript files parsed)
+PASS: scripts/check-security.cjs
+PASS: scripts/check-financial-repair-tds.cjs
+PASS: scripts/check-finance-mis.cjs
+PASS: scripts/check-money-out.cjs
+PASS: scripts/check-release-safety.cjs
+
+NOT VERIFIED: Next.js production build could not run in this environment because dependencies are not installed (`next: not found`). The ZIP does not contain node_modules. Run npm install (preferably npm ci after adding/confirming a package lock) in a network-enabled release environment, then npm run build.
+NOT VERIFIED: Runtime financial regression tests against a real/copied SQLite database, backup restore, online PostgreSQL bridge integration, and UI/API smoke tests.
+
+Release gate: test only on a copied TEST database first. Verify bank closing balances and TDS credit entries against the statement and TDS certificate / Form 26AS before LIVE use. Do not treat static checks as production certification.

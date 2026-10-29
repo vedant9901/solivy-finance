@@ -9,7 +9,7 @@ async function __bridge_GET(_req: Request) {
   try {
     const d = adminDb();
     const companies = d.prepare('SELECT id, name, code FROM companies WHERE active = 1 ORDER BY name').all();
-    return NextResponse.json({ companies });
+    return NextResponse.json({ companies }, { headers: { 'Cache-Control': 'private, no-store, max-age=0' } });
   } catch (error: unknown) {
     console.error('GET /api/login-companies failed:', error);
     return NextResponse.json({ error: 'Unable to load companies. Check DATABASE_URL and the SOLIVY database bridge.' }, { status: 500 });

@@ -1,0 +1,11 @@
+import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
+import { db, sessionMode } from '../../../lib/db';
+import { NextResponse } from 'next/server';
+function ctx(req:Request){const role=String(req.headers.get('x-aksh-role')||'');let menu:string[]=[];try{menu=JSON.parse(req.headers.get('x-aksh-menu')||'[]')}catch{}if(role!=='ADMIN'&&!menu.some(x=>['godowns','purchase','sauda'].includes(x)))throw Error('Godown access is not assigned to this user.');return db(sessionMode(req),Number(req.headers.get('x-aksh-company-id')||1));}
+async function get(req:Request){try{const d=ctx(req),id=Number(new URL(req.url).searchParams.get('godown_id')||0);const godowns=d.prepare(`SELECT g.*,COALESCE(SUM(i.qty_in-i.qty_out),0) stock_qty FROM godowns g LEFT JOIN inventory_lots i ON i.godown_id=g.id GROUP BY g.id ORDER BY g.active DESC,g.name`).all();if(id){const lots=d.prepare(`SELECT i.id,i.batch_no,i.godown_id,i.purchase_id,i.commodity,i.qty_in,i.qty_out,(i.qty_in-i.qty_out) available_qty,i.unit,p.sample_no,p.rate,p.purchase_date,p.party_id,COALESCE(pa.name,'') party_name FROM inventory_lots i LEFT JOIN purchases p ON p.id=i.purchase_id LEFT JOIN parties pa ON pa.id=p.party_id WHERE i.godown_id=? ORDER BY i.id DESC`).all(id);return NextResponse.json({godowns,lots})}return NextResponse.json({godowns});}catch(e:any){return NextResponse.json({error:e.message},{status:403})}}
+async function post(req:Request){try{const d=ctx(req),x=await req.json(),name=String(x.name||'').trim(),capacity=Math.max(0,Number(x.capacity_qty||0));if(!name)throw Error('Godown name is required.');if(!Number.isFinite(capacity))throw Error('Capacity must be a valid number.');const r=d.prepare('INSERT INTO godowns(name,code,location,capacity_qty,active) VALUES(?,?,?,?,1)').run(name,String(x.code||'').trim(),String(x.location||'').trim(),capacity);return NextResponse.json({ok:true,id:Number(r.lastInsertRowid)},{status:201});}catch(e:any){return NextResponse.json({error:String(e.message).includes('UNIQUE')?'Godown name already exists.':e.message},{status:400})}}
+export const runtime = 'nodejs';
+const __wrapped_GET = withPostgresSQLiteBridge(get);
+const __wrapped_POST = withPostgresSQLiteBridge(post);
+export async function GET(r:Request){return __wrapped_GET(r)}
+export async function POST(r:Request){return __wrapped_POST(r)}

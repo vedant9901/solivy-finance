@@ -27,6 +27,36 @@ function ensureConflictHistory(d:any) {
 
 const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
 
+function orderEventsByForeignKeys(d:any, events:any[]) {
+  // Apply parent rows before dependent rows; delete dependent rows before parents.
+  // Stable within each table so same-table event history is preserved.
+  const tables=(d.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[]).map(x=>String(x.name));
+  const deps=new Map<string,Set<string>>();
+  for(const t of tables){
+    if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(t)) continue;
+    try { const refs=d.prepare(`PRAGMA foreign_key_list("${t}")`).all() as any[]; deps.set(t,new Set(refs.map(r=>String(r.table)).filter(p=>p&&p!==t))); } catch { deps.set(t,new Set()); }
+  }
+  const memo=new Map<string,number>(); const visiting=new Set<string>();
+  const rank=(t:string):number=>{ if(memo.has(t)) return memo.get(t)!; if(visiting.has(t)) return 0; visiting.add(t); let n=0; for(const p of deps.get(t)||[]) n=Math.max(n,rank(p)+1); visiting.delete(t); memo.set(t,n); return n; };
+  for(const t of tables) rank(t);
+  return events.map((e,i)=>({e,i})).sort((a,b)=>{
+    const da=String(a.e?.operation||'').toUpperCase()==='DELETE', dbb=String(b.e?.operation||'').toUpperCase()==='DELETE';
+    if(da!==dbb) return da?-1:1;
+    const ra=rank(String(a.e?.table_name||'')), rb=rank(String(b.e?.table_name||''));
+    if(ra!==rb) return da?rb-ra:ra-rb;
+    return a.i-b.i;
+  }).map(x=>x.e);
+}
+function describeForeignKeyFailure(d:any, event:any, error:any) {
+  const message=String(error?.message||error||'Sync failed');
+  if(!/foreign key constraint failed/i.test(message)) return message;
+  const table=String(event?.table_name||'unknown');
+  let refs:any[]=[]; try { if(/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) refs=d.prepare(`PRAGMA foreign_key_list("${table}")`).all(); } catch {}
+  const pk=String(event?.pk_json||'');
+  return `Foreign key constraint failed while syncing ${table} (operation ${String(event?.operation||'unknown')}, key ${pk||'unknown'}). Referenced tables: ${refs.map(r=>`${r.table}.${r.to||'id'} via ${r.from}`).join(', ')||'not discoverable from this table schema'}. The batch was rolled back; parent records must exist before dependent records.`;
+}
+
+
 function mergeInitialCompanySettings(current:any, incoming:any, cols:any[], companyName='') {
   const merged:any = {};
   const conflicts:any[] = [];
@@ -181,7 +211,7 @@ async function handler(req:Request) {
     const pulled=await pull.json().catch(()=>({}));
     if(!pull.ok) return NextResponse.json({error:pulled.error||`Remote pull failed (${pull.status}).`,pushed},{status:502});
     if (pulled.destination_device_id) { d.prepare('UPDATE sync_meta SET remote_device_id=? WHERE id=1').run(String(pulled.destination_device_id)); }
-    const events=Array.isArray(pulled.events)?pulled.events:[];
+    const events=orderEventsByForeignKeys(d,Array.isArray(pulled.events)?pulled.events:[]);
     const summary={applied:0,duplicates:0,unchanged:0};
     const localMappings:any[]=[];
     let activePullEvent:any=null;
@@ -198,7 +228,7 @@ async function handler(req:Request) {
       });
       tx();
     } catch(e:any) {
-      return NextResponse.json({error:e?.message||'Local apply failed; downloaded batch was not committed.',conflict:true,conflict_phase:'pull',conflict_event:activePullEvent?{event_id:activePullEvent.event_id,table_name:activePullEvent.table_name,pk_json:activePullEvent.pk_json,operation:activePullEvent.operation,base_json:activePullEvent.base_json,row_json:activePullEvent.row_json}:null,conflict_detail:e?.conflictDetail||null,pushed,pending_downloads:events.length,remote_cursor:Number(pulled.cursor||meta.remote_cursor||0)},{status:409});
+      return NextResponse.json({error:describeForeignKeyFailure(d,activePullEvent,e)||'Local apply failed; downloaded batch was not committed.',conflict:true,conflict_phase:'pull',conflict_event:activePullEvent?{event_id:activePullEvent.event_id,table_name:activePullEvent.table_name,pk_json:activePullEvent.pk_json,operation:activePullEvent.operation,base_json:activePullEvent.base_json,row_json:activePullEvent.row_json}:null,conflict_detail:e?.conflictDetail||null,pushed,pending_downloads:events.length,remote_cursor:Number(pulled.cursor||meta.remote_cursor||0)},{status:409});
     }
     return NextResponse.json({ok:true,mode,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,pushed,pulled:events.length,...summary,id_mappings_created:localMappings.length,last_sync_at:new Date().toISOString(),has_more:Boolean(pulled.has_more)});
   } catch(e:any) { return NextResponse.json({error:e?.message||'Sync failed.'},{status:400}); }

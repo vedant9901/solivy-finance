@@ -27,6 +27,25 @@ function ensureConflictHistory(d:any) {
 
 const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
 
+// Ensure local-only schema migrations are present before replaying their sync events.
+// Older peers may not have visited Admin -> Financial Repair yet, so relying on that
+// page/API to create this table causes HTTP 409 "Unknown synchronized table".
+function ensureFinancialRepairReviewSchema(d:any) {
+  d.exec(`CREATE TABLE IF NOT EXISTS financial_repair_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id INTEGER NOT NULL,
+    mode TEXT NOT NULL,
+    company_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    reviewed_by TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL
+  )`);
+  const cols=d.prepare('PRAGMA table_info(financial_repair_reviews)').all() as any[];
+  const names=new Set(cols.map((c:any)=>String(c.name)));
+  if (!names.has('reviewed_at')) d.exec("ALTER TABLE financial_repair_reviews ADD COLUMN reviewed_at TEXT NOT NULL DEFAULT ''");
+}
+
 function orderEventsByForeignKeys(d:any, events:any[]) {
   // Apply parent rows before dependent rows; delete dependent rows before parents.
   // Stable within each table so same-table event history is preserved.
@@ -190,6 +209,7 @@ async function handler(req:Request) {
   try { ctx=tokenContext(req); }
   catch(e:any) { return NextResponse.json({error:e?.message||'Unauthorized sync device.'},{status:401}); }
   const d=db(ctx.mode,ctx.companyId);
+  ensureFinancialRepairReviewSchema(d);
   const organization=adminDb().prepare('SELECT name,active FROM companies WHERE id=?').get(ctx.companyId) as any;
   if(!organization || !organization.active) return NextResponse.json({error:'The paired destination organization is missing or inactive.'},{status:403});
   const companyName=String(organization.name||'');

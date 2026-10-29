@@ -193,10 +193,43 @@ async function handler(req:Request) {
       return NextResponse.json({error:`Sync blocked: selected offline company "${localCompanyName}" does not match the token-authorized online company "${remoteOrganizationName||'unknown'}". Select AKSH ENTERPRISE on both sides and use the token generated while AKSH ENTERPRISE (online company ID ${remoteCompanyId}) is selected. No sync changes were pushed.`},{status:409});
     }
     const pending=d.prepare('SELECT seq,event_id,table_name,pk_json,operation,base_json,row_json,origin_device,created_at FROM sync_changes WHERE pushed=0 ORDER BY seq LIMIT 500').all() as any[];
+    // Include snapshots of referenced parent rows when an outgoing child event depends on a
+    // parent that has no outgoing event in this batch. This repairs legacy/incomplete sync
+    // histories (for example account_transactions.account_id -> company_accounts.id) without
+    // disabling foreign keys or dropping the child transaction. The destination still runs its
+    // normal ID-collision reconciliation and records mappings before applying dependent rows.
+    const outgoingEvents:any[]=[...pending];
+    const seenParents=new Set<string>();
+    for (const e of pending) { try { const pk=JSON.parse(String(e.pk_json||'{}')); seenParents.add(String(e.table_name)+'|'+canon(pk)); } catch {} }
+    const parentQueue:any[]=[...pending.filter((e:any)=>String(e.operation||'').toUpperCase()!=='DELETE' && e.row_json).map((e:any)=>({table:String(e.table_name),row:JSON.parse(String(e.row_json))}))];
+    let parentScan=0;
+    while(parentQueue.length && parentScan++<2000 && outgoingEvents.length<700) {
+      const item=parentQueue.shift();
+      if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(item.table)) continue;
+      let fks:any[]=[]; try { fks=d.prepare(`PRAGMA foreign_key_list("${item.table}")`).all() as any[]; } catch { continue; }
+      for(const fk of fks) {
+        const from=String(fk.from||''), parentTable=String(fk.table||''), to=String(fk.to||'id');
+        if(!from || !parentTable || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(parentTable) || to!=='id') continue;
+        const parentId=item.row?.[from]; if(parentId===null || parentId===undefined) continue;
+        let parent:any=null; try { parent=d.prepare(`SELECT * FROM "${parentTable}" WHERE "${to}"=?`).get(parentId); } catch {}
+        if(!parent) continue; // Do not fabricate a missing parent; destination will report the precise FK.
+        const parentKey={id:parent[to]}; const signature=parentTable+'|'+canon(parentKey);
+        if(seenParents.has(signature)) continue;
+        seenParents.add(signature);
+        const cols=d.prepare(`PRAGMA table_info("${parentTable}")`).all() as any[];
+        const pks=cols.filter((c:any)=>Number(c.pk)>0);
+        if(pks.length!==1 || String(pks[0].name)!==to) continue;
+        const synthetic={seq:-1,event_id:crypto.randomUUID(),table_name:parentTable,pk_json:JSON.stringify(parentKey),operation:'INSERT',base_json:null,row_json:JSON.stringify(parent),origin_device:deviceId,created_at:new Date().toISOString()};
+        outgoingEvents.push(synthetic);
+        parentQueue.push({table:parentTable,row:parent});
+        if(outgoingEvents.length>=700) break;
+      }
+    }
+    const outgoingOrdered=orderEventsByForeignKeys(d,outgoingEvents);
     const outgoingMappings=meta.remote_device_id ? mappingsForPeer(d,String(meta.remote_device_id),deviceId) : [];
     let pushed=0;
-    if(pending.length || outgoingMappings.length) {
-      const resp=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,body:JSON.stringify({events:pending,mappings:outgoingMappings}),cache:'no-store'});
+    if(outgoingEvents.length || outgoingMappings.length) {
+      const resp=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,body:JSON.stringify({events:outgoingOrdered,mappings:outgoingMappings}),cache:'no-store'});
       const data=await resp.json().catch(()=>({}));
       if(!resp.ok) return NextResponse.json({error:data.error||`Remote push failed (${resp.status}).`,conflict:resp.status===409,conflict_detail:data.conflict_detail||null,conflict_event:data.conflict_event||null,conflict_phase:data.conflict_phase||'push',pending:pending.length},{status:resp.status===409?409:502});
       if (Array.isArray(data.mappings)) storeInverseMappings(d,data.mappings,String(data.destination_device_id||'remote-device'));

@@ -1,0 +1,6 @@
+SOLIVY Finance 2.7.3 — moisture display fix
+Build name: SOLIVY-Finance-v2.7.3-MOISTURE-DISPLAY-FIX
+Release candidate — NOT production-ready; see RELEASE-STATUS.md for the gate status (unchanged from v2.7.2).
+Baselines: v2.7.2, v2.7.1, v2.7.0-rc.1 (all tagged, unchanged) / v2.6.30 original.
+Source commit: 56400b8+docs   Built: 2026-10-30
+Display-only change. Tests: 68 offline, 31 online (PostgreSQL 16, not Neon), 4 browser, 22 legacy scripts.

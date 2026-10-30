@@ -39,11 +39,18 @@ test('every template renders both bill types with the identical total = net paya
   }
 });
 
-test('moisture presentation: per-MT shows rupee moisture AND quality; per-kg shows one Moisture (x%) row', async () => {
+test('moisture presentation (v2.7.3): the percentage is a percentage, the deduction is money, never swapped', async () => {
+  // Legacy per-MT record whose stored moisture (750) is a rupee deduction, not a percentage.
   const a = (await bill(perMt, { template: 'classic' })).text;
-  assert.match(a, /\(Moisture\) Tj/); assert.match(a, /\(Quality Deduct\) Tj/); assert.ok(amt(a, '750'), 'moisture rupees printed'); assert.ok(amt(a, '1,800'), 'quality printed');
+  assert.match(a, /\(Moisture Deduction\) Tj/, 'the money row is named as a deduction');
+  assert.match(a, /\(Less :\) Tj/, 'the template supplies the "Less :" prefix once');
+  assert.doesNotMatch(a, /750%/, 'a rupee amount is never printed as a percentage');
+  assert.match(a, /\(Quality Deduct\) Tj/); assert.ok(amt(a, '750'), 'moisture rupees printed'); assert.ok(amt(a, '1,800'), 'quality printed');
+  // Per-kg rule: moisture 2.5% is informational and the quality deduction is the moisture money.
   const b = (await bill(perKg, { template: 'classic' })).text;
-  assert.ok(b.includes('Moisture \\(2.5%\\)'), 'per-kg moisture % label'); assert.doesNotMatch(b, /\(Quality Deduct\) Tj/); assert.ok(amt(b, '6,600'));
+  assert.ok(b.includes('Moisture Deduction \\(2.5%\\)'), 'percentage shown in the label');
+  assert.doesNotMatch(b, /\(Quality Deduct\) Tj/, 'one moisture row only — never deducted twice');
+  assert.ok(amt(b, '6,600'), 'the amount is the one the existing calculation produced');
 });
 
 test('Truck No. prints below Sample No. only when enabled', async () => {
@@ -105,4 +112,72 @@ test('preview responses may be framed by the same origin only; everything else s
   assert.equal((await mk('&preview=1')).headers.get('x-frame-options'), 'SAMEORIGIN');
   assert.equal((await mk('')).headers.get('x-frame-options'), 'DENY');
   assert.match((await mk('&preview=1')).headers.get('content-security-policy'), /frame-ancestors 'self'/);
+});
+
+test('moisture display (v2.7.3) across records old and new, without changing any stored figure', async () => {
+  const { moistureDisplay } = await import('../../lib/documents/moisture');
+  const d = db('LIVE', s.companyId);
+
+  // The stored rows and their totals must be exactly what the existing calculation produced.
+  const stored = (id: number) => d.prepare('SELECT moisture, quality_deduct_rate_per_kg, quality_deduct_amount, total_deduction, net_payable, gross_amount FROM purchases WHERE id=?').get(id) as any;
+  const beforePerMt = stored(perMt); const beforePerKg = stored(perKg);
+
+  // Legacy per-MT record: the stored value is the rupee deduction; no percentage is claimed for 750.
+  const mt = moistureDisplay(beforePerMt);
+  assert.equal(mt.amount, 750, 'the amount is the deduction the calculation applied');
+  assert.equal(mt.percent, 0, 'an implausible percentage is never shown as one');
+  assert.equal(mt.percentText, '');
+  assert.equal(mt.label, 'Moisture Deduction');
+
+  // Per-kg record: 2.5% is the percentage, and the quality deduction is the moisture money.
+  const kg = moistureDisplay(beforePerKg);
+  assert.equal(kg.percent, 2.5);
+  assert.equal(kg.percentText, '2.5%');
+  assert.equal(kg.amount, Math.round(beforePerKg.quality_deduct_amount));
+  assert.equal(kg.label, 'Moisture Deduction (2.5%)');
+
+  // A record entered as a percentage under the legacy rule: 20 means 20% and ₹20 deducted.
+  const twenty = expectOk(await call('/api/purchases', { cookie: s.cookie, body: { party_id: vendor, purchase_date: '2026-06-12', net_weight: 1000, gross_weight: 1010, rate: 50, moisture: 20, truck_number: 'GJ09MM2020', goods_description: 'Cumin' } }));
+  const row20 = stored(twenty.id);
+  const m20 = moistureDisplay(row20);
+  assert.equal(m20.percent, 20); assert.equal(m20.percentText, '20%');
+  assert.equal(m20.amount, 20, 'the deduction stays exactly what the calculation applied');
+  assert.equal(m20.label, 'Moisture Deduction (20%)');
+  assert.equal(Math.round(row20.net_payable), Math.round(row20.gross_amount - row20.total_deduction), 'stored totals untouched');
+  const pdf20 = (await bill(twenty.id, { template: 'classic' })).text;
+  assert.ok(pdf20.includes('Moisture Deduction \\(20%\\)'), 'the bill prints the percentage in the label');
+  assert.ok(amt(pdf20, '20'), 'and ₹20 as the amount');
+
+  // No moisture entered: nothing misleading appears on any template.
+  const none = expectOk(await call('/api/purchases', { cookie: s.cookie, body: { party_id: vendor, purchase_date: '2026-06-13', net_weight: 1000, gross_weight: 1010, rate: 50, freight: 500, truck_number: 'GJ09NN0000', goods_description: 'Cumin' } }));
+  assert.equal(moistureDisplay(stored(none.id)).show, false);
+  for (const t of TEMPLATES) {
+    const text = (await bill(none.id, { template: t.id })).text;
+    assert.doesNotMatch(text, /Moisture/, `${t.id}: no moisture row when none was entered`);
+  }
+
+  // Every template prints the same moisture label and the same total for the same record.
+  const labels = new Set<boolean>(); const totals = new Set<number>();
+  for (const t of TEMPLATES) {
+    const r = await bill(twenty.id, { template: t.id });
+    labels.add(r.text.includes('Moisture Deduction \\(20%\\)'));
+    totals.add(Number(r.headers.get('x-bill-total')));
+  }
+  assert.deepEqual([...labels], [true], 'all five templates show the percentage label');
+  assert.equal(totals.size, 1, 'and the identical total');
+  assert.equal([...totals][0], Math.round(row20.net_payable));
+
+  // Payment advice uses the same presentation.
+  const acct = expectOk(await call('/api/accounts', { cookie: s.cookie, body: { account_name: 'Doc Bank', bank_name: 'HDFC', account_type: 'BANK', opening_balance: 500000, opening_date: '2026-04-01' } }));
+  const accountId = acct.id || (db('LIVE', s.companyId).prepare('SELECT id FROM company_accounts ORDER BY id LIMIT 1').get() as any).id;
+  const pay = expectOk(await call('/api/payments', { cookie: s.cookie, body: { party_id: vendor, payment_date: '2026-06-12', amount: 1000, mode: 'BANK', company_account_id: accountId, allocations: [{ purchase_id: twenty.id, amount: 1000 }] } }));
+  const advice = await call('/api/payment-advice', { cookie: s.cookie, query: { id: String(pay.id || pay.payment_id) } });
+  if (advice.status === 200) {
+    assert.ok(advice.text.includes('Moisture Deduction \\(20%\\)') || advice.text.includes('Moisture Deduction'), 'payment advice names the deduction, not a rupee percentage');
+    assert.doesNotMatch(advice.text, /\(Moisture\) Tj/, 'the bare "Moisture" money label is gone');
+  }
+
+  // Nothing above changed a stored figure.
+  assert.deepEqual(stored(perMt), beforePerMt);
+  assert.deepEqual(stored(perKg), beforePerKg);
 });

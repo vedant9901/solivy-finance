@@ -201,9 +201,8 @@ async function __bridge_GET(req:Request){
 
   // Deductions only appear when enabled and non-zero. Their sum is the same
   // sum removed from the printed total; the source purchase record is untouched.
-  // Moisture is entered as a percentage. Under the legacy calculation it also
-  // represents the stored deduction amount; under the per-kg quality rule it is
-  // informational unless a separate moisture_deduction_amount exists.
+  // Moisture is entered as a percentage; lib/documents/moisture.ts decides how it is shown
+  // (percentage in the label, the amount the calculation deducted in the money column).
   // v2.7.0: deduction rows and total come from the shared bill model (same figures in every template).
   const shared=billDeductions(row,s,billType==='third-party'?'third-party':'commercial');
   const visibleDeductions:[string,number][]=descIndex>=0?shared.deductions.map(x=>[x.label,x.amount]):[];

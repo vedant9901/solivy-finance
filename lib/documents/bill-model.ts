@@ -3,12 +3,15 @@
  * One source of truth for what a bill shows, shared by every template, so totals are identical
  * whatever template is selected. Nothing here recalculates or modifies the stored purchase.
  *
- * Deductions follow the stored purchase values:
- *  - Rate-per-kg quality rule (quality_deduct_rate_per_kg > 0): `moisture` is the moisture % and is
- *    informational; the quality deduction IS the moisture deduction → one "Moisture (x%)" row.
- *  - Per-MT rule: `moisture` is a RUPEE deduction (counted in net payable) and quality is separate →
- *    two rows. (v2.6.30 printed the quality amount as moisture and dropped the rupee moisture amount
- *    whenever both were present, so the printed total did not equal net payable.)
+ * Deductions follow the stored purchase values, and moisture is presented by lib/documents/moisture.ts
+ * (v2.7.3): the percentage appears in the label, the money in the amount column, never the other way
+ * round. One moisture row only, so nothing is deducted twice:
+ *  - Rate-per-kg quality rule (quality_deduct_rate_per_kg > 0): the quality deduction IS the moisture
+ *    deduction → "Less: Moisture Deduction (20%)" carrying that amount.
+ *  - Per-MT rule: the stored moisture value is what the calculation deducted → the same row carries
+ *    it, with the entered percentage in the label, and quality is listed separately.
+ *    (v2.6.30 printed the quality amount as moisture and dropped the rupee moisture amount whenever
+ *    both were present, so the printed total did not equal net payable.)
  * The printed total = gross − deductions shown. With every deduction enabled it equals net payable.
  */
 export type BillSettings = Record<string, any>;
@@ -24,6 +27,8 @@ export type BillModel = {
   amountWords: string; show: { amountWords: boolean; declaration: boolean; signature: boolean; bank: boolean; headerDate: string };
   fileBase: string;
 };
+
+import { moistureDisplay } from './moisture';
 
 const clean = (v: any) => String(v ?? '').trim();
 const inr = (v: any) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -45,22 +50,19 @@ export function wordsINR(n: number) {
 
 /** The deduction rows a bill prints and the resulting total (shared by all templates). */
 export function billDeductions(row: any, s: BillSettings, kind: 'commercial' | 'third-party') {
-  const moisture = Number(row.moisture || 0);
-  const perKgRule = Number(row.quality_deduct_rate_per_kg || 0) > 0;
+  const m = moistureDisplay(row);
   const quality = Number(row.quality_deduct_amount || 0);
-  const explicitMoistureAmount = Number(row.moisture_deduction_amount || 0);
   const rows: Array<[string, number, string, boolean]> = [
     ['Unload Charges', Number(row.unload_charge || 0), 'include_unload', false],
     ['Driver Rokdi', Number(row.driver_rokdi || 0), 'include_driver_rokdi', false],
     ['Freight', Number(row.freight || 0), 'include_freight', false],
   ];
-  if (perKgRule) {
-    // Moisture % is the basis of the quality deduction: print once, as Moisture (x%).
-    const amount = explicitMoistureAmount > 0 ? explicitMoistureAmount : quality;
-    if (moisture > 0) rows.push([`Moisture (${moisture.toLocaleString('en-IN', { maximumFractionDigits: 2 })}%)`, amount, 'include_moisture', true]);
+  if (m.perKgRule) {
+    // The quality deduction is the moisture deduction under this rule: one row, never both.
+    if (m.percent > 0) rows.push([m.label, m.amount, 'include_moisture', true]);
     else rows.push(['Quality Deduct', quality, 'include_quality_deduct', false]);
   } else {
-    rows.push(['Moisture', explicitMoistureAmount > 0 ? explicitMoistureAmount : moisture, 'include_moisture', false]);
+    if (m.show) rows.push([m.label, m.amount, 'include_moisture', false]);
     rows.push(['Quality Deduct', quality, 'include_quality_deduct', false]);
   }
   rows.push(['Discount', Number(row.discount_amount || 0), 'include_discount', false]);

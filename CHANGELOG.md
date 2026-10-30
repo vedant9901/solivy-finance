@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.7.3 — 2026-10-30 (moisture display fix)
+Display only. No financial logic, stored value, total or database change; `lib/utils.ts
+purchaseCalc` is untouched and every stored figure was asserted unchanged by the tests.
+- New `lib/documents/moisture.ts` is the single source of truth for how moisture is shown: the
+  percentage as a percentage, the deduction as the amount the existing calculation already applied.
+- Fixed: a moisture percentage could be printed as a rupee deduction. Bills (all five templates,
+  PDFs and previews), payment advice, the Purchase/Sample screen and the purchases export now show
+  `Moisture Deduction (20%)` with the calculated amount in the money column.
+- One moisture row only, so nothing is deducted twice; under the rate-per-kg quality rule the
+  quality deduction is the moisture deduction, as before.
+- A stored value above 100 cannot be a percentage (legacy rupee entries), so no percentage is
+  claimed for it. Nothing is shown when no moisture was entered.
+- Purchases export now has `moisture_percent` and a derived `moisture_deduction` column.
+
 ## 2.7.2 — 2026-10-30 (NEON GUARD)
 Details in `RELEASE-NOTES-v2.7.2.md`; measurements in `docs/PERFORMANCE-v2.7.2.md`.
 - Every route and method declares READ / WRITE / NO_DB in `lib/api-access.ts`, enforced by the

@@ -1,5 +1,15 @@
 # Worklog
 
+## 2026-10-30 — v2.7.3 (moisture display)
+The stored `purchases.moisture` column means two things depending on the quality rule, and the
+purchase form labels it "Moisture (%)": under the rate-per-kg rule `purchaseCalc` deducts nothing
+for it (the quality deduction is the moisture money), under the legacy per-MT rule it deducts the
+stored value itself. Displays that printed the raw column as currency were the bug. One helper now
+decides the presentation everywhere; the money shown is always the amount the calculation applied,
+and a value above 100 is treated as a legacy rupee amount rather than claimed as a percentage.
+Sites fixed: shared bill model (all templates/PDF/preview), payment advice, Purchase/Sample KPIs,
+document-settings labels, purchases export.
+
 ## 2026-10-30 — v2.7.2 (NEON GUARD)
 **What the access classes found.** Declaring READ/WRITE/NO_DB per route and enforcing it in the
 bridge immediately caught five read paths that were writing: `CREATE TABLE IF NOT EXISTS` on the

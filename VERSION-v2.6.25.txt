@@ -1,0 +1,2 @@
+SOLIVY Finance v2.6.25
+Purchase and third-party bill sample number/date visibility fix.

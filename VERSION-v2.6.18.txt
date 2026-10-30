@@ -1,2 +1,1 @@
-SOLIVY Finance v2.6.18
-Account Transaction Parent Sync Fix
+SOLIVY Finance v2.6.23 — Third-Party Sample No. & Date Persistence Fix

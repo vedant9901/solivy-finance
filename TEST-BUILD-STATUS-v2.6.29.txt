@@ -1,0 +1,16 @@
+SOLIVY Finance v2.6.29 — TEST BUILD STATUS
+
+Source/static checks passed:
+- TypeScript/source parse audit
+- Security audit
+- Database bridge audit
+- Sync audit
+- Import schema audit
+- Release safety audit
+- Online login/organization audit
+- Sync company-settings audit
+- Dashboard, finance MIS, money-out, funding, transfers, user/organization, and other check-*.cjs/mjs regression scripts
+- Moisture fallback and /api/data route regression checks
+- ZIP integrity (verified at packaging time)
+
+Production build status: NOT VERIFIED. npm dependency installation timed out in this environment, so next build could not be run. This is a source test build, not a production-approved deployment artifact. Before deployment, run npm install and npm run build in a network-enabled environment, then test authenticated LIVE and TEST flows against the actual databases.

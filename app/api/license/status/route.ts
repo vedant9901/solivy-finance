@@ -1,5 +1,6 @@
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
+import { conditionalJson, adminWatermark } from '../../../../lib/data-version';
 import crypto from 'node:crypto';
 import { adminDb } from '../../../../lib/db';
 import { COOKIE, verifySession } from '../../../../lib/session';
@@ -113,5 +114,5 @@ async function __bridge_GET(req: Request) {
 
 export const runtime = 'nodejs';
 
-const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+const __wrapped_GET = withPostgresSQLiteBridge((req:Request)=>conditionalJson(req,['license-v1',adminWatermark(adminDb()),process.env.SOLIVY_LICENSE_ENFORCEMENT||'off',(process.env.SOLIVY_LICENSE_TOKEN||'').length,(process.env.SOLIVY_LICENSES_JSON||'').length,req.headers.get('x-aksh-company-id'),req.headers.get('x-aksh-role')],()=>__bridge_GET(req)),{scope:'admin'});
 export async function GET(req: Request) { return __wrapped_GET(req); }

@@ -97,3 +97,7 @@ Only an authenticated **ADMIN** can purge LIVE or TEST. The confirmation phrase 
 ## v2.5.21 licensing and security
 
 Read [README-OWNER-v2.5.21.md](./README-OWNER-v2.5.21.md) before issuing licenses or deploying. Keep the vendor private key outside client packages. This release is a hardening candidate and requires clean Windows/Vercel verification before production use.
+
+
+## v2.6.20 — Discount after quality setting
+Company Settings now includes a default-checked option to calculate purchase discount percentage after quality deduction. The setting is persisted per company database and applied consistently in the purchase preview and purchase API.

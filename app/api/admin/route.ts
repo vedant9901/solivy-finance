@@ -11,5 +11,5 @@ if(phrase!==`PURGE ${mode}`)throw Error(`Type PURGE ${mode} to confirm`);const b
 
 export const runtime = 'nodejs';
 
-const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST,{scope:'company-both'});
 export async function POST(req: Request) { return __wrapped_POST(req); }

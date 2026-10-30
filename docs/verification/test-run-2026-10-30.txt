@@ -1,0 +1,41 @@
+SOLIVY Finance v2.7.1 verification — 2026-10-30T07:07:32Z, node v22.23.4
+commit: df1c278
+## npm test (unit + integration, SQLite)
+# tests 67
+# pass 67
+# fail 0
+# skipped 0
+## npm run test:online (real PostgreSQL 16 at 127.0.0.1:54329 — NOT Neon)
+# tests 22
+# pass 22
+# fail 0
+# skipped 0
+## npm run test:ui (Playwright Chromium, esbuild bundle of the real components)
+# tests 4
+# pass 4
+# fail 0
+# skipped 0
+## typecheck (tsc -p tsconfig.verify.json, stubbed next/* types)
+exit=0 errors=0
+## legacy regression scripts
+check-dashboard-metrics.cjs exit=0
+check-dynamic-module-access.cjs exit=0
+check-finance-mis.cjs exit=0
+check-financial-repair-tds.cjs exit=0
+check-funding-transfer.cjs exit=0
+check-moisture-data-api.cjs exit=0
+check-money-out.cjs exit=0
+check-multicompany-sync.cjs exit=0
+check-online-login-org.cjs exit=0
+check-release-safety.cjs exit=0
+check-security.cjs exit=0
+check-source.cjs exit=0
+check-sync-company-settings.cjs exit=0
+check-user-org-conflicts.cjs exit=0
+check-database-bridge.mjs exit=0
+check-env.mjs exit=0
+check-import-schema.mjs exit=0
+check-sync-id-mapping.mjs exit=0
+check-sync.mjs exit=0
+check-test-to-live-purge-fix.mjs exit=0
+check-transfers.mjs exit=0

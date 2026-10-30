@@ -52,6 +52,13 @@ try {
     db_file BYTEA NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
+  // v2.7.0+: snapshots are versioned and chunked. A raw db_file overwrite would be ignored by running
+  // instances (version unchanged) and would bypass the pre-replacement backup, so refuse here.
+  const v27 = await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name='solivy_sqlite_snapshots' AND column_name='manifest'`);
+  if (v27.rowCount) {
+    console.error('This database uses the v2.7 chunked snapshot format. Use: npm run snapshot:online -- import <db_key> <file.db> --confirm');
+    process.exit(2);
+  }
   console.log(`Found ${snapshots.length} SQLite database file(s).`);
   for (const item of snapshots) {
     const bytes = fs.readFileSync(item.file);

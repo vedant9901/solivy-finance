@@ -41,7 +41,7 @@ async function handler(req:Request){try{
  throw Error('Unsupported funding transfer action.');
  }catch(e:any){return NextResponse.json({error:e?.message||'Funding transfer failed.'},{status:400})}}
 export const runtime = 'nodejs';
-const __wrapped_GET = withPostgresSQLiteBridge(handler);
-const __wrapped_POST = withPostgresSQLiteBridge(handler);
+const __wrapped_GET = withPostgresSQLiteBridge(handler,{scope:'all-mode'});
+const __wrapped_POST = withPostgresSQLiteBridge(handler,{scope:'all-mode'});
 export async function GET(req:Request){return __wrapped_GET(req)}
 export async function POST(req:Request){return __wrapped_POST(req)}

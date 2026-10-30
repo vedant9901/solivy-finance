@@ -6,5 +6,5 @@ async function __bridge_GET(req:Request){try{const u=new URL(req.url);const mode
 
 export const runtime = 'nodejs';
 
-const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET,{scope:'company',extraFiles:(req)=>{const id=Number(new URL(req.url).searchParams.get('company_id')||0);const mode=req.headers.get('x-aksh-mode')==='TEST'?'TEST' as const:'LIVE' as const;return id>0?[{id,mode}]:[]}});
 export async function GET(req: Request) { return __wrapped_GET(req); }

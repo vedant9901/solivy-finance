@@ -1,0 +1,2 @@
+SOLIVY Finance 2.7.0-rc.1 (release candidate — NOT production-ready; see RELEASE-STATUS.md)
+Source commit: f3ff154+docs   Baseline: v2.6.30 (369b063)   Built: 2026-10-29

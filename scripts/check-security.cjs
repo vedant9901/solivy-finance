@@ -32,7 +32,7 @@ const checks = [
   ['CSRF same-origin enforcement', security.includes('sameOrigin') && middleware.includes('authorizeRequest')],
   ['security headers', middleware.includes('securityHeaders')],
   ['request-size limit', middleware.includes('Request body is too large')],
-  ['login rate limiting', login.includes('checkLoginRateLimit') && login.includes('recordLoginFailure')],
+  ['login rate limiting (shared store, v2.7.0)', login.includes('checkThrottle') && login.includes('recordFailure')],
   ['mobile Tailwind header grid', page.includes('grid-cols-2') && page.includes('sm:flex')],
   ['mobile responsive table cards', page.includes('md:hidden') && page.includes('md:block')],
   ['no old production Secure-cookie expression', !fs.readFileSync(path.join(root,'app/api/switch-company/route.ts'),'utf8').includes("secure:process.env.NODE_ENV==='production'")],

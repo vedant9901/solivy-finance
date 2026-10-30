@@ -55,7 +55,7 @@ async function __bridge_POST(req:Request){
     const no=String(x.movement_no||'').trim() || `${type==='TRANSFER'?'TRF':'WDL'}-${String(x.movement_date).replaceAll('-','')}-${String((d.prepare('SELECT COUNT(*) c FROM account_movements WHERE movement_date=? AND movement_type=?').get(x.movement_date,type) as any).c+1).padStart(4,'0')}`;
     const tx=d.transaction(()=>{
       const r=d.prepare(`INSERT INTO account_movements(movement_no,movement_type,movement_date,from_account_id,to_account_id,amount,reference_no,narration,status) VALUES(?,?,?,?,?,?,?,?,?)`).run(no,type,x.movement_date,fromId,type==='TRANSFER'?toId:null,amount,x.reference_no||'',x.narration||'', 'POSTED');
-      d.prepare(`INSERT INTO account_transactions(account_id,transaction_date,transaction_type,amount,reference_type,reference_id,reference_no,narration) VALUES(?,?,?,?,?,?,?,?)`).run(fromId,x.movement_date,'DEBIT',amount,type,r.lastInsertRowid,no,x.narration||`${type==='TRANSFER'?'Transfer to':'Withdrawal from'} ${from.account_name}`);
+      d.prepare(`INSERT INTO account_transactions(account_id,transaction_date,transaction_type,amount,reference_type,reference_id,reference_no,narration) VALUES(?,?,?,?,?,?,?,?)`).run(fromId,x.movement_date,'DEBIT',amount,type,r.lastInsertRowid,no,x.narration||(type==='TRANSFER'?`Transfer to ${to?.account_name||'destination account'}`:`Withdrawal from ${from.account_name}`));
       if(type==='TRANSFER') d.prepare(`INSERT INTO account_transactions(account_id,transaction_date,transaction_type,amount,reference_type,reference_id,reference_no,narration) VALUES(?,?,?,?,?,?,?,?)`).run(toId,x.movement_date,'CREDIT',amount,type,r.lastInsertRowid,no,x.narration||`Transfer from ${from.account_name}`);
       return Number(r.lastInsertRowid);
     });

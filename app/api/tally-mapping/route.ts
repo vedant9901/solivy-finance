@@ -1,6 +1,6 @@
 import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
-import { db, sessionMode } from '../../../lib/db';
+import { db, sessionMode, tableExists } from '../../../lib/db';
 
 export const dynamic = 'force-dynamic';
 const DEFAULTS: Record<string,string> = {
@@ -20,14 +20,17 @@ function authorized(req: Request) {
   try { menu = JSON.parse(req.headers.get('x-aksh-menu') || '[]'); } catch {}
   if (role !== 'ADMIN' && !menu.includes('tally-export')) throw new Error('Tally Export access required');
 }
-function table(req: Request) {
+const MAPPING_DDL = `CREATE TABLE IF NOT EXISTS tally_ledger_mappings(mapping_key TEXT PRIMARY KEY,ledger_name TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`;
+/** Reads must not create the table (v2.7.2): only the write path may change the database. */
+function table(req: Request, forWrite = false) {
   const d = db(sessionMode(req), Number(req.headers.get('x-aksh-company-id') || 1));
-  d.exec(`CREATE TABLE IF NOT EXISTS tally_ledger_mappings(mapping_key TEXT PRIMARY KEY,ledger_name TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+  if (forWrite) d.exec(MAPPING_DDL);
   return d;
 }
 async function __bridge_GET(req: Request) {
   try {
     authorized(req); const d = table(req);
+    if (!tableExists(d, 'tally_ledger_mappings')) return NextResponse.json({ mappings: [] });
     const saved = d.prepare('SELECT mapping_key,ledger_name FROM tally_ledger_mappings').all() as any[];
     const mappings = { ...DEFAULTS };
     for (const row of saved) if (Object.prototype.hasOwnProperty.call(DEFAULTS, row.mapping_key)) mappings[row.mapping_key] = String(row.ledger_name);
@@ -36,7 +39,7 @@ async function __bridge_GET(req: Request) {
 }
 async function __bridge_POST(req: Request) {
   try {
-    authorized(req); const body = await req.json(); const d = table(req);
+    authorized(req); const body = await req.json(); const d = table(req, true);
     if (!body || typeof body.mappings !== 'object' || Array.isArray(body.mappings)) throw new Error('Provide a mappings object.');
     const save = d.prepare(`INSERT INTO tally_ledger_mappings(mapping_key,ledger_name,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(mapping_key) DO UPDATE SET ledger_name=excluded.ledger_name,updated_at=CURRENT_TIMESTAMP`);
     const tx = d.transaction(() => {

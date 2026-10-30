@@ -1,5 +1,6 @@
 import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import {NextResponse} from 'next/server';
+import { conditionalJson, adminWatermark } from '../../../lib/data-version';
 import {adminDb,db} from '../../../lib/db';
 function isAdmin(req:Request){return req.headers.get('x-aksh-role')==='ADMIN'}
 async function __bridge_GET(req:Request){try{const d=adminDb();const username=req.headers.get('x-aksh-user')||'';if(isAdmin(req)){return NextResponse.json({companies:d.prepare('SELECT id,name,code,address,city,state,email,gstin,pan,financial_year,active,created_at,updated_at FROM companies ORDER BY active DESC,name').all()})}const u=d.prepare('SELECT id FROM admin_users WHERE username=? AND active=1').get(username) as any;if(!u)throw Error('User not found');return NextResponse.json({companies:d.prepare('SELECT c.id,c.name,c.code,c.active,uc.can_live,uc.can_test FROM companies c JOIN user_companies uc ON uc.company_id=c.id WHERE uc.user_id=? AND c.active=1 ORDER BY c.name').all(u.id)});}catch(e:any){return NextResponse.json({error:e.message},{status:403})}}
@@ -9,14 +10,15 @@ async function __bridge_PATCH(req:Request){try{if(!isAdmin(req))throw Error('Adm
 
 export const runtime = 'nodejs';
 
-const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+const __wrapped_GET = withPostgresSQLiteBridge((req:Request)=>conditionalJson(req,['companies-v1',adminWatermark(adminDb()),req.headers.get('x-aksh-user'),req.headers.get('x-aksh-role')],()=>__bridge_GET(req)),{scope:'admin'});
 export async function GET(req: Request) { return __wrapped_GET(req); }
 
-const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+const bothFilesOfBodyCompany = (req:Request,_a:any)=>req.clone().json().then((b:any)=>{const id=Number(b?.id||0);return id>0?[{id,mode:'LIVE' as const},{id,mode:'TEST' as const}]:[]}).catch(()=>[]);
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST,{scope:'company',allowCreate:true,lockAdmin:true});
 export async function POST(req: Request) { return __wrapped_POST(req); }
 
-const __wrapped_PUT = withPostgresSQLiteBridge(__bridge_PUT);
+const __wrapped_PUT = withPostgresSQLiteBridge(__bridge_PUT,{scope:'company',allowCreate:true,lockAdmin:true,extraFiles:bothFilesOfBodyCompany});
 export async function PUT(req: Request) { return __wrapped_PUT(req); }
 
-const __wrapped_PATCH = withPostgresSQLiteBridge(__bridge_PATCH);
+const __wrapped_PATCH = withPostgresSQLiteBridge(__bridge_PATCH,{scope:'company',allowCreate:true,lockAdmin:true,extraFiles:bothFilesOfBodyCompany});
 export async function PATCH(req: Request) { return __wrapped_PATCH(req); }

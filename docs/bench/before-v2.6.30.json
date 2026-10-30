@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-10-29T11:49:10.950Z",
+  "orgs": 3,
+  "purchases_per_org": 600,
+  "snapshot_bytes_total": 6164480,
+  "snapshot_sizes": {
+    "admin": 450560,
+    "company:2:LIVE": 1904640,
+    "company:3:LIVE": 1904640,
+    "company:4:LIVE": 1904640
+  },
+  "scenarios": [
+    {
+      "name": "POST /api/login (wrong password, unauthenticated)",
+      "status": 401,
+      "ms": 668,
+      "pg_read": 12330532,
+      "pg_written": 6580941,
+      "response_bytes": 40
+    },
+    {
+      "name": "POST /api/login (valid)",
+      "status": 200,
+      "ms": 573,
+      "pg_read": 13157495,
+      "pg_written": 6589060,
+      "response_bytes": 192
+    },
+    {
+      "name": "POST /api/sync/exchange (invalid device token, unauthenticated)",
+      "status": 401,
+      "ms": 666,
+      "pg_read": 13173879,
+      "pg_written": 6589060,
+      "response_bytes": 71
+    },
+    {
+      "name": "GET /api/data (dashboard initial load)",
+      "status": 200,
+      "ms": 706,
+      "pg_read": 13173879,
+      "pg_written": 6597252,
+      "response_bytes": 1450478
+    },
+    {
+      "name": "GET /api/data (repeat, unchanged)",
+      "status": 200,
+      "ms": 665,
+      "pg_read": 13190263,
+      "pg_written": 6597252,
+      "response_bytes": 1450478
+    },
+    {
+      "name": "GET /api/accounts",
+      "status": 200,
+      "ms": 366,
+      "pg_read": 13190263,
+      "pg_written": 6597252,
+      "response_bytes": 253
+    },
+    {
+      "name": "GET /api/purchases?limit=50 (paged module)",
+      "status": 405,
+      "ms": 9,
+      "pg_read": 0,
+      "pg_written": 0,
+      "response_bytes": 0
+    },
+    {
+      "name": "GET /api/secondary-backup (5-min admin poll)",
+      "status": 200,
+      "ms": 518,
+      "pg_read": 13190263,
+      "pg_written": 6605444,
+      "response_bytes": 180
+    },
+    {
+      "name": "POST /api/parties (single write)",
+      "status": 200,
+      "ms": 356,
+      "pg_read": 13206647,
+      "pg_written": 6605444,
+      "response_bytes": 24
+    }
+  ]
+}

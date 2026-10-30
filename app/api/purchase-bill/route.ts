@@ -3,12 +3,15 @@ import { sessionMode } from '../../../lib/db';
 import { NextResponse } from 'next/server';
 import { db, adminDb, Mode } from '../../../lib/db';
 import jsPDF from 'jspdf';
+import { billDeductions, buildBillModel } from '../../../lib/documents/bill-model';
+import { renderBillTemplate, isTemplate } from '../../../lib/documents/templates';
+import { resolveDocumentPreference, sanitizeTheme } from '../../../lib/documents/preferences';
 
 const clean=(v:any)=>String(v??'').trim();
 const money=(v:any)=>Number(v||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 const num=(v:any)=>Math.round(Number(v||0));
 const kg=(v:any)=>num(v).toLocaleString('en-IN');
-const dateText=(v:any)=>{const s=clean(v);if(!s)return '';const d=new Date(s+'T00:00:00');if(Number.isNaN(d.getTime()))return s;return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}).replace(/ /g,'-')};
+const dateText=(v:any)=>{const s=clean(v);if(!s)return '';const iso=s.match(/^(\d{4}-\d{2}-\d{2})/);if(iso){const [y,m,d]=iso[1].split('-').map(Number);const dt=new Date(Date.UTC(y,m-1,d));if(!Number.isNaN(dt.getTime()))return dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'}).replace(/ /g,'-');}const d=new Date(s);if(Number.isNaN(d.getTime()))return s;return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}).replace(/ /g,'-')};
 function words(n:number){
   n=Math.round(Math.abs(n));
   const ones=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
@@ -38,6 +41,7 @@ async function __bridge_GET(req:Request){
     LEFT JOIN bank_accounts b ON b.id=(SELECT id FROM bank_accounts WHERE party_id=x.id ORDER BY is_primary DESC,id LIMIT 1)
     WHERE p.id=?`).get(id) as any;
   if(!row)throw Error('Purchase not found');
+  if(String(row.status||'').toUpperCase()==='REVERSED') throw Error('PDF is unavailable for reversed purchase/sample entries.');
 
   let toParty={name:row.party_name,address:row.address,contact:row.contact,gst:row.gst,pan:row.pan};
   if(billType==='third-party'){
@@ -52,12 +56,35 @@ async function __bridge_GET(req:Request){
   const companyBank=d.prepare('SELECT * FROM company_accounts WHERE active=1 ORDER BY id LIMIT 1').get() as any;
   const raw=d.prepare('SELECT commercial_bill_settings,third_party_bill_settings FROM company_settings WHERE id=1').get() as any;
   let s:any={};try{s=JSON.parse((billType==='third-party'?raw?.third_party_bill_settings:raw?.commercial_bill_settings)||'{}')}catch{}
+  // Support legacy setting names used by earlier client builds.
+  if (billType === 'third-party' && s.show_sample_date_together === undefined) { const v = s.combine_sample_date ?? s.combine_sample_no_date ?? s.show_sample_no_date_together; if (v !== undefined) s.show_sample_date_together = v; }
 
+  const legacyCombined = s.combine_sample_date ?? s.combine_sample_no_date ?? s.show_sample_no_date_together;
+  const combineSampleDate = s.show_sample_date_together !== undefined
+    ? !!s.show_sample_date_together
+    : (legacyCombined !== undefined ? !!legacyCombined : billType === 'third-party');
+
+  const kind=billType==='third-party'?'third-party':'commercial';
+  const pref=resolveDocumentPreference(d,String(req.headers.get('x-aksh-user')||''),kind);
+  const requestedTemplate=u.searchParams.get('template');
+  const template=requestedTemplate&&isTemplate(requestedTemplate)?requestedTemplate:pref.template_id;
+  const disposition=u.searchParams.get('preview')==='1'?'inline':'attachment';
+  if(template!=='classic'){
+    const model=buildBillModel({row,company,companyBank,toParty,settings:s,kind});
+    // Unsaved theme choices may be previewed (never applied to downloads).
+    const theme=disposition==='inline'?{...pref.theme,...sanitizeTheme({accent:u.searchParams.get('accent'),font:u.searchParams.get('font'),density:u.searchParams.get('density')})}:pref.theme;
+    const pdf=renderBillTemplate(model,template as any,theme);
+    return new Response(new Uint8Array(pdf),{headers:{'Content-Type':'application/pdf','Content-Disposition':`${disposition}; filename="Commercial-Bill-${model.fileBase}.pdf"`,'Cache-Control':'no-store','X-Bill-Total':String(model.total),'X-Bill-Template':template}});
+  }
   const doc=new jsPDF({unit:'mm',format:'a4'});
   const pageW=210,pageH=297,L=11.5,R=198.5,W=R-L;
   const black=[25,25,25] as const;
   doc.setTextColor(...black);doc.setDrawColor(...black);doc.setLineWidth(.28);
   doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text('INVOICE',105,9,{align:'center'});
+  // Print the transaction date only when enabled; combined Sample No. / Date uses the metadata row.
+  // Prefer the actual purchase date; created_at is only a last-resort fallback for legacy rows with no date.
+  const headerDate=dateText(row.purchase_date)||dateText(row.created_at);
+  if(headerDate && bool(s,'show_date',true) && !combineSampleDate){doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.text(`Date: ${headerDate}`,R,9,{align:'right'});}
 
   // This follows the supplied one-page invoice: company + invoice meta, buyer, goods grid, deductions, total, words, declaration and bank block.
   const top=14.5, metaX=137, buyerTop=58, buyerBottom=88, metaBottom=58;
@@ -68,7 +95,7 @@ async function __bridge_GET(req:Request){
 
   // Company block — no red/green colouring: those colours in the supplied image are annotation, not document styling.
   let y=top+7;
-  doc.setFont('helvetica','bold');doc.setFontSize(11);text(doc,company.name||'SOLIVY',L+3.5,y);y+=5;
+  if(bool(s,'show_company_name',true)){doc.setFont('helvetica','bold');doc.setFontSize(11);text(doc,company.name||'SOLIVY',L+3.5,y);y+=5;}
   doc.setFont('helvetica','normal');doc.setFontSize(7.8);
   if(bool(s,'show_company_address')){for(const line of [company.address,company.city,company.state].map(clean).filter(Boolean)){text(doc,line,L+3.5,y,118);y+=4;}}
   if(bool(s,'show_company_gst')&&clean(company.gstin)){text(doc,`GSTIN : ${company.gstin}`,L+3.5,y);y+=4;}
@@ -80,26 +107,37 @@ async function __bridge_GET(req:Request){
   // do not silently substitute the internal sample number as an invoice number.
   const purchaseInvoiceNo=clean(row.invoice_no);
   const billInvoiceNo=purchaseInvoiceNo;
-  const purchaseDate=dateText(row.purchase_date);
-  const sampleNo=bool(s,'show_sample_no')?clean(row.sample_no):'';
+  const purchaseDate=dateText(row.purchase_date)||dateText(row.created_at);
+  // Combined display is governed by the same saved setting for both document types.
+  // The combined option is authoritative: it must include the sample number even if
+  // the separate Sample No. display checkbox is off.
+  const sampleNo=(combineSampleDate||bool(s,'show_sample_no'))?clean(row.sample_no):'';
   // Build only meaningful metadata. Put the purchase date in the first metadata row
   // beside Invoice No when the combined Sample No./Date option is off. When enabled,
   // print Sample No. / Date together, without duplicating the date elsewhere.
   type MetaPair=[string,string];
   const pairs:MetaPair[]=[];
-  if(billType==='third-party'&&bool(s,'show_bill_number',true)&&Number(row.bill_number||row.id)>0)pairs.push(['Bill No.',String(row.bill_number||row.id)]);
+  if(bool(s,'show_bill_number',true)&&Number(row.bill_number||row.id)>0)pairs.push(['Bill No.',String(row.bill_number||row.id)]);
   if(bool(s,'show_invoice_no')&&billInvoiceNo)pairs.push(['Invoice No.',billInvoiceNo]);
-  if(bool(s,'show_sample_date_together',false)){
-    const sampleAndDate=[sampleNo,purchaseDate].filter(Boolean).join(' / ');
+  if(combineSampleDate){
+    const sampleAndDate=[sampleNo,bool(s,'show_date',true)?purchaseDate:''].filter(Boolean).join(' / ');
     if(sampleAndDate)pairs.push(['Sample No. / Date',sampleAndDate]);
+    if(bool(s,'show_truck_number')&&clean(row.truck_number))pairs.push(['Truck No.',clean(row.truck_number)]);
   } else {
-    if(purchaseDate)pairs.push(['Dated',purchaseDate]);
+    if(bool(s,'show_date',true)&&purchaseDate)pairs.push(['Dated',purchaseDate]);
     if(sampleNo)pairs.push(['Sample No.',sampleNo]);
+    if(bool(s,'show_truck_number')&&clean(row.truck_number))pairs.push(['Truck No.',clean(row.truck_number)]);
   }
+  if(bool(s,'show_reference_no')&&(clean(row.reference_no)||clean(row.reference_number)||clean(row.reference)) )pairs.push(['Reference No.',clean(row.reference_no||row.reference_number||row.reference)]);
+  if(bool(s,'show_buyer_order_no')&&(clean(row.buyer_order_no)||clean(row.order_no)||clean(row.purchase_order_no)))pairs.push(["Buyer's Order No.",clean(row.buyer_order_no||row.order_no||row.purchase_order_no)]);
+  if(bool(s,'show_other_references')&&(clean(row.other_references)||clean(row.other_reference)))pairs.push(['Other References',clean(row.other_references||row.other_reference)]);
+  if(bool(s,'show_delivery_terms')&&(clean(row.delivery_terms)||clean(row.terms_of_delivery)))pairs.push(['Terms of Delivery',clean(row.delivery_terms||row.terms_of_delivery)]);
   if(bool(s,'show_payment_terms')&&Number(row.payment_due_days)>0)pairs.push(['Mode/Terms of Payment',`Due after ${Number(row.payment_due_days)} days`]);
-  // Purchase Entry has no separate reference/order/delivery-term values; never invent them.
-  const metaRows:MetaPair[][]=[];
-  for(let i=0;i<pairs.length;i+=2)metaRows.push(pairs.slice(i,i+2));
+  // Print optional metadata only when both its setting is enabled and the record contains a value.
+  // Keep one metadata pair per row. The previous two-pair layout calculated
+  // split columns beyond the right page edge (metaX + 102 mm > R), so the
+  // second pair such as Sample No. / Date was clipped and never visible.
+  const metaRows:MetaPair[][]=pairs.map(pair=>[pair]);
   const rh=metaRows.length?Math.min(8.7,(metaBottom-top)/metaRows.length):0;
   const metaActualBottom=top+metaRows.length*rh;
   if(metaRows.length){
@@ -107,27 +145,20 @@ async function __bridge_GET(req:Request){
     metaRows.forEach((r,i)=>{
       const rowY=top+i*rh;
       if(i>0)doc.line(metaX,rowY,R,rowY);
-      // One remaining pair uses the full row width; two pairs use a four-cell grid.
-      const two=r.length>1;
-      const split1=two?metaX+31:metaX+25;
-      const split2=two?metaX+72:R-45;
-      const split3=two?metaX+102:R;
+      const split1=metaX+34;
       doc.line(split1,rowY,split1,rowY+rh);
-      if(two){doc.line(split2,rowY,split2,rowY+rh);doc.line(split3,rowY,split3,rowY+rh);}
       const yy=rowY+Math.min(4.7,rh-1.2);
       doc.setFontSize(7.2);
-      doc.setFont('helvetica','bold');text(doc,r[0][0],metaX+2,yy,two?28:21);
-      doc.setFont('helvetica','normal');text(doc,r[0][1],split1+2,yy,(two?split2: R)-split1-4);
-      if(two){doc.setFont('helvetica','bold');text(doc,r[1][0],split2+2,yy,28);doc.setFont('helvetica','normal');text(doc,r[1][1],split3+2,yy,R-split3-2);}
+      doc.setFont('helvetica','bold');text(doc,r[0][0],metaX+2,yy,30);
+      doc.setFont('helvetica','normal');text(doc,r[0][1],split1+2,yy,R-split1-4);
     });
   }
 
   // Buyer block.
-  doc.setFont('helvetica','bold');doc.setFontSize(7.2);text(doc,'Buyer (Bill to)',L+3.5,buyerTop+5);
-  doc.setFontSize(9);text(doc,toParty.name,L+3.5,buyerTop+11,115);
+  if(bool(s,'show_buyer_name',true)){doc.setFont('helvetica','bold');doc.setFontSize(7.2);text(doc,'Buyer (Bill to)',L+3.5,buyerTop+5);doc.setFontSize(9);text(doc,toParty.name,L+3.5,buyerTop+11,115);}
   doc.setFont('helvetica','normal');doc.setFontSize(7.8);
-  let by=buyerTop+16;
-  for(const line of [toParty.address,bool(s,'show_party_contact')&&toParty.contact?`Contact : ${toParty.contact}`:'',bool(s,'show_party_gst')&&toParty.gst?`GSTIN : ${toParty.gst}`:'',bool(s,'show_party_pan')&&toParty.pan?`PAN : ${toParty.pan}`:''].map(clean).filter(Boolean)){text(doc,line,L+3.5,by,118);by+=4;}
+  let by=buyerTop+(bool(s,'show_buyer_name',true)?16:5);
+  for(const line of [bool(s,'show_party_address',true)?toParty.address:'',bool(s,'show_party_contact')&&toParty.contact?`Contact : ${toParty.contact}`:'',bool(s,'show_party_gst')&&toParty.gst?`GSTIN : ${toParty.gst}`:'',bool(s,'show_party_pan')&&toParty.pan?`PAN : ${toParty.pan}`:''].map(clean).filter(Boolean)){text(doc,line,L+3.5,by,118);by+=4;}
   if(row.broker_party_name){doc.setFont('helvetica','bold');text(doc,`Broker: ${row.broker_party_name}`,L+3.5,by,118);by+=4;doc.setFont('helvetica','normal');if(row.broker_contact){text(doc,`Broker Contact: ${row.broker_contact}`,L+3.5,by,118);by+=4;}if(row.broker_email){text(doc,`Broker Email: ${row.broker_email}`,L+3.5,by,118);by+=4;}}
 
   const tableTop=88;
@@ -170,26 +201,21 @@ async function __bridge_GET(req:Request){
 
   // Deductions only appear when enabled and non-zero. Their sum is the same
   // sum removed from the printed total; the source purchase record is untouched.
-  const less:[string,number,string][]=[
-    ['Unload Charges',Number(row.unload_charge||0),'include_unload'],
-    ['Driver Rokdi',Number(row.driver_rokdi||0),'include_driver_rokdi'],
-    ['Freight',Number(row.freight||0),'include_freight'],
-    ['Moisture',Number(row.moisture||0),'include_moisture'],
-    ['Discount',Number(row.discount_amount||0),'include_discount'],
-    ['Quality Deduct',Number(row.quality_deduct_amount||0),'include_quality_deduct'],
-    ['Other Charges',Number(row.other_charges||0),'include_other_charges']
-  ];
-  const showDeductions=billType!=='third-party'||bool(s,'show_deductions',true);
-  const visibleDeductions=showDeductions&&descIndex>=0?less.filter(([label,v,k])=>v!==0&&bool(s,k,true)&&!(label==='Moisture'&&Number(row.quality_deduct_rate_per_kg||0)>0)):[];
+  // Moisture is entered as a percentage. Under the legacy calculation it also
+  // represents the stored deduction amount; under the per-kg quality rule it is
+  // informational unless a separate moisture_deduction_amount exists.
+  // v2.7.0: deduction rows and total come from the shared bill model (same figures in every template).
+  const shared=billDeductions(row,s,billType==='third-party'?'third-party':'commercial');
+  const visibleDeductions:[string,number][]=descIndex>=0?shared.deductions.map(x=>[x.label,x.amount]):[];
   let ly=yy+17;
   for(const [label,val] of visibleDeductions){
+    doc.setDrawColor(185,185,185);doc.setLineWidth(.18);doc.line(xs[descIndex]+1,ly-3,R-1,ly-3);
     doc.setFont('helvetica','normal');doc.setFontSize(7.5);text(doc,'Less :',xs[descIndex]+2,ly);
     doc.setFont('helvetica','bold');doc.setFontSize(7.5);text(doc,label,xs[descIndex]+19,ly,Math.max(8,widths[descIndex]-21));
     if(amountIndex>=0){doc.setFont('helvetica','normal');right(doc,`(-) ${Math.round(val).toLocaleString('en-IN',{maximumFractionDigits:0})}`,xs[amountIndex+1]-2,ly);}
     ly+=5;
   }
-  const included=visibleDeductions.reduce((a,[,v])=>a+v,0);
-  const displayedTotal=Math.max(0,Math.round(Number(row.gross_amount||0)-included));
+  const displayedTotal=descIndex>=0?shared.total:Math.max(0,Math.round(Number(row.gross_amount||0)));
   // Fit the item area to the actual content instead of leaving a huge blank table.
   // Reserve 13 mm between the last deduction and the total row for clean spacing.
   // Use the reference invoice's full-height item grid so totals align near the bottom,
@@ -207,8 +233,7 @@ async function __bridge_GET(req:Request){
   // Bottom block exactly follows the reference's three-column visual balance.
   const bottomTop=tableBottom;
   doc.line(L,bottomTop,R,bottomTop);
-  doc.setFont('helvetica','bold');doc.setFontSize(7.3);text(doc,'Amount Chargeable (in words)',L,bottomTop+5);
-  doc.setFontSize(8);text(doc,`INR ${words(displayedTotal)} Only`,L,bottomTop+11,82);
+  doc.setFont('helvetica','bold');doc.setFontSize(7.3);if(bool(s,'show_amount_words',true)){text(doc,'Amount Chargeable (in words)',L,bottomTop+5);doc.setFontSize(8);text(doc,`INR ${words(displayedTotal)} Only`,L,bottomTop+11,82);}
   doc.setFont('helvetica','bold');doc.setFontSize(7);right(doc,'E. & O.E',R,bottomTop+11);
 
   if(bool(s,'show_declaration')){
@@ -242,7 +267,7 @@ async function __bridge_GET(req:Request){
 
   const bytes=new Uint8Array(doc.output('arraybuffer'));
   const safe=(clean(row.invoice_no)||clean(row.sample_no)||`purchase-${id}`).replace(/[^A-Za-z0-9_-]/g,'_');
-  return new Response(bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="Commercial-Bill-${safe}.pdf"`}});
+  return new Response(bytes,{headers:{'Content-Type':'application/pdf','Content-Disposition':`${disposition}; filename="Commercial-Bill-${safe}.pdf"`,'Cache-Control':'no-store','X-Bill-Total':String(displayedTotal),'X-Bill-Template':'classic'}});
  }catch(e:any){return NextResponse.json({error:e?.message||'Unable to generate commercial bill'},{status:500});}
 }
 

@@ -28,6 +28,6 @@ for(const [label,cond] of [
  ['repayment rejects inactive loan',out.includes('Only ACTIVE loans can be repaid')],
  ['repayment reversal blocked for transferred loan',reverse.includes('Reverse the loan transfer first')],
  ['inactive loan has zero outstanding principal',data.includes("CASE WHEN l.status='ACTIVE' THEN MAX(0,l.principal_amount")],
- ['Postgres bridge hydrates and persists destination organization snapshots',bridge.includes('await req.clone().json()')&&bridge.includes('ids.add(destination)')&&bridge.includes('await logicalFiles(req)')],
+ ['Postgres bridge loads authorised destination organization snapshots (v2.7.0; runtime: tests/online)',bridge.includes('await req.clone().json()')&&bridge.includes('destination_company_id')&&bridge.includes('granted.has(cid)')],
 ]){assert(cond,label);console.log('PASS',label)}
 console.log('Funding transfer regression checks passed.');

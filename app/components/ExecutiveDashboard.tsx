@@ -123,9 +123,17 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
   }, []);
 
   useEffect(() => {
-    setSelected([companyId]);
     setSelectedMonth('');
   }, [companyId]);
+
+  /**
+   * v2.7.1: the organizations to consolidate are derived, not kept in a second state. Before,
+   * switching organization left `selected` holding the previous one for a render, so every mount
+   * fired three /api/group-mis requests (two of them for the wrong organization) and each one
+   * hydrated an organization snapshot.
+   */
+  const consolidated = selected.length && selected.includes(companyId) ? selected : [companyId];
+  const consolidatedKey = consolidated.join(',');
 
   useEffect(() => {
     let live = true;
@@ -133,8 +141,8 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
       setLoading(true);
       setError('');
       try {
-        const ids = selected.length ? selected : [companyId];
-        const j = await api(`/group-mis?company_ids=${ids.join(',')}&mode=${mode}`);
+        if (!companyId) return;
+        const j = await api(`/group-mis?company_ids=${consolidatedKey}&mode=${mode}`);
         if (!live) return;
         setGroup(j);
         setCompanyOptions(j.available_companies || []);
@@ -149,7 +157,7 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected.join(','), companyId, mode, reloadKey]);
+  }, [consolidatedKey, mode, reloadKey]);
 
   const totals = group?.totals || {};
   const hasTotals = !!group;
@@ -207,8 +215,8 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
   const companies = companyOptions.length ? companyOptions : [{id: companyId, name: 'Current company'}];
 
   const toggleCompany = (id: number, checked: boolean) =>
-    setSelected((prev) => {
-      const next = checked ? Array.from(new Set([...prev, id])) : prev.filter((x) => x !== id);
+    setSelected(() => {
+      const next = checked ? Array.from(new Set([...consolidated, id])) : consolidated.filter((x) => x !== id);
       return next.length ? next : [companyId];
     });
 
@@ -288,7 +296,7 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
           </nav>
           <div className="sd-picker">
             <button className="sd-picker-btn" aria-expanded={pickerOpen} onClick={() => setPickerOpen((v) => !v)}>
-              {selected.length > 1 ? `${selected.length} companies` : '1 company'} <FiChevronDown aria-hidden="true" />
+              {consolidated.length > 1 ? `${consolidated.length} companies` : '1 company'} <FiChevronDown aria-hidden="true" />
             </button>
             {pickerOpen && (
               <div className="sd-pop" role="dialog" aria-label="Companies to include">
@@ -299,7 +307,7 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
                 <div className="sd-pop-list">
                   {companies.map((c: any) => (
                     <label key={c.id}>
-                      <input type="checkbox" checked={selected.includes(Number(c.id))} onChange={(e) => toggleCompany(Number(c.id), e.target.checked)} />
+                      <input type="checkbox" checked={consolidated.includes(Number(c.id))} onChange={(e) => toggleCompany(Number(c.id), e.target.checked)} />
                       <span>{c.name}</span>
                     </label>
                   ))}
@@ -325,7 +333,7 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
       {showHero && (
         <div className="sd-grid">
           <section className="sd-card sd-balance-card" aria-label="Total balance">
-            <div className="sd-label">Total balance <span className="sd-tag">{selected.length > 1 ? `${selected.length} companies` : 'Bank + cash'}</span></div>
+            <div className="sd-label">Total balance <span className="sd-tag">{consolidated.length > 1 ? `${consolidated.length} companies` : 'Bank + cash'}</span></div>
             <div className="sd-balance">{hasTotals ? money(num(totals.available_cash)) : '—'}</div>
             <div className="sd-change-wrap">
               {hasTotals ? (

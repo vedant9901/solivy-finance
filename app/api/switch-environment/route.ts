@@ -8,5 +8,5 @@ async function __bridge_POST(req:Request){try{const x=await req.json();const use
 
 export const runtime = 'nodejs';
 
-const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST,{scope:'admin'});
 export async function POST(req: Request) { return __wrapped_POST(req); }

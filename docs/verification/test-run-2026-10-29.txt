@@ -1,0 +1,43 @@
+## npm test
+# tests 60
+# pass 60
+# fail 0
+# skipped 0
+## test:online
+# tests 17
+# pass 17
+# fail 0
+# skipped 0
+## test:ui
+# tests 4
+# pass 4
+# fail 0
+# skipped 0
+## typecheck
+exit=0 errors=0
+## check:legacy
+exit=0 PASS=88 FAIL=0
+## node
+v22.23.4
+## all legacy scripts/check-* (node v22.23.4)
+check-dashboard-metrics.cjs exit=0
+check-dynamic-module-access.cjs exit=0
+check-finance-mis.cjs exit=0
+check-financial-repair-tds.cjs exit=0
+check-funding-transfer.cjs exit=0
+check-moisture-data-api.cjs exit=0
+check-money-out.cjs exit=0
+check-multicompany-sync.cjs exit=0
+check-online-login-org.cjs exit=0
+check-release-safety.cjs exit=0
+check-security.cjs exit=0
+check-source.cjs exit=0
+check-sync-company-settings.cjs exit=0
+check-user-org-conflicts.cjs exit=0
+check-database-bridge.mjs exit=0
+check-env.mjs exit=0
+check-import-schema.mjs exit=0
+check-sync-id-mapping.mjs exit=0
+check-sync.mjs exit=0
+check-test-to-live-purge-fix.mjs exit=0
+check-transfers.mjs exit=0

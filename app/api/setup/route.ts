@@ -53,8 +53,8 @@ async function __bridge_POST(req: Request) {
 
 export const runtime = 'nodejs';
 
-const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET,{scope:'admin'});
 export async function GET(req: Request) { return __wrapped_GET(req); }
 
-const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST,{scope:'admin'});
 export async function POST(req: Request) { return __wrapped_POST(req); }

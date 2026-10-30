@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { adminDb, db, type Mode } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
+import { FINANCIAL_SYNC_TABLES, financialConflictError } from '../../../../lib/sync-policy';
+import { ensurePruneSchema, recordAck, historyPruned, pruneSyncJournal } from '../../../../lib/sync-prune';
 import { reconcileIncomingEvent, importPeerMappings } from '../../../../lib/sync-id-mapping';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +27,7 @@ function ensureConflictHistory(d:any) {
   d.exec("CREATE TABLE IF NOT EXISTS sync_conflict_history (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, table_name TEXT NOT NULL, pk_json TEXT NOT NULL, field_name TEXT NOT NULL, base_value TEXT, local_value TEXT, incoming_value TEXT, resolution TEXT NOT NULL DEFAULT 'kept_local_audit_both', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 }
 
-const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
+const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks']);
 
 // Ensure local-only schema migrations are present before replaying their sync events.
 // Older peers may not have visited Admin -> Financial Repair yet, so relying on that
@@ -90,7 +92,8 @@ function tokenContext(req:Request) {
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const row = adminDb().prepare('SELECT id,company_id,mode,active FROM sync_devices WHERE token_hash=?').get(hash) as any;
   if (!row || !row.active || Number(row.company_id)!==companyId || row.mode!==mode) throw new Error('Sync device is not authorized for this company/environment.');
-  adminDb().prepare('UPDATE sync_devices SET last_seen_at=CURRENT_TIMESTAMP WHERE id=?').run(row.id);
+  // Throttled: avoid rewriting admin.db (and its online snapshot) on every sync call.
+  adminDb().prepare("UPDATE sync_devices SET last_seen_at=CURRENT_TIMESTAMP WHERE id=? AND (last_seen_at IS NULL OR last_seen_at < datetime('now','-10 minutes'))").run(row.id);
   return {companyId,mode:mode as Mode,deviceId};
 }
 function tableInfo(d:any, table:string) {
@@ -176,6 +179,7 @@ function applyEvent(d:any,e:any,localDeviceId:string,companyName:string) {
     throw Object.assign(new Error(`Identity collision on ${e.table_name}; safe ID mapping is required before applying this insert.`), { conflictDetail: { table:String(e.table_name), primary_key:pkObj, reason:'The source record has a colliding primary key and no safe ID mapping was supplied.', base:null, current, incoming:desired } });
   } else if(base!==null && current && desired && typeof desired==='object' && canon(current)!==canon(base)) {
     const merged=mergeChangedFields(base,current,desired,cols); effectiveRow=merged.merged; fieldConflicts=merged.conflicts;
+    if(fieldConflicts.length&&FINANCIAL_SYNC_TABLES.has(String(e.table_name)))throw financialConflictError(String(e.table_name),pkObj,base,current,desired,fieldConflicts);
     if(fieldConflicts.length){ensureConflictHistory(d);const log=d.prepare('INSERT INTO sync_conflict_history(event_id,table_name,pk_json,field_name,base_value,local_value,incoming_value) VALUES(?,?,?,?,?,?,?)');for(const c of fieldConflicts)log.run(String(e.event_id),String(e.table_name),JSON.stringify(pkObj),c.field,JSON.stringify(c.base),JSON.stringify(c.local),JSON.stringify(c.incoming));}
   } else if(base!==null && !current) {
     throw Object.assign(new Error(`Cannot merge ${e.table_name}: the base record was deleted on the destination.`), { conflictDetail: { table:String(e.table_name), primary_key:pkObj, reason:'The record was deleted on this side while the other side edited it.', base, current:null, incoming:desired } });
@@ -218,6 +222,10 @@ async function handler(req:Request) {
       const u=new URL(req.url);
       const cursor=Math.max(0,Number(u.searchParams.get('cursor')||0));
       const limit=Math.min(500,Math.max(1,Number(u.searchParams.get('limit')||200)));
+      ensurePruneSchema(d);
+      if(historyPruned(d,cursor,limit))return NextResponse.json({error:'This organization\'s sync history older than the retention window has been pruned. Re-baseline this device (restore a current backup) before syncing.',code:'SYNC_HISTORY_PRUNED',requires_baseline:true},{status:410});
+      recordAck(d,ctx.deviceId,cursor);
+      try{pruneSyncJournal(d)}catch(e){console.error('SOLIVY sync prune failed',e)}
       const events=d.prepare(`SELECT seq,event_id,table_name,pk_json,operation,base_json,row_json,origin_device,created_at FROM sync_changes WHERE seq>? AND origin_device<>? ORDER BY seq LIMIT ?`).all(cursor,ctx.deviceId,limit) as any[];
       const max=d.prepare('SELECT COALESCE(MAX(seq),0) AS n FROM sync_changes').get() as any;
       const hasMore=events.length===limit;
@@ -267,6 +275,7 @@ async function handler(req:Request) {
       const peerMappings=Array.isArray(body.mappings)?body.mappings:[];
       if (!events.length && !peerMappings.length) { const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device'); return NextResponse.json({ok:true,applied:0,duplicates:0,mappings:[],destination_device_id:ownDevice}); }
       if (events.length>500) return NextResponse.json({error:'Maximum 500 events per batch.'},{status:413});
+      let conflictBaseline=0;try{ensureConflictHistory(d);conflictBaseline=Number((d.prepare('SELECT COALESCE(MAX(id),0) m FROM sync_conflict_history').get() as any).m)}catch{}
       const result:any={applied:0,duplicates:0,alreadyCurrent:0};
       const mappings:any[]=[];
       let activeEvent:any=null;
@@ -287,12 +296,14 @@ async function handler(req:Request) {
       });
       try { tx(); } catch(e:any) { return NextResponse.json({error:describeForeignKeyFailure(d,activeEvent,e)||'Sync batch rejected; no changes in this batch were committed.',conflict:true,conflict_phase:'push',conflict_event:activeEvent?{event_id:activeEvent.event_id,table_name:activeEvent.table_name,pk_json:activeEvent.pk_json,operation:activeEvent.operation,base_json:activeEvent.base_json,row_json:activeEvent.row_json}:null,conflict_detail:e?.conflictDetail||null},{status:409}); }
       const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
-      return NextResponse.json({ok:true,...result,mappings,destination_device_id:ownDevice,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
+      const fieldConflictCount=Number((d.prepare('SELECT COUNT(*) c FROM sync_conflict_history WHERE id>?').get(conflictBaseline) as any)?.c||0);return NextResponse.json({ok:true,field_conflicts:fieldConflictCount,...result,mappings,destination_device_id:ownDevice,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
     }
     return NextResponse.json({error:'Method not allowed.'},{status:405});
   } catch(e:any) { return NextResponse.json({error:e?.message||'Sync exchange failed.'},{status:400}); }
 }
-const __wrapped_GET=withPostgresSQLiteBridge(handler);
-const __wrapped_POST=withPostgresSQLiteBridge(handler);
+// Device token is verified against admin.db BEFORE any organization snapshot is downloaded.
+const exchangeOptions={skipSessionCheck:true,preAuthorize:(req:Request)=>{try{const c=tokenContext(req);return {companyId:c.companyId,mode:c.mode}}catch(e:any){const err:any=new Error(e?.message||'Unauthorized sync device.');err.status=401;throw err}}};
+const __wrapped_GET=withPostgresSQLiteBridge(handler,exchangeOptions);
+const __wrapped_POST=withPostgresSQLiteBridge(handler,exchangeOptions);
 export async function GET(req:Request){return __wrapped_GET(req);}
 export async function POST(req:Request){return __wrapped_POST(req);}

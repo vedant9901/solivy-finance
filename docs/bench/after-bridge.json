@@ -1,0 +1,239 @@
+{
+  "generated_at": "2026-10-29T12:06:05.798Z",
+  "orgs": 3,
+  "purchases_per_org": 600,
+  "snapshot_bytes_total": 9768960,
+  "snapshot_sizes": {
+    "admin": 602112,
+    "company:2:LIVE": 3059712,
+    "company:3:LIVE": 3051520,
+    "company:4:LIVE": 3055616
+  },
+  "scenarios": [
+    {
+      "name": "1 cold (first request after upgrade) | POST /api/login (wrong password, unauthenticated)",
+      "status": 401,
+      "ms": 196,
+      "pg_read": 814592,
+      "pg_written": 1640,
+      "response_bytes": 40,
+      "error": "{\"error\":\"Invalid username or password\"}"
+    },
+    {
+      "name": "1 cold (first request after upgrade) | POST /api/login (valid)",
+      "status": 200,
+      "ms": 103,
+      "pg_read": 1766,
+      "pg_written": 40594,
+      "response_bytes": 192
+    },
+    {
+      "name": "1 cold (first request after upgrade) | POST /api/sync/exchange (invalid device token, unauthenticated)",
+      "status": 401,
+      "ms": 18,
+      "pg_read": 188,
+      "pg_written": 189,
+      "response_bytes": 71,
+      "error": "{\"error\":\"Sync device is not authorized for this company/environment.\"}"
+    },
+    {
+      "name": "1 cold (first request after upgrade) | GET /api/data (dashboard initial load)",
+      "status": 200,
+      "ms": 148,
+      "pg_read": 4134025,
+      "pg_written": 868,
+      "response_bytes": 1450478
+    },
+    {
+      "name": "1 cold (first request after upgrade) | GET /api/data (repeat, unchanged)",
+      "status": 200,
+      "ms": 79,
+      "pg_read": 389,
+      "pg_written": 472,
+      "response_bytes": 1450478
+    },
+    {
+      "name": "1 cold (first request after upgrade) | GET /api/accounts",
+      "status": 200,
+      "ms": 45,
+      "pg_read": 389,
+      "pg_written": 472,
+      "response_bytes": 253
+    },
+    {
+      "name": "1 cold (first request after upgrade) | GET /api/purchases?limit=50 (paged module)",
+      "status": 405,
+      "ms": 10,
+      "pg_read": 0,
+      "pg_written": 0,
+      "response_bytes": 0,
+      "error": ""
+    },
+    {
+      "name": "1 cold (first request after upgrade) | GET /api/secondary-backup (5-min admin poll)",
+      "status": 200,
+      "ms": 24,
+      "pg_read": 188,
+      "pg_written": 189,
+      "response_bytes": 287
+    },
+    {
+      "name": "1 cold (first request after upgrade) | POST /api/parties (single write)",
+      "status": 200,
+      "ms": 227,
+      "pg_read": 7517,
+      "pg_written": 687352,
+      "response_bytes": 24
+    },
+    {
+      "name": "2 steady (warm instance) | POST /api/login (wrong password, unauthenticated)",
+      "status": 401,
+      "ms": 88,
+      "pg_read": 188,
+      "pg_written": 189,
+      "response_bytes": 40,
+      "error": "{\"error\":\"Invalid username or password\"}"
+    },
+    {
+      "name": "2 steady (warm instance) | POST /api/login (valid)",
+      "status": 200,
+      "ms": 86,
+      "pg_read": 448,
+      "pg_written": 3950,
+      "response_bytes": 192
+    },
+    {
+      "name": "2 steady (warm instance) | POST /api/sync/exchange (invalid device token, unauthenticated)",
+      "status": 401,
+      "ms": 13,
+      "pg_read": 188,
+      "pg_written": 189,
+      "response_bytes": 71,
+      "error": "{\"error\":\"Sync device is not authorized for this company/environment.\"}"
+    },
+    {
+      "name": "2 steady (warm instance) | GET /api/data (dashboard initial load)",
+      "status": 200,
+      "ms": 94,
+      "pg_read": 389,
+      "pg_written": 472,
+      "response_bytes": 1451128
+    },
+    {
+      "name": "2 steady (warm instance) | GET /api/data (repeat, unchanged)",
+      "status": 200,
+      "ms": 84,
+      "pg_read": 389,
+      "pg_written": 472,
+      "response_bytes": 1451128
+    },
+    {
+      "name": "2 steady (warm instance) | GET /api/accounts",
+      "status": 200,
+      "ms": 37,
+      "pg_read": 389,
+      "pg_written": 472,
+      "response_bytes": 253
+    },
+    {
+      "name": "2 steady (warm instance) | GET /api/purchases?limit=50 (paged module)",
+      "status": 405,
+      "ms": 2,
+      "pg_read": 0,
+      "pg_written": 0,
+      "response_bytes": 0,
+      "error": ""
+    },
+    {
+      "name": "2 steady (warm instance) | GET /api/secondary-backup (5-min admin poll)",
+      "status": 200,
+      "ms": 14,
+      "pg_read": 188,
+      "pg_written": 189,
+      "response_bytes": 287
+    },
+    {
+      "name": "2 steady (warm instance) | POST /api/parties (single write)",
+      "status": 200,
+      "ms": 57,
+      "pg_read": 871,
+      "pg_written": 35855,
+      "response_bytes": 24
+    },
+    {
+      "name": "3 fresh instance (no local cache) | POST /api/login (wrong password, unauthenticated)",
+      "status": 401,
+      "ms": 92,
+      "pg_read": 41367,
+      "pg_written": 776,
+      "response_bytes": 40,
+      "error": "{\"error\":\"Invalid username or password\"}"
+    },
+    {
+      "name": "3 fresh instance (no local cache) | POST /api/login (valid)",
+      "status": 200,
+      "ms": 79,
+      "pg_read": 448,
+      "pg_written": 3959,
+      "response_bytes": 192
+    },
+    {
+      "name": "3 fresh instance (no local cache) | POST /api/sync/exchange (invalid device token, unauthenticated)",
+      "status": 401,
+      "ms": 8,
+      "pg_read": 188,
+      "pg_written": 189,
+      "response_bytes": 71,
+      "error": "{\"error\":\"Sync device is not authorized for this company/environment.\"}"
+    },
+    {
+      "name": "3 fresh instance (no local cache) | GET /api/data (dashboard initial load)",
+      "status": 200,
+      "ms": 83,
+      "pg_read": 859962,
+      "pg_written": 1914,
+      "response_bytes": 1451778
+    },
+    {
+      "name": "3 fresh instance (no local cache) | GET /api/data (repeat, unchanged)",
+      "status": 200,
+      "ms": 87,
+      "pg_read": 389,
+      "pg_written": 472,
+      "response_bytes": 1451778
+    },
+    {
+      "name": "3 fresh instance (no local cache) | GET /api/accounts",
+      "status": 200,
+      "ms": 29,
+      "pg_read": 389,
+      "pg_written": 472,
+      "response_bytes": 253
+    },
+    {
+      "name": "3 fresh instance (no local cache) | GET /api/purchases?limit=50 (paged module)",
+      "status": 405,
+      "ms": 1,
+      "pg_read": 0,
+      "pg_written": 0,
+      "response_bytes": 0,
+      "error": ""
+    },
+    {
+      "name": "3 fresh instance (no local cache) | GET /api/secondary-backup (5-min admin poll)",
+      "status": 200,
+      "ms": 15,
+      "pg_read": 188,
+      "pg_written": 189,
+      "response_bytes": 287
+    },
+    {
+      "name": "3 fresh instance (no local cache) | POST /api/parties (single write)",
+      "status": 200,
+      "ms": 53,
+      "pg_read": 908,
+      "pg_written": 45018,
+      "response_bytes": 24
+    }
+  ]
+}

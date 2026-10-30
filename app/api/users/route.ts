@@ -3,7 +3,7 @@ import {NextResponse} from 'next/server';
 import {adminDb} from '../../../lib/db';
 import {hashPassword} from '../../../lib/session';
 const DEFAULT_CARD_IDS=['kpi-parties','kpi-purchase-cost','kpi-paid','kpi-vendor-outstanding','kpi-finance-profit','kpi-average-earning','business-pulse','due-pay-today','due-pay-tomorrow','due-receive-today','due-receive-tomorrow','due-interest-today','due-interest-tomorrow','due-this-week','overdue-receivables','bank-cash','realised-profit','charts'];
-const DEFAULT_MENU_IDS=['dashboard','sauda','godowns','accounts','account-movements','parties','party-aliases','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','secondary-backup','tally-export','bank-statement-import','gst','commercial-bills','document-settings','settings','transfers','sync'];
+const DEFAULT_MENU_IDS=['dashboard','profile','sauda','godowns','accounts','account-movements','parties','party-aliases','purchase','payments','money-in','interest','funding','import','ledger','receivables','reports','bank','backup','secondary-backup','tally-export','bank-statement-import','gst','commercial-bills','document-settings','settings','transfers','sync'];
 function parseCardAccess(value:any){try{const parsed=JSON.parse(String(value||''));return Array.isArray(parsed)?parsed.filter((x:any)=>DEFAULT_CARD_IDS.includes(String(x))):DEFAULT_CARD_IDS}catch{return DEFAULT_CARD_IDS}}
 function parseMenuAccess(value:any){try{const parsed=JSON.parse(String(value||''));return Array.isArray(parsed)?parsed.filter((x:any)=>DEFAULT_MENU_IDS.includes(String(x))):DEFAULT_MENU_IDS}catch{return DEFAULT_MENU_IDS}}
 function admin(req:Request){if(req.headers.get('x-aksh-role')!=='ADMIN')throw Error('Admin access required');}
@@ -16,11 +16,11 @@ async function __bridge_DELETE(req:Request){try{admin(req);const x=await req.jso
 
 export const runtime = 'nodejs';
 
-const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET,{scope:'admin'});
 export async function GET(req: Request) { return __wrapped_GET(req); }
 
-const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST,{scope:'admin'});
 export async function POST(req: Request) { return __wrapped_POST(req); }
 
-const __wrapped_DELETE = withPostgresSQLiteBridge(__bridge_DELETE);
+const __wrapped_DELETE = withPostgresSQLiteBridge(__bridge_DELETE,{scope:'admin'});
 export async function DELETE(req: Request) { return __wrapped_DELETE(req); }

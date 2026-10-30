@@ -1,0 +1,789 @@
+{
+  "generated_at": "2026-10-30T07:03:53.868Z",
+  "purchases": 300,
+  "snapshot_bytes_total": 2555904,
+  "snapshot_sizes": {
+    "admin": 606208,
+    "company:2:LIVE": 1949696
+  },
+  "steps": [
+    {
+      "step": "A 1 login page load",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 156,
+      "pg_read": 820712,
+      "pg_written": 5174,
+      "ms": 956,
+      "urls": {
+        "GET /api/login-companies": 1
+      }
+    },
+    {
+      "step": "A 2 sign in (POST /api/login)",
+      "requests": 6,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 477859,
+      "pg_read": 2637352,
+      "pg_written": 99075,
+      "ms": 1171,
+      "urls": {
+        "POST /api/login": 1,
+        "GET /api/companies": 1,
+        "GET /api/license/status": 1,
+        "GET /api/group-mis?company_ids=2&mode=LIVE&company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cmoney%2Cpayments%2Cpurchases%2Creceivables": 1,
+        "GET /api/secondary-backup": 1
+      }
+    },
+    {
+      "step": "A 3 dashboard reload (initial load)",
+      "requests": 5,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 477859,
+      "pg_read": 1591,
+      "pg_written": 1850,
+      "ms": 1778,
+      "urls": {
+        "GET /api/license/status": 1,
+        "GET /api/companies": 1,
+        "GET /api/group-mis?company_ids=2&mode=LIVE&company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cmoney%2Cpayments%2Cpurchases%2Creceivables": 1,
+        "GET /api/secondary-backup": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: parties",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 29642,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1300,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: purchase",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 354904,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1280,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpurchases": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: payments",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 447154,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1281,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpayments%2Cpurchases": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: receivables",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 29795,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1254,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Creceivables": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: money-in",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 47179,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1267,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cmoney": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: money-out",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 47228,
+      "pg_read": 389,
+      "pg_written": 477,
+      "ms": 1258,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cmoney%2Cfunding": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: ledger",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 482729,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1261,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cledger%2Cpurchases": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: accounts",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 0,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1267,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: funding",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 29707,
+      "pg_read": 944,
+      "pg_written": 1222,
+      "ms": 1278,
+      "urls": {
+        "GET /api/funding/transfer?company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cfunding": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: account-movements",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 76897,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1267,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Caccount-history": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: reports",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 9161,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 1241,
+      "urls": {
+        "GET /api/reports": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: document-settings",
+      "requests": 4,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 3422,
+      "pg_read": 1556,
+      "pg_written": 1888,
+      "ms": 1246,
+      "urls": {
+        "GET /api/document-templates": 1,
+        "GET /api/document-settings?mode=LIVE&company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1,
+        "GET /api/purchase-bill?id=300&template=classic&preview=1&accent=%230f766e&font=helvetica&density=normal&bill_type=purchase": 1
+      }
+    },
+    {
+      "step": "A 4 open tab: godowns",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 14,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 1254,
+      "urls": {
+        "GET /api/godowns?company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "A 5 repeat switch ×6 (parties↔purchase↔payments, already loaded)",
+      "requests": 6,
+      "duplicates": 3,
+      "duplicate_urls": [
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts ×2",
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpurchases ×2",
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpayments%2Cpurchases ×2"
+      ],
+      "response_bytes": 0,
+      "pg_read": 2334,
+      "pg_written": 2832,
+      "ms": 4064,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 2,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpurchases": 2,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpayments%2Cpurchases": 2
+      }
+    },
+    {
+      "step": "A 6 reports: open hub",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 0,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 1241,
+      "urls": {
+        "GET /api/reports": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "A 7 reports: run Balance Sheet",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 4476,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 2685,
+      "urls": {
+        "GET /api/reports?id=balance-sheet&as_of=2026-10-30": 1,
+        "GET /api/reports?id=balance-sheet&as_of=2027-03-31": 1
+      }
+    },
+    {
+      "step": "A 8 reports: change the as-of date and re-run",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 2238,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 2552,
+      "urls": {
+        "GET /api/reports?id=balance-sheet&as_of=2026-12-31": 1
+      }
+    },
+    {
+      "step": "A 9 reports: open a second report (AR aging)",
+      "requests": 2,
+      "duplicates": 1,
+      "duplicate_urls": [
+        "GET /api/reports?id=ar-aging&as_of=2026-10-30 ×2"
+      ],
+      "response_bytes": 1499,
+      "pg_read": 973,
+      "pg_written": 4494,
+      "ms": 2867,
+      "urls": {
+        "GET /api/reports?id=ar-aging&as_of=2026-10-30": 2
+      }
+    },
+    {
+      "step": "A 10 create a party",
+      "requests": 3,
+      "duplicates": 1,
+      "duplicate_urls": [
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts ×2"
+      ],
+      "response_bytes": 30350,
+      "pg_read": 1680,
+      "pg_written": 1083621,
+      "ms": 2575,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 2,
+        "POST /api/parties?company_id=2": 1
+      }
+    },
+    {
+      "step": "A 11 second write (steady-state upload)",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 31038,
+      "pg_read": 1002,
+      "pg_written": 27221,
+      "ms": 1991,
+      "urls": {
+        "POST /api/parties?company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "A 12 switch away and back after the write",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 448526,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 1833,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpayments%2Cpurchases": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "A 13 idle 30s (polling and background traffic)",
+      "requests": 0,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 0,
+      "pg_read": 0,
+      "pg_written": 5,
+      "ms": 30709,
+      "urls": {}
+    },
+    {
+      "step": "A 14 switch environment LIVE → TEST",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 1005,
+      "pg_read": 1873,
+      "pg_written": 85389,
+      "ms": 2235,
+      "urls": {
+        "POST /api/switch-environment": 1,
+        "GET /api/data?mode=TEST&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "A 15 switch back TEST → LIVE",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 31039,
+      "pg_read": 1079,
+      "pg_written": 3877,
+      "ms": 2223,
+      "urls": {
+        "POST /api/switch-environment": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 1 login page load",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 156,
+      "pg_read": 365,
+      "pg_written": 272,
+      "ms": 974,
+      "urls": {
+        "GET /api/login-companies": 1
+      }
+    },
+    {
+      "step": "B 2 sign in (POST /api/login)",
+      "requests": 6,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 479231,
+      "pg_read": 289987,
+      "pg_written": 7162,
+      "ms": 1232,
+      "urls": {
+        "POST /api/login": 1,
+        "GET /api/companies": 1,
+        "GET /api/license/status": 1,
+        "GET /api/group-mis?company_ids=2&mode=LIVE&company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cmoney%2Cpayments%2Cpurchases%2Creceivables": 1,
+        "GET /api/secondary-backup": 1
+      }
+    },
+    {
+      "step": "B 3 dashboard reload (initial load)",
+      "requests": 5,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 479231,
+      "pg_read": 1591,
+      "pg_written": 1850,
+      "ms": 1720,
+      "urls": {
+        "GET /api/license/status": 1,
+        "GET /api/companies": 1,
+        "GET /api/group-mis?company_ids=2&mode=LIVE&company_id=2": 1,
+        "GET /api/secondary-backup": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cmoney%2Cpayments%2Cpurchases%2Creceivables": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: parties",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 31014,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1293,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: purchase",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 356276,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1292,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpurchases": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: payments",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 448526,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1276,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpayments%2Cpurchases": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: receivables",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 31167,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1250,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Creceivables": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: money-in",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 48551,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1249,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cmoney": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: money-out",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 48600,
+      "pg_read": 389,
+      "pg_written": 477,
+      "ms": 1243,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cmoney%2Cfunding": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: ledger",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 484101,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1254,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cledger%2Cpurchases": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: accounts",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 0,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1262,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: funding",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 31079,
+      "pg_read": 944,
+      "pg_written": 1222,
+      "ms": 1262,
+      "urls": {
+        "GET /api/funding/transfer?company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cfunding": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: account-movements",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 78269,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 1254,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Caccount-history": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: reports",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 9161,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 1262,
+      "urls": {
+        "GET /api/reports": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: document-settings",
+      "requests": 4,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 3422,
+      "pg_read": 1556,
+      "pg_written": 1888,
+      "ms": 1278,
+      "urls": {
+        "GET /api/document-templates": 1,
+        "GET /api/document-settings?mode=LIVE&company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1,
+        "GET /api/purchase-bill?id=300&template=classic&preview=1&accent=%230f766e&font=helvetica&density=normal&bill_type=purchase": 1
+      }
+    },
+    {
+      "step": "B 4 open tab: godowns",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 14,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 1248,
+      "urls": {
+        "GET /api/godowns?company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 5 repeat switch ×6 (parties↔purchase↔payments, already loaded)",
+      "requests": 6,
+      "duplicates": 3,
+      "duplicate_urls": [
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts ×2",
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpurchases ×2",
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpayments%2Cpurchases ×2"
+      ],
+      "response_bytes": 0,
+      "pg_read": 2334,
+      "pg_written": 2832,
+      "ms": 4111,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 2,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpurchases": 2,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpayments%2Cpurchases": 2
+      }
+    },
+    {
+      "step": "B 6 reports: open hub",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 0,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 1233,
+      "urls": {
+        "GET /api/reports": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 7 reports: run Balance Sheet",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 4476,
+      "pg_read": 973,
+      "pg_written": 4707,
+      "ms": 2727,
+      "urls": {
+        "GET /api/reports?id=balance-sheet&as_of=2026-10-30": 1,
+        "GET /api/reports?id=balance-sheet&as_of=2027-03-31": 1
+      }
+    },
+    {
+      "step": "B 8 reports: change the as-of date and re-run",
+      "requests": 1,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 2238,
+      "pg_read": 389,
+      "pg_written": 472,
+      "ms": 2564,
+      "urls": {
+        "GET /api/reports?id=balance-sheet&as_of=2026-12-31": 1
+      }
+    },
+    {
+      "step": "B 9 reports: open a second report (AR aging)",
+      "requests": 2,
+      "duplicates": 1,
+      "duplicate_urls": [
+        "GET /api/reports?id=ar-aging&as_of=2026-10-30 ×2"
+      ],
+      "response_bytes": 1499,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 2713,
+      "urls": {
+        "GET /api/reports?id=ar-aging&as_of=2026-10-30": 2
+      }
+    },
+    {
+      "step": "B 10 create a party",
+      "requests": 3,
+      "duplicates": 1,
+      "duplicate_urls": [
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts ×2"
+      ],
+      "response_bytes": 31722,
+      "pg_read": 1391,
+      "pg_written": 46519,
+      "ms": 2539,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 2,
+        "POST /api/parties?company_id=2": 1
+      }
+    },
+    {
+      "step": "B 11 second write (steady-state upload)",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 32410,
+      "pg_read": 1002,
+      "pg_written": 36169,
+      "ms": 1980,
+      "urls": {
+        "POST /api/parties?company_id=2": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 12 switch away and back after the write",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 449898,
+      "pg_read": 778,
+      "pg_written": 944,
+      "ms": 1834,
+      "urls": {
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts%2Cpayments%2Cpurchases": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 13 idle 30s (polling and background traffic)",
+      "requests": 0,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 0,
+      "pg_read": 0,
+      "pg_written": 5,
+      "ms": 30705,
+      "urls": {}
+    },
+    {
+      "step": "B 14 switch environment LIVE → TEST",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 1005,
+      "pg_read": 20393,
+      "pg_written": 7277,
+      "ms": 2229,
+      "urls": {
+        "POST /api/switch-environment": 1,
+        "GET /api/data?mode=TEST&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    },
+    {
+      "step": "B 15 switch back TEST → LIVE",
+      "requests": 2,
+      "duplicates": 0,
+      "duplicate_urls": [],
+      "response_bytes": 32411,
+      "pg_read": 1079,
+      "pg_written": 3977,
+      "ms": 2219,
+      "urls": {
+        "POST /api/switch-environment": 1,
+        "GET /api/data?mode=LIVE&company_id=2&modules=core%2Cparties%2Caccounts": 1
+      }
+    }
+  ],
+  "console_errors": [
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "api_failures": [
+    "500 GET /solivy-logo.png",
+    "500 GET /solivy-logo.png",
+    "500 GET /solivy-logo.png",
+    "500 GET /solivy-logo.png"
+  ],
+  "ids": {
+    "id": 2,
+    "id2": 3
+  }
+}

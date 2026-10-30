@@ -66,24 +66,26 @@ export function sameOrigin(req: NextRequest) {
 export function securityHeaders(res: NextResponse, req: NextRequest) {
   const isHttps = req.nextUrl.protocol === 'https:' || req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https';
   const dev = process.env.NODE_ENV !== 'production';
+  // Same-origin framing is allowed ONLY for document previews (Document Settings live preview).
+  const preview = req.nextUrl.searchParams.get('preview') === '1' && ['/api/purchase-bill', '/api/payment-advice'].includes(req.nextUrl.pathname);
   const csp = [
     "default-src 'self'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${preview ? "'self'" : "'none'"}`,
     "object-src 'none'",
     `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "connect-src 'self'",
-    "frame-src 'none'",
+    "frame-src 'self'",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
   ].join('; ');
   res.headers.set('Content-Security-Policy', csp);
   res.headers.set('X-Content-Type-Options', 'nosniff');
-  res.headers.set('X-Frame-Options', 'DENY');
+  res.headers.set('X-Frame-Options', preview ? 'SAMEORIGIN' : 'DENY');
   res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   res.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
@@ -125,7 +127,7 @@ export function authorizeRequest(req: NextRequest, role: string, session?: any) 
     return NextResponse.json({ error: 'Viewer access is read-only.' }, { status: 403 });
   }
 
-  if (ADMIN_ONLY.has(path) && role !== 'ADMIN') {
+  if ((ADMIN_ONLY.has(path) || path.startsWith('/api/admin/')) && role !== 'ADMIN') {
     return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
   }
   // Server-side menu entitlement checks. UI locks are only presentation; APIs enforce the same module IDs.
@@ -142,7 +144,7 @@ export function authorizeRequest(req: NextRequest, role: string, session?: any) 
       ['/api/backup', ['backup']], ['/api/admin-backup-all', ['backup']], ['/api/tally-export', ['tally-export']], ['/api/tally-mapping', ['tally-export']], ['/api/bank-statement-import', ['bank-statement-import']],
       ['/api/export/gst', ['gst']], ['/api/export/payments', ['reports']], ['/api/export/purchases', ['reports']],
       ['/api/document-settings', ['document-settings']], ['/api/settings', ['settings']],
-      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']], ['/api/data', ['dashboard']], ['/api/group-mis', ['dashboard']], ['/api/transfers', ['transfers']], ['/api/sync/run', ['sync']],
+      ['/api/tds-check', ['payments']], ['/api/reverse', ['payments']], ['/api/test-to-live', ['backup']], ['/api/data', ['dashboard']], ['/api/document-templates', ['document-settings', 'commercial-bills', 'purchase', 'payments']], ['/api/group-mis', ['dashboard']], ['/api/reports', ['reports', 'ledger', 'receivables', 'payments', 'purchase', 'gst']], ['/api/budgets', ['reports']], ['/api/transfers', ['transfers']], ['/api/sync/run', ['sync']],
     ];
     const rule = moduleRules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
     if (rule) {

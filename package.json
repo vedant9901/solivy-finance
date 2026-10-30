@@ -1,6 +1,6 @@
 {
   "name": "solivy-finance",
-  "version": "2.6.16",
+  "version": "2.7.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -26,7 +26,19 @@
     "check:funding-transfer": "node scripts/check-funding-transfer.cjs",
     "check:online-login-org": "node scripts/check-online-login-org.cjs",
     "check:release-safety": "node scripts/check-release-safety.cjs",
-    "check:sync-company-settings": "node scripts/check-sync-company-settings.cjs"
+    "check:sync-company-settings": "node scripts/check-sync-company-settings.cjs",
+    "test": "node --require ./tests/setup/register.cjs --import tsx --test --test-concurrency=1 \"tests/unit/*.test.ts\" \"tests/integration/*.test.ts\"",
+    "test:online": "node --require ./tests/setup/register.cjs --import tsx --test --test-concurrency=1 \"tests/online/*.test.ts\"",
+    "test:all": "npm test && npm run test:online && npm run test:ui",
+    "bench:online": "node --require ./tests/setup/register.cjs --import tsx tests/bench/bridge-bench.ts docs/bench/latest.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:ui": "node --require ./tests/setup/register.cjs --import tsx --test --test-concurrency=1 \"tests/ui/*.test.ts\"",
+    "snapshot:online": "tsx scripts/online-snapshot-tool.ts",
+    "check:legacy": "node scripts/check-dynamic-module-access.cjs && node scripts/check-funding-transfer.cjs && node scripts/check-moisture-data-api.cjs && node scripts/check-money-out.cjs && node scripts/check-security.cjs && node scripts/check-multicompany-sync.cjs && node scripts/check-api-access.cjs",
+    "bench:client": "node --require ./tests/setup/register.cjs --import tsx tests/bench/client-bench.ts docs/bench/client-latest.json",
+    "bench:response": "node --require ./tests/setup/register.cjs --import tsx tests/bench/response-size.ts",
+    "bench:write": "node --require ./tests/setup/register.cjs --import tsx tests/bench/write-cost.ts",
+    "check:api-access": "node scripts/check-api-access.cjs"
   },
   "dependencies": {
     "better-sqlite3": "12.4.1",
@@ -46,6 +58,10 @@
     "@types/react": "19.1.13",
     "@types/react-dom": "19.1.9",
     "typescript": "5.9.2",
-    "@types/pg": "^8.15.5"
+    "@types/pg": "^8.15.5",
+    "tsx": "4.23.12"
+  },
+  "engines": {
+    "node": ">=20.11 <23"
   }
 }

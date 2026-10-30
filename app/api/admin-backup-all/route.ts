@@ -5,5 +5,5 @@ async function __bridge_GET(req:Request){try{if(req.headers.get('x-aksh-role')!=
 
 export const runtime = 'nodejs';
 
-const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET);
+const __wrapped_GET = withPostgresSQLiteBridge(__bridge_GET,{scope:'all'});
 export async function GET(req: Request) { return __wrapped_GET(req); }

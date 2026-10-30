@@ -1,0 +1,37 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "plugins": [],
+    "paths": {
+      "next": [
+        "./tests/typecheck/next/index.d.ts"
+      ],
+      "next/server": [
+        "./tests/typecheck/next/server.d.ts"
+      ],
+      "next/link": [
+        "./tests/typecheck/next/link.d.ts"
+      ],
+      "next/navigation": [
+        "./tests/typecheck/next/navigation.d.ts"
+      ]
+    },
+    "types": [
+      "node",
+      "react",
+      "react-dom"
+    ]
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "./tests/typecheck/next/css.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next",
+    "tests/fixtures/**",
+    "next-env.d.ts"
+  ]
+}

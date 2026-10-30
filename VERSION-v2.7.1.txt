@@ -1,0 +1,6 @@
+SOLIVY Finance 2.7.1 — API & Neon transfer optimisation
+Build name: SOLIVY-Finance-v2.7.1-API-TRANSFER-OPTIMIZED
+Release candidate — NOT production-ready; see RELEASE-STATUS.md for the gate status.
+Baseline: v2.7.0-rc.1 (unchanged and still shipped separately) / v2.6.30 original.
+Source commit: df1c278+docs   Built: 2026-10-30
+Tests at build time: 67 offline, 22 online (PostgreSQL 16, not Neon), 4 browser, 21 legacy scripts.

@@ -24,5 +24,5 @@ async function __bridge_POST(req:Request){
  }catch(e:any){return NextResponse.json({error:e?.message||'Could not reverse Money Out.'},{status:400})}
 }
 export const runtime = 'nodejs';
-const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST);
+const __wrapped_POST = withPostgresSQLiteBridge(__bridge_POST,{scope:'all-mode'});
 export async function POST(req:Request){return __wrapped_POST(req)}

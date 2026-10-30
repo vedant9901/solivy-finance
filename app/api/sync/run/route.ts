@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { adminDb, db, type Mode } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
+import { pruneSyncJournal } from '../../../../lib/sync-prune';
+import { FINANCIAL_SYNC_TABLES, financialConflictError } from '../../../../lib/sync-policy';
 import { reconcileIncomingEvent, storeInverseMappings, mappingsForPeer } from '../../../../lib/sync-id-mapping';
 export const runtime = 'nodejs';
 export const dynamic='force-dynamic';
@@ -25,7 +27,7 @@ function ensureConflictHistory(d:any) {
   d.exec("CREATE TABLE IF NOT EXISTS sync_conflict_history (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, table_name TEXT NOT NULL, pk_json TEXT NOT NULL, field_name TEXT NOT NULL, base_value TEXT, local_value TEXT, incoming_value TEXT, resolution TEXT NOT NULL DEFAULT 'kept_local_audit_both', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 }
 
-const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
+const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks']);
 
 function orderEventsByForeignKeys(d:any, events:any[]) {
   // Apply parent rows before dependent rows; delete dependent rows before parents.
@@ -124,6 +126,7 @@ function applyLocal(d:any,e:any,companyName='') {
     throw Object.assign(new Error(`Identity collision on ${table}; safe ID mapping is required before applying this insert.`), { conflictDetail: { table, primary_key:key, reason:'The source record has a colliding primary key and no safe mapping was supplied.', base:null, current, incoming:row } });
   } else if(base!==null && current && row && typeof row==='object' && canon(current)!==canon(base)) {
     const merged=mergeChangedFields(base,current,row,cols); effectiveRow=merged.merged; fieldConflicts=merged.conflicts;
+    if(fieldConflicts.length&&FINANCIAL_SYNC_TABLES.has(String(table)))throw financialConflictError(String(table),key,base,current,row,fieldConflicts);
     if(fieldConflicts.length){ ensureConflictHistory(d); const log=d.prepare('INSERT INTO sync_conflict_history(event_id,table_name,pk_json,field_name,base_value,local_value,incoming_value) VALUES(?,?,?,?,?,?,?)'); for(const c of fieldConflicts)log.run(String(e.event_id),table,JSON.stringify(key),c.field,JSON.stringify(c.base),JSON.stringify(c.local),JSON.stringify(c.incoming)); }
   } else if(base!==null && !current) {
     throw Object.assign(new Error(`Cannot merge ${table}: the base record was deleted locally.`), { conflictDetail: { table, primary_key:key, reason:'The record was deleted on this device while the other side edited it.', base, current:null, incoming:row } });
@@ -248,10 +251,11 @@ async function handler(req:Request) {
     }
     const outgoingOrdered=orderEventsByForeignKeys(d,outgoingEvents);
     const outgoingMappings=meta.remote_device_id ? mappingsForPeer(d,String(meta.remote_device_id),deviceId) : [];
-    let pushed=0;
+    let pushed=0; let remoteFieldConflicts=0;
     if(outgoingEvents.length || outgoingMappings.length) {
       const resp=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,body:JSON.stringify({events:outgoingOrdered,mappings:outgoingMappings}),cache:'no-store'});
       const data=await resp.json().catch(()=>({}));
+      remoteFieldConflicts=Number(data?.field_conflicts||0);
       if(!resp.ok) return NextResponse.json({error:data.error||`Remote push failed (${resp.status}).`,conflict:resp.status===409,conflict_detail:data.conflict_detail||null,conflict_event:data.conflict_event||null,conflict_phase:data.conflict_phase||'push',pending:pending.length},{status:resp.status===409?409:502});
       if (Array.isArray(data.mappings)) storeInverseMappings(d,data.mappings,String(data.destination_device_id||'remote-device'));
       if (data.destination_device_id) d.prepare('UPDATE sync_meta SET remote_device_id=? WHERE id=1').run(String(data.destination_device_id));
@@ -284,8 +288,10 @@ async function handler(req:Request) {
     } catch(e:any) {
       return NextResponse.json({error:describeForeignKeyFailure(d,activePullEvent,e)||'Local apply failed; downloaded batch was not committed.',conflict:true,conflict_phase:'pull',conflict_event:activePullEvent?{event_id:activePullEvent.event_id,table_name:activePullEvent.table_name,pk_json:activePullEvent.pk_json,operation:activePullEvent.operation,base_json:activePullEvent.base_json,row_json:activePullEvent.row_json}:null,conflict_detail:e?.conflictDetail||null,pushed,pending_downloads:events.length,remote_cursor:Number(pulled.cursor||meta.remote_cursor||0)},{status:409});
     }
-    return NextResponse.json({ok:true,mode,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,pushed,pulled:events.length,...summary,id_mappings_created:localMappings.length,last_sync_at:new Date().toISOString(),has_more:Boolean(pulled.has_more)});
+    let fieldConflictsRecorded=0;try{fieldConflictsRecorded=Number((d.prepare("SELECT COUNT(*) c FROM sync_conflict_history WHERE created_at>=datetime('now','-5 minutes')").get() as any)?.c||0)}catch{}
+    let pruned:any=null;try{pruned=pruneSyncJournal(d)}catch(e){console.error('SOLIVY sync prune failed',e)}
+    return NextResponse.json({ok:true,pruned,field_conflicts_recorded:fieldConflictsRecorded,remote_field_conflicts:remoteFieldConflicts,mode,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,pushed,pulled:events.length,...summary,id_mappings_created:localMappings.length,last_sync_at:new Date().toISOString(),has_more:Boolean(pulled.has_more)});
   } catch(e:any) { return NextResponse.json({error:e?.message||'Sync failed.'},{status:400}); }
 }
-const __wrapped_POST=withPostgresSQLiteBridge(handler);
+const __wrapped_POST=withPostgresSQLiteBridge(handler,{noRetry:true,audit:false});
 export async function POST(req:Request){return __wrapped_POST(req);}

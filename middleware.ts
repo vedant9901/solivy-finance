@@ -39,7 +39,9 @@ async function validateLicenseToken(token: string, companyId: number): Promise<{
     const issued = Date.parse(payload.issuedAt), perpetual = payload.perpetual === true && payload.expiresAt === null, expires = perpetual ? Number.POSITIVE_INFINITY : Date.parse(payload.expiresAt);
     if (!Number.isFinite(issued) || issued > Date.now() + 5 * 60 * 1000) return { ok: false, reason: 'License issue date is invalid.' };
     if (!perpetual && !Number.isFinite(expires)) return { ok: false, reason: 'License expiry date is invalid.' };
-    const key = await crypto.subtle.importKey('spki', base64(SOLIVY_LICENSE_PUBLIC_KEY), { name: 'Ed25519' } as AlgorithmIdentifier, false, ['verify']);
+    // A test-only verification key is honoured exclusively when NODE_ENV === 'test' (never in builds).
+    const publicKey = (process.env.NODE_ENV === 'test' && process.env.SOLIVY_TEST_LICENSE_PUBLIC_KEY) || SOLIVY_LICENSE_PUBLIC_KEY;
+    const key = await crypto.subtle.importKey('spki', base64(publicKey), { name: 'Ed25519' } as AlgorithmIdentifier, false, ['verify']);
     const valid = await crypto.subtle.verify({ name: 'Ed25519' } as AlgorithmIdentifier, key, signature, new TextEncoder().encode(parts[0]));
     if (!valid) return { ok: false, reason: 'License signature is invalid.' };
     if (!perpetual && expires <= Date.now()) return { ok: false, reason: 'License has expired. Contact the SOLIVY Team to renew it.' };
@@ -59,7 +61,7 @@ function requiredFeatureForPath(path: string): string {
     ['/api/backup','backup'], ['/api/admin-backup-all','backup'], ['/api/export/gst','gst'],
     ['/api/export/payments','reports'], ['/api/export/purchases','reports'], ['/api/document-settings','document-settings'],
     ['/api/settings','settings'], ['/api/tds-check','payments'], ['/api/test-to-live','backup'], ['/api/transfers','intercompany-transfers'],
-    ['/api/data','dashboard'], ['/api/group-mis','dashboard'], ['/api/transfers','intercompany-transfers'],
+    ['/api/data','dashboard'], ['/api/group-mis','dashboard'], ['/api/reports','reports'], ['/api/budgets','reports'], ['/api/transfers','intercompany-transfers'],
   ];
   const match = rules.find(([prefix]) => path === prefix || path.startsWith(prefix + '/'));
   return match?.[1] || 'core';
@@ -85,11 +87,21 @@ async function checkLicense(companyId: number): Promise<{ok: boolean; reason?: s
   return validateLicenseToken(token, companyId);
 }
 
+/** Internal identity headers are only ever set here. Anything a client sends is discarded. */
+function strippedHeaders(req: NextRequest, keep: string[] = []) {
+  const h = new Headers(req.headers);
+  for (const name of [...h.keys()]) if (name.toLowerCase().startsWith('x-aksh-') && !keep.includes(name.toLowerCase())) h.delete(name);
+  return h;
+}
+
+/** Modules an administrator may always reach for recovery, even if the license omits them. */
+const ADMIN_RECOVERY_FEATURES = new Set(['backup', 'core']);
+
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
   const publicPath = path === '/login' || path === '/setup' || path === '/api/setup' || path === '/api/login' || path === '/api/login-companies' || path === '/forgot-password' || path === '/reset-password' || path === '/license' || path === '/api/license/status' || path === '/api/forgot-password' || path === '/api/reset-password' || path === '/api/logout' || path.startsWith('/_next/') || path === '/favicon.ico';
   if (publicPath) {
-    const res = NextResponse.next();
+    const res = NextResponse.next({ request: { headers: strippedHeaders(req) } });
     return securityHeaders(res, req);
   }
 
@@ -101,7 +113,7 @@ export async function middleware(req: NextRequest) {
     if(!syncCompanyId||!['LIVE','TEST'].includes(String(syncMode))) return securityHeaders(NextResponse.json({error:'Sync company and environment are required.'},{status:400}),req);
     const syncLicense=await checkLicense(syncCompanyId);
     if(!syncLicense.ok) return securityHeaders(NextResponse.json({error:syncLicense.reason||'A valid organization license is required for sync.',code:'LICENSE_REQUIRED'},{status:402}),req);
-    return securityHeaders(NextResponse.next({ request: { headers: req.headers } }), req);
+    return securityHeaders(NextResponse.next({ request: { headers: strippedHeaders(req, ['x-aksh-company-id', 'x-aksh-mode']) } }), req);
   }
 
   const session = await valid(req.cookies.get(COOKIE)?.value);
@@ -124,7 +136,12 @@ export async function middleware(req: NextRequest) {
       return securityHeaders(NextResponse.redirect(target), req);
     }
   }
-  if (!(session.r === 'ADMIN' && path === '/') && license.ok && !license.disabled && !licenseFeatureAllowed(license.payload, requiredFeatureForPath(path)) && !featureAssignedToSession(session, requiredFeatureForPath(path))) {
+  // License entitlement is evaluated on its own: a module missing from the license is locked
+  // for every role (v2.6.30 let any user with the menu permission bypass it). 'core' is always
+  // allowed, and administrators keep backup for data recovery.
+  const feature = requiredFeatureForPath(path);
+  const recoveryAllowed = session.r === 'ADMIN' && (path === '/' || ADMIN_RECOVERY_FEATURES.has(feature));
+  if (license.ok && !license.disabled && feature !== 'core' && !recoveryAllowed && !licenseFeatureAllowed(license.payload, feature)) {
     const message = 'This module is not included in your SOLIVY license. Contact the SOLIVY Team to upgrade.';
     if (path.startsWith('/api/')) return securityHeaders(NextResponse.json({ error: message, code: 'LICENSE_FEATURE_LOCKED' }, { status: 403 }), req);
     const target = new URL('/license', req.url); target.searchParams.set('reason', message);
@@ -147,7 +164,9 @@ export async function middleware(req: NextRequest) {
     return securityHeaders(NextResponse.json({ error: `Session is in ${session.m || 'LIVE'} mode. Switch environment before accessing ${requestedMode}.` }, { status: 403 }), req);
   }
 
-  const h = new Headers(req.headers);
+  const h = strippedHeaders(req);
+  h.set('x-aksh-authenticated', '1');
+  h.set('x-aksh-session-iat', String(Number(session.i) || 0));
   h.set('x-aksh-company-id', String(session.c));
   h.set('x-aksh-role', String(session.r));
   h.set('x-aksh-user', String(session.u));

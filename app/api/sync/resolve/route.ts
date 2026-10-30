@@ -5,7 +5,7 @@ import { storeInverseMappings } from '../../../../lib/sync-id-mapping';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence']);
+const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks']);
 function safeRemote(raw:string){const u=new URL(raw);if(u.username||u.password||u.search||u.hash)throw new Error('Remote URL must not contain credentials, query strings or fragments.');const local=['localhost','127.0.0.1','::1'].includes(u.hostname);if(u.protocol!=='https:'&&!(local&&u.protocol==='http:'))throw new Error('Remote sync URL must use HTTPS.');return u.toString().replace(/\/+$/,'');}
 async function handler(req:Request){
  try{
@@ -42,5 +42,5 @@ async function handler(req:Request){
   return NextResponse.json({ok:true,resolved:true,action,phase,message:'The other company version was accepted on this device. Retry Sync Now to continue processing queued events.'});
  }catch(e:any){return NextResponse.json({error:e?.message||'Conflict resolution failed; no further changes were attempted.'},{status:400});}
 }
-const __wrapped_POST=withPostgresSQLiteBridge(handler);
+const __wrapped_POST=withPostgresSQLiteBridge(handler,{noRetry:true});
 export async function POST(req:Request){return __wrapped_POST(req);}

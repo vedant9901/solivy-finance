@@ -30,5 +30,5 @@ async function handler(req:Request){
   return NextResponse.json({ok:true,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,mode,authorized:true,online_reachable:true,message:'Token is valid for the selected online company and environment. This test does not change or synchronize financial records.'});
  }catch(e:any){return NextResponse.json({ok:false,error:e?.name==='TimeoutError'?'Online verification timed out after 12 seconds.':e?.message||'Unable to verify the online connection.'},{status:400});}
 }
-const __wrapped_POST=withPostgresSQLiteBridge(handler);
+const __wrapped_POST=withPostgresSQLiteBridge(handler,{noRetry:true});
 export async function POST(req:Request){return __wrapped_POST(req);}

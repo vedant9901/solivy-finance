@@ -10,3 +10,7 @@ licenses/private.pem
 SOLIVY-LICENSE-AUTHORITY-PRIVATE.pem
 customer-license.txt
 .env.local
+.env.*.local
+# test / bench artefacts
+/tmp-*
+*.bench.tmp.json

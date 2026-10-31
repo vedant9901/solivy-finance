@@ -6,6 +6,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { SCHEMA_VERSION } from '../../lib/db';
 import path from 'node:path';
 
 const PG = process.env.SOLIVY_TEST_PG_URL || '';
@@ -167,7 +168,7 @@ test('legacy v2.6.30 whole-file row is read, converted to chunks and backed up b
   const row = (await sql("SELECT format FROM solivy_sqlite_snapshots WHERE db_key='company:1:TEST'")).rows[0];
   assert.equal(Number(row.format), 2, 'converted to chunked format after migration');
   const backups = (await sql("SELECT reason FROM solivy_sqlite_snapshot_backups WHERE db_key='company:1:TEST'")).rows;
-  assert.ok(backups.some((b: any) => /pre-migration v0->v27/.test(b.reason)));
+  assert.ok(backups.some((b: any) => new RegExp(`pre-migration v0->v${SCHEMA_VERSION}`).test(b.reason)));
 });
 
 test('online backup / restore / rollback with the snapshot tool (integrity-checked, previous version kept)', { skip: SKIP }, async () => {

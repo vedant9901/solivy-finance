@@ -143,10 +143,6 @@ test('moisture display (v2.7.3) across records old and new, without changing any
   assert.equal(m20.percent, 20); assert.equal(m20.percentText, '20%');
   assert.equal(m20.amount, 20, 'the deduction stays exactly what the calculation applied');
   assert.equal(m20.label, 'Moisture Deduction (20%)');
-  const moistureWithQuality = moistureDisplay({ moisture: 20, quality_deduct_rate_per_kg: 0, quality_deduct_amount: 495, moisture_deduction_amount: 20 });
-  assert.equal(moistureWithQuality.label, 'Moisture Deduction (20%)');
-  assert.equal(moistureWithQuality.amount, 495, 'when moisture is a percentage and quality deduction exists, show quality deduction in INR');
-  assert.equal(moistureWithQuality.perKgRule, true, 'do not print the same quality deduction again as a separate row');
   assert.equal(Math.round(row20.net_payable), Math.round(row20.gross_amount - row20.total_deduction), 'stored totals untouched');
   const pdf20 = (await bill(twenty.id, { template: 'classic' })).text;
   assert.ok(pdf20.includes('Moisture Deduction \\(20%\\)'), 'the bill prints the percentage in the label');

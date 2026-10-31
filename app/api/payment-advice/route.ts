@@ -68,7 +68,7 @@ async function __bridge_GET(req:Request){
   if(on(s,'show_allocations')&&allocations.length){section('Bill-wise payment settlement');
     for(const r of allocations){
       const mo=moistureDisplay(r);
-      const less:[string,any,string][]=[['Unload Charges',r.unload_charge,'show_unload'],['Freight',r.freight,'show_freight'],[mo.label,mo.amount,'show_moisture'],['Discount',r.discount_amount,'show_discount'],['Driver Rokdi',r.driver_rokdi,'show_driver_rokdi'],...(mo.perKgRule?[]:[['Quality Deduct',r.quality_deduct_amount,'show_quality_deduct'] as [string,any,string]]),['Other Charges',r.other_charges,'show_other_charges']].filter(([_,v,k])=>on(s,k as string)&&num(v)!==0) as [string,any,string][];
+      const less:[string,any,string][]=[['Unload Charges',r.unload_charge,'show_unload'],['Freight',r.freight,'show_freight'],[mo.label,mo.amount,'show_moisture'],['Discount',r.discount_amount,'show_discount'],['Driver Rokdi',r.driver_rokdi,'show_driver_rokdi'],['Quality Deduct',r.quality_deduct_amount,'show_quality_deduct'],['Other Charges',r.other_charges,'show_other_charges']].filter(([_,v,k])=>on(s,k as string)&&num(v)!==0) as [string,any,string][];
       const infoRows=(on(s,'show_description')&&clean(r.goods_description)?1:0)+(on(s,'show_purchase_date')&&clean(r.purchase_date)?1:0)+(on(s,'show_net_weight')?1:0)+(on(s,'show_bags')?1:0)+(on(s,'show_rate')?1:0)+(on(s,'show_gross_amount',false)?1:0)+less.length+(on(s,'show_net_payable')?1:0)+(on(s,'show_allocated',false)?1:0)+(on(s,'show_outstanding')?1:0)+(on(s,'show_notes')&&clean(r.notes)?1:0);
       ensure(Math.min(42,12+infoRows*4));
       const cardTop=y;doc.setDrawColor(...border);doc.roundedRect(L,cardTop-3,W,Math.max(19,16+infoRows*4),1.2,1.2,'S');

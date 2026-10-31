@@ -1,0 +1,6 @@
+SOLIVY Finance 2.8.0 — SaaS redesign + sync fix
+Build name: SOLIVY-Finance-v2.8.0-SaaS-REDESIGN-SYNC-FIX
+Release candidate — NOT production-ready; see RELEASE-STATUS.md (gates unchanged: no lockfile, no next build/lint, Neon untested).
+Baseline: v2.7.3 (tagged, unchanged). This repository has no v2.7.5.
+Source commit: 5cbb26a+docs   Built: 2026-10-30
+Tests: 72 offline, 36 online (PostgreSQL 16, not Neon), 10 browser, 22 legacy scripts.

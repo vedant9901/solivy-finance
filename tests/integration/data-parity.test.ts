@@ -30,7 +30,10 @@ test('?modules returns only the requested modules and is much smaller', async ()
   assert.ok(parties.bytes < full.bytes / 3, `${parties.bytes} vs ${full.bytes}`);
   const dash = expectOk(await call('/api/data', { cookie: s.cookie, query: { modules: 'accounts,money,payments,purchases,receivables' } }));
   assert.deepEqual(dash.accounts, full.json.accounts);
-  assert.deepEqual(dash.purchases, full.json.purchases);
+  // v2.8.0 adds three derived display fields in module mode (the discount base a record was saved
+  // with, so the register and the purchase form agree). The stored values must be identical.
+  assert.deepEqual(dash.purchases.map(({ discount_rule_used, net_payable_calc, net_payable_matches, ...rest }: any) => rest), full.json.purchases);
+  assert.ok(dash.purchases.every((p: any) => p.net_payable_matches === true && Math.round(p.net_payable_calc) === Math.round(p.net_payable)), 'every row reproduces its stored total');
 });
 
 test('module permissions are applied before querying (clerk without payments gets none)', async () => {

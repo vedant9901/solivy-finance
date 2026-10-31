@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.8.0 — 2026-10-30 (SaaS redesign + sync fix)
+Built on v2.7.3 (this repository has no v2.7.5). Details in `RELEASE-NOTES-v2.8.0.md`.
+- Sync: delete / missing / recreate conflicts can now be resolved at all — push a deletion, accept
+  one, or clear a both-deleted conflict; dependents are listed and only removed on confirmation;
+  POSTED financial records are never deleted (reversal instead); a stale deletion cannot remove a
+  newer record; resolutions no longer echo back and are idempotent on retry.
+- Sync: the resolution log and conflict history are no longer synchronised.
+- Purchase register: the register and the purchase form now show the same Net Payable. Records keep
+  the discount base they were saved with (new nullable `purchases.discount_after_quality`, schema
+  28); legacy rows resolve the rule that reproduces their stored total; unreproducible rows are
+  flagged, never rewritten.
+- Redesign: light/dark/system themes with seven accents (persisted), four-group sidebar (Vendor
+  Ledger, Tally Export, GST Filing and Secondary Backup unlisted but fully working), new profile and
+  settings module, loading skeletons, animated figures, mobile drawer and touch sizing.
+- Tests: 72 offline, 36 online (PostgreSQL 16), 10 browser, 22 legacy scripts.
+
 ## 2.7.3 — 2026-10-30 (moisture display fix)
 Display only. No financial logic, stored value, total or database change; `lib/utils.ts
 purchaseCalc` is untouched and every stored figure was asserted unchanged by the tests.

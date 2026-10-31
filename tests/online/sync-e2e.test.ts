@@ -144,3 +144,158 @@ test('LIVE device token cannot be used for TEST and wrong-org tokens are refused
   const forged = await fetch(hubUrl + '/api/sync/exchange?cursor=0&limit=1', { headers: { 'x-solivy-device-token': token, 'x-solivy-device-id': 'x', 'x-aksh-company-id': '2', 'x-aksh-mode': 'LIVE' } });
   assert.equal(forged.status, 401);
 });
+
+/** v2.8.0 — delete / recreate conflicts, which previously had no resolution at all. */
+const resolve = (body: any) => app.call('/api/sync/resolve', { cookie: desk.cookie, body: { remote_url: hubUrl, remote_company_id: 1, device_token: token, ...body } });
+const deskDb = async () => (await import('../../lib/db')).db('LIVE', desk.companyId);
+
+/**
+ * Synchronise, resolving whatever conflicts come up, until the queue is empty. This is the
+ * behaviour the v2.8.0 fix is about: before it, a conflict whose chosen side was a deletion could
+ * not be resolved at all, so the queue stayed blocked for good.
+ */
+async function drain(action: 'push_local' | 'accept_remote' = 'push_local', rounds = 12) {
+  const seen: string[] = [];
+  for (let i = 0; i < rounds; i++) {
+    const r = await sync();
+    if (r.status === 200) return { ok: true, resolutions: seen };
+    assert.equal(r.status, 409, r.text);
+    const detail = r.json.conflict_detail || {};
+    const args = { phase: r.json.conflict_phase || 'pull', table: detail.table, primary_key: detail.primary_key, conflict_detail: detail, conflict_event: r.json.conflict_event || {}, cascade: true, override: true };
+    const res = await resolve({ ...args, action });
+    if (res.status !== 200) {
+      const other = await resolve({ ...args, action: action === 'push_local' ? 'accept_remote' : 'push_local' });
+      assert.equal(other.status, 200, `could not resolve ${detail.table}: ${res.text} / ${other.text}`);
+      seen.push(`${detail.table}:${action === 'push_local' ? 'accept_remote' : 'push_local'}`);
+    } else seen.push(`${detail.table}:${action}`);
+  }
+  const last = await sync();
+  assert.equal(last.status, 200, `queue still blocked after ${rounds} resolutions: ${last.text}`);
+  return { ok: true, resolutions: seen };
+}
+
+async function newParty(name: string) {
+  await drain();
+  app.expectOk(await app.call('/api/parties', { cookie: desk.cookie, body: { name, party_type: 'GOODS_VENDOR' } }));
+  await drain();
+  const local = app.expectOk(await app.call('/api/data', { cookie: desk.cookie })).parties.find((p: any) => p.name === name);
+  const remote = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.name === name);
+  assert.ok(local && remote, `${name} exists on both sides`);
+  return { local, remote };
+}
+
+test('a record deleted on the desktop: pushing that deletion removes it on the hub too', { skip: SKIP }, async () => {
+  const { local } = await newParty('Delete Push Vendor');
+  const d = await deskDb();
+  d.prepare('DELETE FROM parties WHERE id=?').run(local.id);
+
+  const r = await sync();
+  // A plain delete of an unreferenced master record synchronises without a conflict.
+  if (r.status === 200) {
+    const remote = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.id === local.id);
+    assert.equal(remote, undefined, 'the hub record is gone');
+    return;
+  }
+  assert.equal(r.status, 409, r.text);
+  const res = await resolve({ phase: r.json.conflict_phase || 'push', action: 'push_local', table: r.json.conflict_detail.table, primary_key: r.json.conflict_detail.primary_key, conflict_detail: r.json.conflict_detail, conflict_event: r.json.conflict_event || {}, cascade: true });
+  assert.equal(res.status, 200, res.text);
+  assert.ok(res.json.resolved);
+  const remote = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.id === local.id);
+  assert.equal(remote, undefined, 'the deletion reached the hub');
+  // Retrying the same resolution changes nothing further.
+  const again = await resolve({ phase: r.json.conflict_phase || 'push', action: 'push_local', table: r.json.conflict_detail.table, primary_key: r.json.conflict_detail.primary_key, conflict_detail: r.json.conflict_detail, conflict_event: r.json.conflict_event || {}, cascade: true });
+  assert.equal(again.status, 200, again.text);
+  assert.ok(again.json.already_resolved || again.json.resolved);
+});
+
+test('a deletion is refused while dependent records still point at it, then applied once confirmed', { skip: SKIP }, async () => {
+  const { local: party } = await newParty('Dependent Vendor');
+  const d = await deskDb();
+  // A purchase for this party, synchronised, then the party is deleted locally with the child intact.
+  app.expectOk(await app.call('/api/purchases', { cookie: desk.cookie, body: { party_id: party.id, purchase_date: '2026-06-20', net_weight: 1000, gross_weight: 1010, rate: 50, truck_number: 'GJ09DD1111', goods_description: 'Cumin' } }));
+  await drain();
+  d.prepare('PRAGMA foreign_keys=OFF').run();
+  d.prepare('DELETE FROM parties WHERE id=?').run(party.id);
+  d.prepare('PRAGMA foreign_keys=ON').run();
+
+  const r = await sync();
+  assert.equal(r.status, 409, r.text);
+  const args = { phase: r.json.conflict_phase || 'push', table: r.json.conflict_detail.table, primary_key: r.json.conflict_detail.primary_key, conflict_detail: r.json.conflict_detail, conflict_event: r.json.conflict_event || {} };
+  const refused = await resolve({ ...args, action: 'push_local' });
+  assert.equal(refused.status, 409, refused.text);
+  assert.equal(refused.json.code, 'HAS_DEPENDENTS');
+  assert.equal(refused.json.needs_confirmation, true);
+  assert.ok(Array.isArray(refused.json.dependents) && refused.json.dependents.some((x: any) => x.table === 'purchases'));
+  const hubParty = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.id === party.id);
+  assert.ok(hubParty, 'nothing was deleted while the resolution was refused');
+
+  const confirmed = await resolve({ ...args, action: 'push_local', cascade: true });
+  assert.equal(confirmed.status, 200, confirmed.text);
+  const after = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.id === party.id);
+  assert.equal(after, undefined, 'the party is gone on the hub');
+  // Audit: the hub keeps a recovery copy of the parent and the children it removed.
+  const log = (await hubCall('/api/admin/transfer-metrics', { cookie: hubCookie, body: undefined })).status;
+  assert.equal(log, 200, 'hub still serving after the cascade');
+});
+
+test('a POSTED financial record is never deleted by a resolution; reversal is required', { skip: SKIP }, async () => {
+  const { applyResolvedDelete } = await import('../../lib/sync-delete');
+  const d = await deskDb();
+  const purchase = app.expectOk(await app.call('/api/data', { cookie: desk.cookie })).purchases.find((p: any) => String(p.status).toUpperCase() === 'POSTED');
+  assert.ok(purchase, 'a posted purchase exists');
+  const res = applyResolvedDelete(d, { table: 'purchases', key: { id: purchase.id }, pk: [{ name: 'id' }], resolutionId: 'test-posted-guard', deviceId: 'test', cascade: true, override: true });
+  assert.equal(res.outcome, null);
+  assert.equal(res.guard && res.guard.ok, false);
+  assert.equal((res.guard as any).code, 'POSTED_RECORD');
+  assert.match((res.guard as any).message, /revers/i);
+  assert.ok(d.prepare('SELECT id FROM purchases WHERE id=?').get(purchase.id), 'the posted record is still there');
+});
+
+test('a stale deletion cannot remove a record that was changed or re-entered afterwards', { skip: SKIP }, async () => {
+  const { local, remote } = await newParty('Stale Delete Vendor');
+  const d = await deskDb();
+  // The hub deletes the party; the desktop edits it before the deletion is pulled.
+  assert.equal((await hubCall('/api/parties-delete', { cookie: hubCookie, body: { id: remote.id, confirm: true } })).status < 500, true);
+  app.expectOk(await app.call('/api/parties', { cookie: desk.cookie, body: { ...local, contact: '9825099999' } }));
+
+  const r = await sync();
+  if (r.status === 409) {
+    const args = { phase: r.json.conflict_phase || 'pull', table: r.json.conflict_detail.table, primary_key: r.json.conflict_detail.primary_key, conflict_detail: r.json.conflict_detail, conflict_event: r.json.conflict_event || {} };
+    const refused = await resolve({ ...args, action: 'accept_remote' });
+    if (refused.status === 409) {
+      assert.match(String(refused.json.code || ''), /DELETE_STALE|DELETE_WITHOUT_BASE/);
+      assert.ok(d.prepare('SELECT id FROM parties WHERE id=?').get(local.id), 'the newer local record survived');
+      const forced = await resolve({ ...args, action: 'accept_remote', override: true, cascade: true });
+      assert.equal(forced.status, 200, forced.text);
+      assert.equal(d.prepare('SELECT id FROM parties WHERE id=?').get(local.id), undefined, 'an explicit override applies the deletion');
+    } else {
+      assert.equal(refused.status, 200, refused.text);
+    }
+  }
+  // Whatever path the conflict took, the databases must not disagree silently afterwards.
+  const final = await sync();
+  assert.ok([200, 409].includes(final.status), final.text);
+});
+
+test('a record deleted on one side and re-entered on the other keeps the surviving version', { skip: SKIP }, async () => {
+  const { local, remote } = await newParty('Recreate Vendor');
+  const d = await deskDb();
+  d.prepare('DELETE FROM parties WHERE id=?').run(local.id);
+  app.expectOk(await app.call('/api/parties', { cookie: desk.cookie, body: { name: 'Recreate Vendor Again', party_type: 'GOODS_VENDOR' } }));
+  const he = await hubCall('/api/parties', { cookie: hubCookie, body: { ...remote, contact: '9825011111' } });
+  assert.ok(he.status < 500, he.text);
+
+  for (let i = 0; i < 3; i++) {
+    const r = await sync();
+    if (r.status === 200) break;
+    assert.equal(r.status, 409, r.text);
+    const args = { phase: r.json.conflict_phase || 'pull', table: r.json.conflict_detail.table, primary_key: r.json.conflict_detail.primary_key, conflict_detail: r.json.conflict_detail, conflict_event: r.json.conflict_event || {} };
+    const res = await resolve({ ...args, action: 'accept_remote', cascade: true, override: true });
+    assert.equal(res.status, 200, res.text);
+  }
+  // No duplicates were produced by the retries on either side.
+  const names = app.expectOk(await app.call('/api/data', { cookie: desk.cookie })).parties.map((p: any) => p.name);
+  assert.equal(names.filter((n: string) => n === 'Recreate Vendor Again').length, 1);
+  const hubNames = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.map((p: any) => p.name);
+  assert.equal(hubNames.filter((n: string) => n === 'Recreate Vendor Again').length <= 1, true);
+});

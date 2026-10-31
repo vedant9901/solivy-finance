@@ -1,0 +1,44 @@
+SOLIVY Finance v2.8.0 verification — 2026-10-30T12:54:13Z, node v22.23.4
+commit: 5cbb26a
+## npm test (unit + integration, SQLite)
+# tests 72
+# pass 72
+# fail 0
+# skipped 0
+## npm run test:online (real PostgreSQL 16 at 127.0.0.1:54329 — NOT Neon)
+# tests 36
+# pass 36
+# fail 0
+# skipped 0
+## npm run test:ui (Playwright Chromium; Tailwind not compiled in this harness)
+# tests 10
+# pass 10
+# fail 0
+# skipped 0
+## typecheck
+exit=0 errors=0
+## API access audit
+API access audit passed: 92 checks, 68 routes declared
+## legacy regression scripts
+check-api-access.cjs exit=0
+check-dashboard-metrics.cjs exit=0
+check-dynamic-module-access.cjs exit=0
+check-finance-mis.cjs exit=0
+check-financial-repair-tds.cjs exit=0
+check-funding-transfer.cjs exit=0
+check-moisture-data-api.cjs exit=0
+check-money-out.cjs exit=0
+check-multicompany-sync.cjs exit=0
+check-online-login-org.cjs exit=0
+check-release-safety.cjs exit=0
+check-security.cjs exit=0
+check-source.cjs exit=0
+check-sync-company-settings.cjs exit=0
+check-user-org-conflicts.cjs exit=0
+check-database-bridge.mjs exit=0
+check-env.mjs exit=0
+check-import-schema.mjs exit=0
+check-sync-id-mapping.mjs exit=0
+check-sync.mjs exit=0
+check-test-to-live-purge-fix.mjs exit=0
+check-transfers.mjs exit=0

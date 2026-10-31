@@ -2,6 +2,7 @@ import { withPostgresSQLiteBridge } from '../../../lib/postgres-sqlite-bridge';
 import { NextResponse } from 'next/server';
 import { db, adminDb, sessionMode } from '../../../lib/db';
 import { companyWatermark, adminWatermark, etagFor, notModified, NOT_MODIFIED_HEADERS } from '../../../lib/data-version';
+import { effectiveDiscountRule } from '../../../lib/utils';
 export const dynamic = 'force-dynamic';
 
 /**
@@ -83,7 +84,17 @@ async function __bridge_GET(req: Request) {
 
     if (want('purchases') && can('purchase')) {
       const purchases = d.prepare(`SELECT p.*,x.name party_name,x.email party_email,x.contact party_contact,bp.name broker_party_name,bp.contact broker_contact,bp.email broker_email, r.party_id receivable_party_id, rp.name receivable_party_name, r.receivable_amount, r.due_days receivable_due_days, r.due_date receivable_due_date, r.notes receivable_notes, ${PAID} paid_amount, p.net_payable-${PAID} outstanding FROM purchases p JOIN parties x ON x.id=p.party_id LEFT JOIN parties bp ON bp.id=p.broker_party_id LEFT JOIN financing_receivables r ON r.purchase_id=p.id LEFT JOIN parties rp ON rp.id=r.party_id ORDER BY p.purchase_date DESC,p.id DESC`).all();
-      out.purchases = can('parties') ? purchases : purchases.map((p: any) => ({ ...p, party_email: '', party_contact: '', broker_contact: '', broker_email: '' }));
+      // v2.8.0: the register and the purchase form must show the same Net Payable. The stored
+      // net_payable stays authoritative (it is what the ledger posted); each row also reports the
+      // discount base it was saved with, so the form computes with that rule instead of today's
+      // company setting, and rows whose stored total cannot be reproduced are flagged rather than
+      // quietly disagreeing. No stored figure is changed here.
+      const companyRule = Number((d.prepare('SELECT discount_after_quality FROM company_settings WHERE id=1').get() as any)?.discount_after_quality ?? 1);
+      const withRule = (p: any) => { const r = effectiveDiscountRule(p, companyRule); return { ...p, discount_rule_used: r.rule, net_payable_calc: r.calculated, net_payable_matches: r.reproduces }; };
+      // The legacy (no ?modules=) response keeps the exact v2.6.30 shape; the derived fields are
+      // only added for module-based callers (tests/integration/data-parity.test.ts holds this).
+      const shaped = legacy ? purchases : purchases.map(withRule);
+      out.purchases = can('parties') ? shaped : shaped.map((p: any) => ({ ...p, party_email: '', party_contact: '', broker_contact: '', broker_email: '' }));
     } else if (want('purchases')) out.purchases = [];
 
     if (want('payments') && can('payments')) {

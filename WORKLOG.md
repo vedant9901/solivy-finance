@@ -1,5 +1,27 @@
 # Worklog
 
+## 2026-10-30 — v2.8.0 (SaaS redesign + sync fix)
+**Baseline:** v2.7.3. The request named v2.7.5, which does not exist in this repository.
+
+**Root causes found:**
+- The "missing/deleted record" message pointed at a resolution that was never implemented. Worse,
+  `applyEvent` deleted a row whenever it existed, so a stale deletion could silently remove newer
+  financial data, and a resolution was journalled as originating from the device that *applied* it,
+  so it echoed back to the peer and re-conflicted — the queue could never be drained. Found by
+  writing a test that drains conflicts in a loop.
+- The register/form mismatch is `discount_after_quality`: read from company settings at save time by
+  the server, and re-read live by the form. Change the setting and the two disagree by exactly
+  quality × discount% (₹1,042 on the reported bill). Fixed by recording the rule with the record and
+  deriving it for legacy rows from the stored total; nothing is recalculated.
+- `sync_resolution_log` was being synchronised and its before-images could exceed the body limit.
+
+**Decisions:** posted financial records are never deleted by a resolution (reversal only);
+deletions with dependents need explicit confirmation and keep a recovery copy; unreproducible
+register rows are flagged rather than corrected automatically; the redesign is token-driven CSS so
+every existing screen follows without rewriting markup.
+
+**Evidence:** `docs/verification/test-run-2026-10-30-v2.8.0.txt`, `docs/ui/v280-*.png`.
+
 ## 2026-10-30 — v2.7.3 (moisture display)
 The stored `purchases.moisture` column means two things depending on the quality rule, and the
 purchase form labels it "Moisture (%)": under the rate-per-kg rule `purchaseCalc` deducts nothing

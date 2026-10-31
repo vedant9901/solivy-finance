@@ -1,5 +1,6 @@
 'use client';
 import React, {useEffect, useMemo, useState} from 'react';
+import { Counter, SkeletonCards } from './ui';
 import '../dashboard.css';
 import {FiArrowDownLeft, FiArrowUpRight, FiChevronDown, FiCreditCard, FiInbox, FiRefreshCw, FiSearch, FiTrendingDown, FiTrendingUp} from 'react-icons/fi';
 import {money} from '../../lib/utils';
@@ -328,13 +329,13 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
           <button onClick={() => setReloadKey((k) => k + 1)}>Retry</button>
         </div>
       )}
-      {loading && !group && <div className="sd-loading" aria-live="polite">Loading figures for the selected companies…</div>}
+      {loading && !group && <><div className="sd-loading" aria-live="polite">Loading figures for the selected companies…</div><SkeletonCards count={4} /></>}
 
       {showHero && (
         <div className="sd-grid">
           <section className="sd-card sd-balance-card" aria-label="Total balance">
             <div className="sd-label">Total balance <span className="sd-tag">{consolidated.length > 1 ? `${consolidated.length} companies` : 'Bank + cash'}</span></div>
-            <div className="sd-balance">{hasTotals ? money(num(totals.available_cash)) : '—'}</div>
+            <div className="sd-balance">{hasTotals ? <Counter value={num(totals.available_cash)} format={money} /> : '—'}</div>
             <div className="sd-change-wrap">
               {hasTotals ? (
                 <>
@@ -368,17 +369,17 @@ export default function ExecutiveDashboard({data, onReceive, onOpenTab, api, com
           <section className="sd-kpis" aria-label="Key figures">
             <button className="sd-kpi sd-kpi-accent" onClick={() => onOpenTab('reports')}>
               <span className="sd-kpi-top"><span>Realised profit</span><FiTrendingUp aria-hidden="true" /></span>
-              <b>{hasTotals ? money(num(totals.finance_profit_after_interest)) : '—'}</b>
+              <b>{hasTotals ? <Counter value={num(totals.finance_profit_after_interest)} format={money} /> : '—'}</b>
               <small>Book profit {money(num(totals.book_profit))} less interest {money(num(totals.interest_paid))}</small>
             </button>
             <button className="sd-kpi" onClick={() => onOpenTab('reports')}>
               <span className="sd-kpi-top"><span>Outflow this month</span><FiTrendingDown aria-hidden="true" /></span>
-              <b>{hasTotals ? money(num(totals.month_outflow)) : '—'}</b>
+              <b>{hasTotals ? <Counter value={num(totals.month_outflow)} format={money} /> : '—'}</b>
               {hasTotals && <Change cur={num(totals.month_outflow)} prev={num(totals.previous_month_outflow)} goodWhenUp={false} />}
             </button>
             <button className="sd-kpi" onClick={() => onOpenTab('reports')}>
               <span className="sd-kpi-top"><span>Inflow this month</span><FiTrendingUp aria-hidden="true" /></span>
-              <b>{hasTotals ? money(num(totals.month_inflow)) : '—'}</b>
+              <b>{hasTotals ? <Counter value={num(totals.month_inflow)} format={money} /> : '—'}</b>
               {hasTotals && <Change cur={num(totals.month_inflow)} prev={num(totals.previous_month_inflow)} />}
             </button>
             <button className="sd-kpi" onClick={onReceive}>

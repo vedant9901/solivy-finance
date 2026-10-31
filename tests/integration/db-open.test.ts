@@ -40,7 +40,7 @@ test('legacy database (user_version 0) is backed up before migration and migrati
   closeAllDatabases();
   const backups = fs.readdirSync(path.join(path.dirname(file), 'pre-migration-backups'));
   assert.equal(backups.length, 1);
-  assert.match(backups[0], /live-v0-to-v27/);
+  assert.match(backups[0], new RegExp(`live-v0-to-v${SCHEMA_VERSION}`));
   assert.ok(appDataDirectory());
 });
 

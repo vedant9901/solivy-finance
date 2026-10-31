@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { adminDb, db, type Mode } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
+import { applyResolvedDelete, alreadyResolved, staleDeleteGuard, postedGuard, dependentsOf } from '../../../../lib/sync-delete';
 import { FINANCIAL_SYNC_TABLES, financialConflictError } from '../../../../lib/sync-policy';
 import { ensurePruneSchema, recordAck, historyPruned, pruneSyncJournal } from '../../../../lib/sync-prune';
 import { reconcileIncomingEvent, importPeerMappings } from '../../../../lib/sync-id-mapping';
@@ -27,7 +28,7 @@ function ensureConflictHistory(d:any) {
   d.exec("CREATE TABLE IF NOT EXISTS sync_conflict_history (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, table_name TEXT NOT NULL, pk_json TEXT NOT NULL, field_name TEXT NOT NULL, base_value TEXT, local_value TEXT, incoming_value TEXT, resolution TEXT NOT NULL DEFAULT 'kept_local_audit_both', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 }
 
-const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks']);
+const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks','sync_resolution_log','sync_conflict_history']);
 
 // Ensure local-only schema migrations are present before replaying their sync events.
 // Older peers may not have visited Admin -> Financial Repair yet, so relying on that
@@ -182,12 +183,33 @@ function applyEvent(d:any,e:any,localDeviceId:string,companyName:string) {
     if(fieldConflicts.length&&FINANCIAL_SYNC_TABLES.has(String(e.table_name)))throw financialConflictError(String(e.table_name),pkObj,base,current,desired,fieldConflicts);
     if(fieldConflicts.length){ensureConflictHistory(d);const log=d.prepare('INSERT INTO sync_conflict_history(event_id,table_name,pk_json,field_name,base_value,local_value,incoming_value) VALUES(?,?,?,?,?,?,?)');for(const c of fieldConflicts)log.run(String(e.event_id),String(e.table_name),JSON.stringify(pkObj),c.field,JSON.stringify(c.base),JSON.stringify(c.local),JSON.stringify(c.incoming));}
   } else if(base!==null && !current) {
-    throw Object.assign(new Error(`Cannot merge ${e.table_name}: the base record was deleted on the destination.`), { conflictDetail: { table:String(e.table_name), primary_key:pkObj, reason:'The record was deleted on this side while the other side edited it.', base, current:null, incoming:desired } });
+    throw Object.assign(new Error(`Cannot merge ${e.table_name}: the record was deleted on the destination while the other side changed it.`), { conflictDetail: { table:String(e.table_name), primary_key:pkObj, reason:'This record was deleted here while the other device changed it. Keep the other device\'s version to restore the record, or keep this deletion to remove it there as well.', base, current:null, incoming:desired, operation:String(e.operation||''), code:'DELETED_HERE' } });
   }
   d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
   try {
     if (e.operation==='DELETE') {
-      if (current) d.prepare(`DELETE FROM "${e.table_name}" WHERE ${pk.map(c=>`"${c.name}"=?`).join(' AND ')}`).run(...pk.map(c=>pkObj[c.name]));
+      // v2.8.0: applying a deletion over a record that changed here (or was re-entered under the
+      // same key) would discard newer financial data, so it raises a conflict instead. An absent
+      // record means the deletion already happened: that is idempotent, not an error.
+      if (current) {
+        const guard=staleDeleteGuard(current,base);
+        if(!guard.ok && FINANCIAL_SYNC_TABLES.has(String(e.table_name))) {
+          d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run();
+          throw Object.assign(new Error(`Cannot delete ${e.table_name}: ${guard.message}`), { conflictDetail: { table:String(e.table_name), primary_key:pkObj, reason:guard.message, base, current, incoming:null, operation:'DELETE', code:guard.code } });
+        }
+        const posted=postedGuard(String(e.table_name),current);
+        if(!posted.ok) {
+          d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run();
+          throw Object.assign(new Error(posted.message), { conflictDetail: { table:String(e.table_name), primary_key:pkObj, reason:posted.message, base, current, incoming:null, operation:'DELETE', code:posted.code } });
+        }
+        const deps=dependentsOf(d,String(e.table_name),pkObj);
+        if(deps.length) {
+          d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run();
+          const message=`The record still has ${deps.map((x:any)=>`${x.count} ${x.table.replace(/_/g,' ')}`).join(', ')} attached on this side. Resolve the deletion explicitly so the dependent records are handled.`;
+          throw Object.assign(new Error(`Cannot delete ${e.table_name}: ${message}`), { conflictDetail: { table:String(e.table_name), primary_key:pkObj, reason:message, base, current, incoming:null, operation:'DELETE', code:'HAS_DEPENDENTS', dependents:deps } });
+        }
+        d.prepare(`DELETE FROM "${e.table_name}" WHERE ${pk.map(c=>`"${c.name}"=?`).join(' AND ')}`).run(...pk.map(c=>pkObj[c.name]));
+      }
     } else {
       if (!effectiveRow || typeof effectiveRow!=='object') throw new Error('Missing row payload.');
       const names=cols.map(c=>c.name).filter(n=>Object.prototype.hasOwnProperty.call(effectiveRow,n));
@@ -242,9 +264,17 @@ async function handler(req:Request) {
         let key=f.primary_key && typeof f.primary_key==='object' ? f.primary_key : {};
         if(!pk.every((c:any)=>Object.prototype.hasOwnProperty.call(key,c.name))) return NextResponse.json({error:'Invalid conflict primary key.'},{status:400});
         let row=f.row && typeof f.row==='object' ? f.row : null;
-        if(!row || !pk.every((c:any)=>Object.prototype.hasOwnProperty.call(row,c.name))) return NextResponse.json({error:'The selected source version is incomplete.'},{status:400});
         const resolutionId=String(f.resolution_id||'');
         if(!resolutionId || resolutionId.length>120) return NextResponse.json({error:'Missing conflict resolution ID.'},{status:400});
+        // v2.8.0: the other device deleted this record and chose its deletion as the truth.
+        if(String(f.action||'')==='push-local-delete'){
+          if(alreadyResolved(d,resolutionId)) return NextResponse.json({ok:true,already_resolved:true,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
+          let base:any=null; try { base=f.base_json?JSON.parse(String(f.base_json)):null; } catch { base=null; }
+          const res=applyResolvedDelete(d,{table,key,pk,resolutionId,deviceId:ctx.deviceId,cascade:f.cascade===true,base,override:f.override===true,action:'push-local-delete'});
+          if(res.guard&&!res.guard.ok) return NextResponse.json({error:res.guard.message,code:res.guard.code,dependents:res.guard.dependents,needs_confirmation:res.guard.code==='HAS_DEPENDENTS',needs_override:res.guard.code==='DELETE_STALE'||res.guard.code==='DELETE_WITHOUT_BASE'},{status:409});
+          return NextResponse.json({ok:true,resolved:true,deleted:res.outcome?res.outcome.deleted:0,cascaded:res.outcome?res.outcome.cascaded:[],destination_device_id:String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||ctx.deviceId),company_id:ctx.companyId,company_name:companyName,mode:ctx.mode,mappings:[]});
+        }
+        if(!row || !pk.every((c:any)=>Object.prototype.hasOwnProperty.call(row,c.name))) return NextResponse.json({error:'The selected source version is incomplete.'},{status:400});
         const mappings:any[]=[];
         if(String(f.action||'')==='push-local-version' && String(f.operation||'')==='INSERT' && (f.base_json===null || f.base_json===undefined || f.base_json==='')) {
           const reconciled=reconcileIncomingEvent(d,{event_id:'resolution-'+resolutionId,table_name:table,pk_json:JSON.stringify(key),operation:'INSERT',base_json:null,row_json:JSON.stringify(row),origin_device:ctx.deviceId},ctx.deviceId,mappings);
@@ -266,7 +296,12 @@ async function handler(req:Request) {
           finally { d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run(); }
           d.prepare('INSERT INTO sync_resolution_log(resolution_id,table_name,pk_json,action,before_json,after_json,device_id) VALUES(?,?,?,?,?,?,?)').run(resolutionId,table,JSON.stringify(key),String(f.action||'push-source'),old?JSON.stringify(old):null,JSON.stringify(row),ctx.deviceId);
           const newEventId=crypto.randomUUID();
-          d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)').run(newEventId,table,JSON.stringify(key),old?'UPDATE':'INSERT',old?JSON.stringify(old):null,JSON.stringify(row),ownDevice);
+          // v2.8.0: the resolution is journalled as ORIGINATING FROM the device that resolved it, so
+          // it is never sent back to that device (the pull filter is origin_device<>device). Before
+          // this, a resolved financial conflict echoed to the peer, conflicted again and the queue
+          // could never be drained.
+          d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)').run(newEventId,table,JSON.stringify(key),old?'UPDATE':'INSERT',old?JSON.stringify(old):null,JSON.stringify(row),ctx.deviceId);
+          void ownDevice;
         });
         try { tx(); } catch(err:any) { return NextResponse.json({error:err?.message||'Conflict resolution failed; no changes were committed.'},{status:409}); }
         return NextResponse.json({ok:true,resolved:true,mappings,destination_device_id:String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||ctx.deviceId),company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});

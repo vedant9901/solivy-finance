@@ -1,4 +1,4 @@
-# SOLIVY Finance — Architecture (v2.7.2)
+# SOLIVY Finance — Architecture (v2.8.0)
 
 ## Stack
 Next.js 15 App Router + React 19, a single page `app/page.tsx` with components in `app/components/`, and API routes in `app/api/**`. Storage is **SQLite** through better-sqlite3. Documents are built with jsPDF, and spreadsheets with xlsx.
@@ -45,6 +45,22 @@ role, permissions and `If-None-Match`.
 - `operational.ts` produces AR/AP aging, sales, purchases, inventory, GST and the audit log.
 - `registry.ts` is the catalogue of 33 reports plus reconciliation. `export.ts` handles CSV, XLSX and PDF.
 - The API is `/api/reports`, `/api/reports/group` and `/api/budgets`; the UI is `app/components/ReportsHub.tsx`.
+
+## Interface (v2.8.0)
+`app/theme.css` holds every colour as a token, set per mode (`html[data-mode=light|dark]`) and per
+accent (`html[data-accent=…]`); `app/lib/appearance.ts` applies and persists the choice, and
+`app/components/ui.tsx` provides the theme control, loading skeletons and animated figures.
+Navigation is declared once as `NAV_GROUPS` in `app/page.tsx` (Core Finance, Collection & Funding,
+Purchases, Reconciliation & Reports, Administration & Sync) and rendered by both the sidebar and the
+mobile drawer; screens left out of the groups still work and keep their routes.
+`app/components/ProfilePanel.tsx` is the profile and settings module.
+
+## Synchronisation conflicts (v2.8.0)
+`lib/sync-delete.ts` resolves conflicts where a record is missing, deleted or recreated: it
+classifies the conflict, refuses to delete POSTED financial records, lists dependent rows and only
+removes them on confirmation, blocks a stale deletion from discarding a newer record, writes the
+parent and every removed child to `sync_resolution_log` before deleting, and derives resolution ids
+from the conflict so a retry applies once.
 
 ## Documents
 - `lib/documents/bill-model.ts` is the one bill model:

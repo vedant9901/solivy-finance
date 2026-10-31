@@ -21,7 +21,7 @@ const server = http.createServer(async (inc, out) => {
     // Test-only static files (UI harness bundles), served before middleware like Next's /_next assets.
     if (url.pathname.startsWith('/__ui/') && process.env.SOLIVY_UI_DIR) {
       const f = path.join(process.env.SOLIVY_UI_DIR, path.basename(url.pathname));
-      if (fs.existsSync(f)) { out.writeHead(200, { 'content-type': f.endsWith('.html') ? 'text/html' : 'text/javascript' }); out.end(fs.readFileSync(f)); return; }
+      if (fs.existsSync(f)) { out.writeHead(200, { 'content-type': f.endsWith('.html') ? 'text/html' : f.endsWith('.css') ? 'text/css' : 'text/javascript' }); out.end(fs.readFileSync(f)); return; }
     }
     // Test-harness only: serve the bundled UI at the application paths so client-side navigation works.
     if (process.env.SOLIVY_UI_ROOT === '1' && process.env.SOLIVY_UI_DIR && (url.pathname === '/' || url.pathname === '/login')) {

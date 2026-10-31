@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.8.2 — 2026-10-31 (API compatibility guard + packaging fix)
+Built on v2.8.0 / v2.8.1, both unchanged. Details in `API-COMPATIBILITY-v2.8.2.md`. No schema change.
+- **Fixed — the cause of the reported `GET /api/data … → 404`: `app/api/data/route.ts` was missing
+  from the v2.8.1 release ZIP.** The staging command used `tar --exclude=data`, which matches a
+  directory named `data` at any depth, so `app/api/data/` was dropped along with the runtime data
+  directory. v2.7.1–v2.8.0 contain the file; v2.8.1 was the only package that lost it, and it lost
+  nothing else. Excludes are now anchored and every package is verified after extraction before
+  delivery. **Replace any deployment built from v2.8.1.** The source was never missing the route:
+  the inventory against the v2.8.0 ZIP shows 0 routes and 0 methods lost (68/110 → 69/112, the only
+  addition being `sync/rejects`), and the literal request returns 200 in LIVE and TEST for an
+  authorised user of organisation 2 with isolation intact.
+- **Fixed — the container image could not start.** The Dockerfile runtime stage did not copy
+  `scripts/` or `next.config.mjs`, while `npm run start` runs `scripts/ensure-local-secret.cjs`
+  first, so the image failed with "Cannot find module". Both are now copied.
+- **New — API surface guard.** `scripts/api-route-manifest.json` records every route and exported
+  method; `scripts/check-api-routes.cjs` (`npm run check:api-routes`, in the release gate) fails on
+  any loss and can be run against an unpacked release to catch a route dropped from a package.
+- **New — package guard.** `scripts/check-release-package.mjs` (`npm run check:release-package -- <dir>`)
+  compares an unpacked release with the checkout file by file and fails on anything missing, then runs
+  the API surface guard over it; run against the v2.8.1 package it names the missing route at once.
+- **New — live probe.** `scripts/check-api-live.mjs` (`npm run check:api-live -- <base-url>`) reports
+  the status of every GET route on a running deployment and lists the ones answering 404. Read-only.
+- **New — `tests/integration/api-compat.test.ts`**: every route exports a method; `/api/data` exports
+  GET; every API path the interface fetches resolves to a route exporting the method it uses
+  (collected from the source); the reported request and organisation/environment isolation.
+- `applyLocal` moved from `app/api/sync/run/route.ts` to `lib/sync-apply.ts`, unchanged, so the
+  quarantine retry path no longer imports one route module from another.
+- Tests: 84 offline (real SQLite), 44 online (real PostgreSQL 16), 10 browser, 16 legacy scripts,
+  typecheck clean — all passing. Evidence: `docs/verification/test-run-2026-10-31-v2.8.2.txt`.
+
 ## 2.8.1 — 2026-10-31 (P0 synchronization repair)
 Built on v2.8.0, which is unchanged as the rollback baseline. Details in `SYNC-REPAIR-v2.8.1.md`.
 Schema 29 (adds the local-only `sync_rejects` table; no business table changed).

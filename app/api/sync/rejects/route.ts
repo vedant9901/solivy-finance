@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { db, type Mode } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
-import { openRejects, rejectedEvents, clearReject, ensureRejectSchema } from '../../../../lib/sync-quarantine';
+import { openRejects, rejectedEvents, clearReject, ensureRejectSchema, describeReject } from '../../../../lib/sync-quarantine';
 import { reconcileIncomingEvent } from '../../../../lib/sync-id-mapping';
-import { describeReject } from '../../../../lib/sync-quarantine';
-import { applyLocal } from '../run/route';
+import { applyLocal } from '../../../../lib/sync-apply';
 import { adminDb } from '../../../../lib/db';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

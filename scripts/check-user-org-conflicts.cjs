@@ -10,7 +10,7 @@ const checks = [
   // than from a single thrown error. Both sides of the record must still be reported.
   ['sync conflicts return both current and incoming records', fs.readFileSync('app/api/sync/exchange/route.ts','utf8').includes('current, incoming: desired') && fs.readFileSync('app/api/sync/run/route.ts','utf8').includes('body2.conflict_detail=first.detail') && fs.readFileSync('lib/sync-quarantine.ts','utf8').includes('local_state: localRow') && fs.readFileSync('lib/sync-quarantine.ts','utf8').includes('incoming_state: safeParse(ev.row_json)')],
   ['sync UI renders conflict review details', fs.readFileSync('app/sync/page.tsx','utf8').includes('Conflict review — no automatic overwrite') && fs.readFileSync('app/sync/page.tsx','utf8').includes('Incoming record from other side')],
-  ['company settings merge only when non-empty fields do not disagree', fs.readFileSync('app/api/sync/exchange/route.ts','utf8').includes('mergeInitialCompanySettings') && fs.readFileSync('app/api/sync/run/route.ts','utf8').includes('mergeInitialCompanySettings') && fs.readFileSync('app/api/sync/exchange/route.ts','utf8').includes('field_conflicts')],
+  ['company settings merge only when non-empty fields do not disagree', fs.readFileSync('app/api/sync/exchange/route.ts','utf8').includes('mergeInitialCompanySettings') && fs.readFileSync('lib/sync-apply.ts','utf8').includes('mergeInitialCompanySettings') && fs.readFileSync('app/api/sync/exchange/route.ts','utf8').includes('field_conflicts')],
 ];
 let failed = 0;
 for (const [label, ok] of checks) { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); if (!ok) failed++; }

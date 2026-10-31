@@ -1,0 +1,256 @@
+{
+ "generated_for": "v2.8.2",
+ "note": "Baseline API surface. scripts/check-api-routes.cjs fails if any route or exported method here is missing. Additions are allowed; removals are not, unless this file is updated deliberately in the same change.",
+ "routes": {
+  "/api/account-movements": [
+   "GET",
+   "POST"
+  ],
+  "/api/accounts": [
+   "GET",
+   "POST",
+   "PUT",
+   "DELETE"
+  ],
+  "/api/admin": [
+   "POST"
+  ],
+  "/api/admin-backup-all": [
+   "GET"
+  ],
+  "/api/admin/data-health": [
+   "GET",
+   "POST"
+  ],
+  "/api/admin/transfer-metrics": [
+   "GET"
+  ],
+  "/api/backup": [
+   "GET"
+  ],
+  "/api/bank": [
+   "GET",
+   "POST"
+  ],
+  "/api/bank-statement-import": [
+   "POST",
+   "PUT"
+  ],
+  "/api/budgets": [
+   "GET",
+   "POST"
+  ],
+  "/api/companies": [
+   "GET",
+   "POST",
+   "PUT",
+   "PATCH"
+  ],
+  "/api/data": [
+   "GET"
+  ],
+  "/api/document-settings": [
+   "GET",
+   "POST"
+  ],
+  "/api/document-templates": [
+   "GET",
+   "POST"
+  ],
+  "/api/export/gst": [
+   "GET"
+  ],
+  "/api/export/ledger": [
+   "GET"
+  ],
+  "/api/export/payments": [
+   "GET"
+  ],
+  "/api/export/purchases": [
+   "GET"
+  ],
+  "/api/forgot-password": [
+   "POST"
+  ],
+  "/api/funding": [
+   "GET",
+   "POST",
+   "PUT"
+  ],
+  "/api/funding/pay": [
+   "POST"
+  ],
+  "/api/funding/transfer": [
+   "GET",
+   "POST"
+  ],
+  "/api/godowns": [
+   "GET",
+   "POST"
+  ],
+  "/api/group-mis": [
+   "GET"
+  ],
+  "/api/import-finance": [
+   "GET",
+   "POST"
+  ],
+  "/api/intercompany-targets": [
+   "GET"
+  ],
+  "/api/interest-payments": [
+   "POST"
+  ],
+  "/api/license/status": [
+   "GET"
+  ],
+  "/api/login": [
+   "POST"
+  ],
+  "/api/login-companies": [
+   "GET"
+  ],
+  "/api/logout": [
+   "POST"
+  ],
+  "/api/money-in": [
+   "POST"
+  ],
+  "/api/money-out": [
+   "POST"
+  ],
+  "/api/money-out/reverse": [
+   "POST"
+  ],
+  "/api/parties": [
+   "POST"
+  ],
+  "/api/parties-delete": [
+   "POST"
+  ],
+  "/api/party-aliases": [
+   "GET",
+   "POST",
+   "PUT",
+   "DELETE"
+  ],
+  "/api/payment-advice": [
+   "GET"
+  ],
+  "/api/payments": [
+   "POST",
+   "PUT"
+  ],
+  "/api/profile": [
+   "GET",
+   "POST"
+  ],
+  "/api/purchase-bill": [
+   "GET"
+  ],
+  "/api/purchases": [
+   "POST",
+   "PUT"
+  ],
+  "/api/receipts": [
+   "POST"
+  ],
+  "/api/receivables": [
+   "GET",
+   "POST",
+   "PUT"
+  ],
+  "/api/reports": [
+   "GET",
+   "POST"
+  ],
+  "/api/reports/group": [
+   "GET"
+  ],
+  "/api/reset-password": [
+   "POST"
+  ],
+  "/api/reverse": [
+   "POST"
+  ],
+  "/api/sales": [
+   "POST",
+   "PUT"
+  ],
+  "/api/saudas": [
+   "GET",
+   "POST",
+   "PUT",
+   "PATCH"
+  ],
+  "/api/secondary-backup": [
+   "GET",
+   "POST",
+   "PUT"
+  ],
+  "/api/settings": [
+   "POST"
+  ],
+  "/api/setup": [
+   "GET",
+   "POST"
+  ],
+  "/api/switch-company": [
+   "POST"
+  ],
+  "/api/switch-environment": [
+   "POST"
+  ],
+  "/api/sync/exchange": [
+   "GET",
+   "POST"
+  ],
+  "/api/sync/pair": [
+   "POST",
+   "DELETE"
+  ],
+  "/api/sync/rejects": [
+   "GET",
+   "POST"
+  ],
+  "/api/sync/resolve": [
+   "POST"
+  ],
+  "/api/sync/run": [
+   "POST"
+  ],
+  "/api/sync/verify": [
+   "POST"
+  ],
+  "/api/tally-export": [
+   "GET"
+  ],
+  "/api/tally-mapping": [
+   "GET",
+   "POST"
+  ],
+  "/api/tds-check": [
+   "POST"
+  ],
+  "/api/test-to-live": [
+   "POST"
+  ],
+  "/api/third-parties": [
+   "POST",
+   "PUT",
+   "DELETE"
+  ],
+  "/api/transfers": [
+   "GET",
+   "POST"
+  ],
+  "/api/transfers/destinations": [
+   "GET"
+  ],
+  "/api/users": [
+   "GET",
+   "POST",
+   "DELETE"
+  ]
+ }
+}

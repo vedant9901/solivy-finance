@@ -141,3 +141,35 @@ mapped to named tests in `SYNC-REPAIR-v2.8.1.md`.
 
 **Next:** P1 — GRN PDF extraction to a draft purchase (the sample PDF is attached), only after this
 gate is accepted.
+
+## 2026-10-31 — v2.8.2, P0 API compatibility
+**Found (root cause):** `app/api/data/route.ts` was missing from the v2.8.1 release ZIP I delivered.
+The staging command used `tar --exclude=data`, which matches a directory of that name at any depth,
+so `app/api/data/` was dropped with the runtime data directory. v2.7.1-v2.8.0 contain it; v2.8.1 lost
+that one file and nothing else. Anything deployed from v2.8.1 therefore answers GET /api/data with
+404. Excludes are now anchored, and `scripts/check-release-package.mjs` verifies an extracted package
+against the checkout before delivery.
+
+**Also found:** the source was never missing an API. Route inventory against
+the v2.8.0 ZIP: 0 routes lost, 0 exported methods lost (68/110 -> 69/112, only `sync/rejects` added
+in v2.8.1). `/api/data` exports GET and the literal request returns 200 in LIVE and TEST for an
+authorised user of organisation 2, with organisation and environment isolation asserted. Middleware
+has no rewrite and cannot emit 404, so a 404 means the route was absent from the running build.
+Separately, the Docker runtime stage copied neither `scripts/` nor `next.config.mjs` while
+`npm run start` executes `scripts/ensure-local-secret.cjs`, so that image could not start at all.
+
+**Done:** fixed the Dockerfile; added `scripts/api-route-manifest.json` plus
+`scripts/check-api-routes.cjs` (release gate, and runnable against an unpacked release),
+`scripts/check-api-live.mjs` to probe a running deployment for 404s, and
+`tests/integration/api-compat.test.ts` (route/method inventory, UI caller check, the reported
+request, isolation). Moved `applyLocal` into `lib/sync-apply.ts` so no route imports another route.
+
+**Tests:** 84 offline, 44 online (PG16), 10 browser, 16 scripts, typecheck clean —
+`docs/verification/test-run-2026-10-31-v2.8.2.txt`.
+
+**Not verified:** production build and lint (no npm registry), Neon, and the Dockerfile fix (reviewed,
+not built). If a 404 was also seen on a build older than v2.8.1, that would have a different cause
+and is not diagnosed.
+
+**Next:** P2 — GRN PDF to a draft purchase, once the P0/P1 gate is accepted.
+

@@ -1,7 +1,9 @@
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const exchange = fs.readFileSync('app/api/sync/exchange/route.ts', 'utf8');
-const run = fs.readFileSync('app/api/sync/run/route.ts', 'utf8');
+// v2.8.2: the device-side apply (including the settings merge) lives in lib/sync-apply.ts, which
+// both /api/sync/run and the quarantine retry path use. The rules checked here are unchanged.
+const run = fs.readFileSync('lib/sync-apply.ts', 'utf8');
 for (const [label, source] of [['exchange', exchange], ['run', run]]) {
   assert.match(source, /function mergeInitialCompanySettings\(current:any, incoming:any, cols:any\[\], companyName=''/, `${label}: organization-aware settings merge missing`);
   assert.match(source, /name\.endsWith\('_settings'\)/, `${label}: empty JSON settings placeholders must merge as empty`);
@@ -10,7 +12,8 @@ for (const [label, source] of [['exchange', exchange], ['run', run]]) {
 }
 assert.match(exchange, /SELECT name,active FROM companies WHERE id=\?/);
 assert.match(exchange, /mergeInitialCompanySettings\(current,desired,cols,companyName\)/);
-assert.match(run, /SELECT name FROM companies WHERE id=\?/);
+// The organisation name still comes from admin.db in the route that calls the apply library.
+assert.match(fs.readFileSync('app/api/sync/run/route.ts','utf8'), /SELECT name FROM companies WHERE id=\?/);
 assert.match(run, /mergeInitialCompanySettings\(current,row,cols,companyName\)/);
 // Behavior fixture: only the schema default may be replaced by the verified org name.
 function mergeFixture(current, incoming, orgName) {

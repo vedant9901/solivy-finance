@@ -1,0 +1,59 @@
+# SOLIVY Finance v2.8.2 — P0 API compatibility + P1 sync test run
+Run at 2026-10-31T10:26:24Z (UTC), Node v22.23.4
+
+## API surface guard (scripts/check-api-routes.cjs)
+PASS API surface: 69 routes, 112 exported methods; every baseline route and method is present
+
+## Root cause of the reported 404 (packaging, proven)
+app/api/data/route.ts present in: v2.7.1, v2.7.2, v2.7.3, v2.8.0 ZIPs and in v2.8.2.
+app/api/data/route.ts ABSENT in: SOLIVY-Finance-v2.8.1-SYNC-REPAIR.zip - the only pre-existing file
+it lost, verified by a file-by-file comparison with the checkout. Cause: `tar --exclude=data` matched
+app/api/data/ as well as the runtime ./data directory. Excludes are now anchored.
+scripts/check-release-package.mjs against the v2.8.1 package reports the missing file; against the
+extracted v2.8.2 ZIP: PASS, 349 files, nothing missing, 69 routes / 112 exported methods.
+
+## Route inventory diff against the v2.8.0 baseline ZIP
+v2.8.0: 68 route modules / 110 exported methods. v2.8.2: 69 / 112 (adds app/api/sync/rejects GET+POST).
+Routes lost: 0. Exported methods lost: 0. Nothing in v2.8.0's API surface was removed or replaced.
+
+## The reported request, run end to end through the real middleware
+GET /api/data?mode=LIVE&company_id=2&modules=core,parties,accounts -> HTTP 200 in LIVE and in TEST for an
+authorised user of organisation 2; parties and accounts present, unrequested modules absent, ETag issued.
+Unauthenticated -> refused (not 404, no data). Cross-organisation -> session organisation wins.
+Test: tests/integration/api-compat.test.ts
+
+## npx tsc --noEmit -p tsconfig.verify.json
+exit 0 - 0 errors
+
+## npm test (offline, real SQLite)
+# tests 84
+# pass 84
+# fail 0
+
+## npm run test:online (real PostgreSQL 16 at 127.0.0.1:54329 - NOT Neon)
+# tests 44
+# pass 44
+# fail 0
+
+## npm run test:ui (Playwright Chromium)
+# tests 10
+# pass 10
+# fail 0
+
+## scripts/check-*.cjs
+PASS scripts/check-api-access.cjs
+PASS scripts/check-api-routes.cjs
+PASS scripts/check-dashboard-metrics.cjs
+PASS scripts/check-dynamic-module-access.cjs
+PASS scripts/check-finance-mis.cjs
+PASS scripts/check-financial-repair-tds.cjs
+PASS scripts/check-funding-transfer.cjs
+PASS scripts/check-moisture-data-api.cjs
+PASS scripts/check-money-out.cjs
+PASS scripts/check-multicompany-sync.cjs
+PASS scripts/check-online-login-org.cjs
+PASS scripts/check-release-safety.cjs
+PASS scripts/check-security.cjs
+PASS scripts/check-source.cjs
+PASS scripts/check-sync-company-settings.cjs
+PASS scripts/check-user-org-conflicts.cjs

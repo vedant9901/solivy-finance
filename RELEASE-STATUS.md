@@ -1,6 +1,12 @@
-# SOLIVY Finance v2.8.1 — Release verification report
+# SOLIVY Finance v2.8.2 — Release verification report
 
-**Status: RELEASE CANDIDATE — NOT PRODUCTION-READY.** v2.8.1 repairs P0 synchronization; see
+**Status: RELEASE CANDIDATE — NOT PRODUCTION-READY.** v2.8.2 adds the API-surface guard and fixes
+the Docker packaging defect, and identifies the reported `/api/data` 404: `app/api/data/route.ts` was
+missing from the v2.8.1 ZIP (anchored excludes and a package guard now prevent that; replace any
+deployment built from v2.8.1). See
+`API-COMPATIBILITY-v2.8.2.md` and `docs/verification/test-run-2026-10-31-v2.8.2.txt`: 84 offline,
+44 online on PostgreSQL 16, 10 browser, 16 legacy scripts, typecheck clean). v2.8.1 repairs P1
+synchronization; see
 `SYNC-REPAIR-v2.8.1.md` and `docs/verification/test-run-2026-10-31-v2.8.1.txt` (Node v22.23.4,
 2026-10-31): 78 offline, 44 online on PostgreSQL 16, 10 browser, 15 legacy scripts, typecheck clean.
  The same gates that blocked v2.7.0-rc.1 are
@@ -18,12 +24,12 @@ measurements: `docs/PERFORMANCE-v2.7.2.md` (v2.7.2 vs v2.7.1) and `docs/PERFORMA
 | 2 | `next build` (production build) | **NOT VERIFIED** | Next.js 15.5.27 could not be installed. Routes and components are exercised through a `next/server` shim and an esbuild bundle, not by the framework. |
 | 3 | `next lint` | **NOT VERIFIED** | Depends on Next.js/ESLint, which could not be installed. |
 | 4 | TypeScript typecheck | **PASS (qualified)** | `tsc --noEmit -p tsconfig.verify.json`: exit 0, 0 errors. Uses stub declarations for `next/*`, so it does not check against the real Next types. |
-| 5 | Unit and integration tests (offline/SQLite) | **PASS** | `npm test`: **78/78** (adds the v2.8.1 eligibility, absent-record and quarantine tests). |
+| 5 | Unit and integration tests (offline/SQLite) | **PASS** | `npm test`: **84/84** (adds the v2.8.1 eligibility, absent-record and quarantine tests). |
 | 6 | Online tests (PostgreSQL bridge) | **PASS on PostgreSQL 16 / NOT VERIFIED on Neon** | `npm run test:online`: **44/44** against a local PostgreSQL 16, including the 9 NEON GUARD tests and 5 sync delete/recreate tests. Covers multi-instance concurrency, delta chunks, the 4 KiB page-aligned format, the base blob, corruption fallback, the login projection, metrics, idempotency, sync end-to-end, backup/restore/rollback. Neon specifics (pooler, TLS, latency, billing meter) untested. |
 | 7 | Browser UI test | **PASS (structure, theming, mobile metrics)** | `npm run test:ui`: **10/10** (Playwright Chromium), covering the regrouped navigation, light/dark/accent themes and their persistence, the profile module, and mobile layout at 390×844. The UI is an esbuild bundle with the hand-written CSS linked; **Tailwind utility classes are not compiled there**, so final compiled appearance is NOT VERIFIED. Screenshots: `docs/ui/v280-*.png`. |
 | 7a | Sync: delete/recreate conflicts, per-item rejection, quarantine retry, absent-record rule, cursor progress | **PASS on PostgreSQL 16** (12-point gate mapped in `SYNC-REPAIR-v2.8.1.md`) | `tests/online/sync-e2e.test.ts`: a deletion pushes to the hub; dependents refuse then apply on confirmation; a POSTED record is never deleted; a stale deletion cannot discard a newer record; retries create no duplicates; the conflict queue drains. |
 | 7b | Purchase register equals the purchase form | **PASS** | `tests/integration/register-parity.test.ts`: the defect is reproduced (difference = quality × discount%), the rule is recorded with new records and derived for legacy ones, unreproducible rows are flagged, and stored figures are asserted unchanged. |
-| 8 | Legacy regression scripts (`scripts/check-*`) | **PASS** | All 15 `scripts/check-*.cjs` exit 0, including `check-api-access.cjs`. Two had become stale against v2.8.0's redesign and v2.8.1's per-item conflict reporting and were re-pointed at the current mechanism (same property asserted): `check-finance-mis.cjs` theme persistence, `check-user-org-conflicts.cjs` conflict detail. |
+| 8 | Legacy regression scripts (`scripts/check-*`) | **PASS** | All 16 `scripts/check-*.cjs` exit 0, now including `check-api-routes.cjs` (69 routes, 112 exported methods, nothing lost against the v2.8.0 baseline), including `check-api-access.cjs`. Two had become stale against v2.8.0's redesign and v2.8.1's per-item conflict reporting and were re-pointed at the current mechanism (same property asserted): `check-finance-mis.cjs` theme persistence, `check-user-org-conflicts.cjs` conflict detail. |
 | 9 | Transfer reduction measured before/after | **PASS on local PostgreSQL (measured) / NOT VERIFIED on Neon** | Per-workflow byte accounting in `docs/PERFORMANCE-v2.7.1.md` from `docs/bench/client-before-v2.7.0.json` vs `client-after-v2.7.1.json`, plus `after-v2.7.0.json` vs `after-v2.7.1.json`. Neon's own data-transfer meter was not read. |
 | 10 | Declared access classes enforced (READ never persists, NO_DB never connects, WRITE persists only changes) | **PASS** | `tests/online/neon-guard.test.ts`: 45 read calls upload nothing; NO_DB moves zero bytes and materialises no file; a refused write persists nothing; the audit script keeps the registry complete. |
 | 10a | Caching cannot serve stale financial data | **PASS** | Reuse requires a server 304; the ETag derives from change watermarks. Tested: 200 after an insert, an in-place edit, a receipt, a reversal, a document-settings change, a template save, and a write by another instance; LIVE/TEST and module/permission scoping. |
@@ -32,7 +38,7 @@ measurements: `docs/PERFORMANCE-v2.7.2.md` (v2.7.2 vs v2.7.1) and `docs/PERFORMA
 | 13 | GST/TDS statutory output | **NOT VERIFIED** | Unchanged in this release. Must be reviewed by a qualified accountant before anyone files from it. |
 | 14 | Upgrade of a v2.6.30 / v2.7.0 database | **PASS on test fixtures** | `tests/integration/db-open.test.ts`, `data-parity.test.ts` and the online legacy-conversion test. A pre-migration backup is written first; nothing is renumbered. The one-time conversion cost is measured (about 3.4 MB down, 1.3 MB up per 1.9 MB organization file). Not run on a copy of a real production database. |
 | 15 | Backup / restore / rollback | **PASS (offline and online on PG16)** | Offline backup → restore yields an identical trial balance; `scripts/online-snapshot-tool.ts` export → import → rollback with integrity checks. |
-| 16 | Deployment | **NOT VERIFIED** | Not deployed. Your approval is required. |
+| 16 | Deployment | **NOT VERIFIED** | Not deployed. Your approval is required. The Docker runtime stage now copies `scripts/` and `next.config.mjs` (without them the image could not start); reviewed, not built. |
 
 ## Measured transfer (one session, cold instance, PostgreSQL 16)
 

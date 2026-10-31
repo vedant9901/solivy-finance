@@ -1,6 +1,6 @@
 {
   "name": "solivy-finance",
-  "version": "2.8.1",
+  "version": "2.8.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -38,7 +38,10 @@
     "bench:client": "node --require ./tests/setup/register.cjs --import tsx tests/bench/client-bench.ts docs/bench/client-latest.json",
     "bench:response": "node --require ./tests/setup/register.cjs --import tsx tests/bench/response-size.ts",
     "bench:write": "node --require ./tests/setup/register.cjs --import tsx tests/bench/write-cost.ts",
-    "check:api-access": "node scripts/check-api-access.cjs"
+    "check:api-access": "node scripts/check-api-access.cjs",
+    "check:api-routes": "node scripts/check-api-routes.cjs",
+    "check:api-live": "node scripts/check-api-live.mjs",
+    "check:release-package": "node scripts/check-release-package.mjs"
   },
   "dependencies": {
     "better-sqlite3": "12.4.1",

@@ -4,9 +4,12 @@ import { db, type Mode } from '../../../../lib/db';
 import { storeInverseMappings } from '../../../../lib/sync-id-mapping';
 import { classifyConflict, resolutionIdFor, applyResolvedDelete, alreadyResolved, ensureResolutionLog, dependentsOf } from '../../../../lib/sync-delete';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
+import { clearRejectsFor } from '../../../../lib/sync-quarantine';
+import { SYNC_EXCLUDED_TABLES } from '../../../../lib/sync-eligibility';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks','sync_resolution_log','sync_conflict_history']);
+// v2.8.1: one shared membership (lib/sync-eligibility.ts).
+const excluded=SYNC_EXCLUDED_TABLES;
 function safeRemote(raw:string){const u=new URL(raw);if(u.username||u.password||u.search||u.hash)throw new Error('Remote URL must not contain credentials, query strings or fragments.');const local=['localhost','127.0.0.1','::1'].includes(u.hostname);if(u.protocol!=='https:'&&!(local&&u.protocol==='http:'))throw new Error('Remote sync URL must use HTTPS.');return u.toString().replace(/\/+$/,'');}
 async function handler(req:Request){
  try{
@@ -87,5 +90,22 @@ async function handler(req:Request){
   return NextResponse.json({ok:true,resolved:true,action,phase,message:'The other company version was accepted on this device. Retry Sync Now to continue processing queued events.'});
  }catch(e:any){return NextResponse.json({error:e?.message||'Conflict resolution failed; no further changes were attempted.'},{status:400});}
 }
-const __wrapped_POST=withPostgresSQLiteBridge(handler,{noRetry:true});
+// v2.8.1: a successful resolution also closes the quarantine entry that the conflicting item
+// created, so a resolved record stops appearing as blocked and its queued change is retried.
+async function resolveAndClear(req:Request){
+  let asked:any=null;
+  try { asked=await req.clone().json(); } catch { asked=null; }
+  const res=await handler(req);
+  try {
+    const data=await res.clone().json().catch(()=>({} as any));
+    const table=String(asked?.table||'');
+    const key=asked?.primary_key&&typeof asked.primary_key==='object'?asked.primary_key:null;
+    const companyId=Number(req.headers.get('x-aksh-company-id')||0); const mode=String(req.headers.get('x-aksh-mode')||'');
+    if((data?.resolved||data?.already_resolved||data?.deferred===undefined&&data?.ok)&&table&&key&&companyId&&['LIVE','TEST'].includes(mode)&&/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+      clearRejectsFor(db(mode as Mode,companyId),table,key);
+    }
+  } catch(err) { console.error('SOLIVY sync quarantine clear failed',(err as any)?.message||err); }
+  return res;
+}
+const __wrapped_POST=withPostgresSQLiteBridge(resolveAndClear,{noRetry:true});
 export async function POST(req:Request){return __wrapped_POST(req);}

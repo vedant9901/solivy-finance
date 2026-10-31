@@ -5,6 +5,9 @@ import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge
 import { pruneSyncJournal } from '../../../../lib/sync-prune';
 import { FINANCIAL_SYNC_TABLES, financialConflictError } from '../../../../lib/sync-policy';
 import { reconcileIncomingEvent, storeInverseMappings, mappingsForPeer } from '../../../../lib/sync-id-mapping';
+import { SYNC_EXCLUDED_TABLES, syncTableInfo } from '../../../../lib/sync-eligibility';
+import { decideAbsent } from '../../../../lib/sync-absent';
+import { recordReject, recordObsolete, openRejectCount, newCorrelationId, clearReject } from '../../../../lib/sync-quarantine';
 export const runtime = 'nodejs';
 export const dynamic='force-dynamic';
 const canon=(v:any):string=>v===null||v===undefined?'null':Array.isArray(v)?'['+v.map(canon).join(',')+']':typeof v==='object'?'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canon(v[k])).join(',')+'}':JSON.stringify(v);
@@ -27,7 +30,10 @@ function ensureConflictHistory(d:any) {
   d.exec("CREATE TABLE IF NOT EXISTS sync_conflict_history (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, table_name TEXT NOT NULL, pk_json TEXT NOT NULL, field_name TEXT NOT NULL, base_value TEXT, local_value TEXT, incoming_value TEXT, resolution TEXT NOT NULL DEFAULT 'kept_local_audit_both', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 }
 
-const excluded=new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks']);
+// v2.8.1: shared with the hub and the trigger builder (lib/sync-eligibility.ts). This copy
+// previously omitted login_attempts, sync_resolution_log and sync_conflict_history, so the two
+// sides disagreed about what may be synchronised at all.
+const excluded=SYNC_EXCLUDED_TABLES;
 
 function orderEventsByForeignKeys(d:any, events:any[]) {
   // Apply parent rows before dependent rows; delete dependent rows before parents.
@@ -88,13 +94,12 @@ function mergeInitialCompanySettings(current:any, incoming:any, cols:any[], comp
   return {merged,conflicts};
 }
 
-function applyLocal(d:any,e:any,companyName='') {
+export function applyLocal(d:any,e:any,companyName='') {
   if(d.prepare('SELECT event_id FROM sync_applied_events WHERE event_id=?').get(e.event_id)) return 'duplicate';
   const table=String(e.table_name||'');
-  if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)||excluded.has(table)||table.startsWith('license_')||table.startsWith('admin_')) throw new Error('Unsupported table in downloaded sync event.');
-  if(!d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) throw new Error('Unknown table in downloaded sync event: '+table);
-  const cols=d.prepare(`PRAGMA table_info("${table}")`).all() as any[], pk=cols.filter((c:any)=>Number(c.pk)>0).sort((a:any,b:any)=>a.pk-b.pk);
-  if(!pk.length) throw new Error('Table has no primary key: '+table);
+  const info=syncTableInfo(d,table);
+  if(!info.ok) throw Object.assign(new Error(info.message),{syncCode:info.code,conflictDetail:{table,reason:info.message,code:info.code}});
+  const cols=info.cols, pk=info.pk;
   const key=JSON.parse(e.pk_json||'{}');
   if(!pk.every((c:any)=>Object.prototype.hasOwnProperty.call(key,c.name))) throw new Error('Invalid sync primary key.');
   const where=pk.map((c:any)=>`"${c.name}"=?`).join(' AND ');
@@ -128,8 +133,17 @@ function applyLocal(d:any,e:any,companyName='') {
     const merged=mergeChangedFields(base,current,row,cols); effectiveRow=merged.merged; fieldConflicts=merged.conflicts;
     if(fieldConflicts.length&&FINANCIAL_SYNC_TABLES.has(String(table)))throw financialConflictError(String(table),key,base,current,row,fieldConflicts);
     if(fieldConflicts.length){ ensureConflictHistory(d); const log=d.prepare('INSERT INTO sync_conflict_history(event_id,table_name,pk_json,field_name,base_value,local_value,incoming_value) VALUES(?,?,?,?,?,?,?)'); for(const c of fieldConflicts)log.run(String(e.event_id),table,JSON.stringify(key),c.field,JSON.stringify(c.base),JSON.stringify(c.local),JSON.stringify(c.incoming)); }
-  } else if(base!==null && !current) {
-    throw Object.assign(new Error(`Cannot merge ${table}: the base record was deleted locally.`), { conflictDetail: { table, primary_key:key, reason:'The record was deleted on this device while the other side edited it.', base, current:null, incoming:row } });
+  } else if(!current) {
+    // v2.8.1: deterministic, explained outcome per operation (see lib/sync-absent.ts). A DELETE
+    // whose record is already gone is agreement, not a conflict.
+    const decision=decideAbsent(d,{table_name:table,pk_json:String(e.pk_json||''),operation:String(e.operation||'')},base);
+    if(decision.kind==='noop') {
+      d.prepare('INSERT OR IGNORE INTO sync_applied_events(event_id) VALUES(?)').run(e.event_id);
+      d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)').run(e.event_id,table,e.pk_json,e.operation,e.base_json,e.row_json,e.origin_device||'remote');
+      return 'same';
+    }
+    if(decision.kind==='obsolete') throw Object.assign(new Error(decision.reason),{syncCode:decision.code,conflictDetail:{table,primary_key:key,reason:decision.reason,base,current:null,incoming:row,operation:String(e.operation||''),code:decision.code}});
+    effectiveRow=row;
   }
   d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
   try {
@@ -185,7 +199,10 @@ async function handler(req:Request) {
     const meta=d.prepare('SELECT device_id,remote_cursor,remote_device_id FROM sync_meta WHERE id=1').get() as any;
     const deviceId=String(meta.device_id);
     reserveOfflineIdRanges(d,deviceId);
-    const headers={'content-type':'application/json','x-solivy-device-token':token,'x-solivy-device-id':deviceId,'x-aksh-company-id':String(remoteCompanyId),'x-aksh-mode':String(mode)};
+    // One correlation id per run, carried on every request and returned to the caller, so a
+    // rejection can be traced across both sides. It is random and identifies nothing else.
+    const correlationId=newCorrelationId();
+    const headers={'content-type':'application/json','x-solivy-device-token':token,'x-solivy-device-id':deviceId,'x-aksh-company-id':String(remoteCompanyId),'x-aksh-mode':String(mode),'x-solivy-sync-correlation':correlationId};
     // Preflight the token-authorized destination BEFORE pushing any events. Company IDs
     // may differ between offline and online databases, but the selected organization must match.
     const preflight=await fetch(remoteUrl+'/api/sync/exchange?cursor=0&limit=1',{method:'GET',headers,cache:'no-store',signal:AbortSignal.timeout(12000)});
@@ -251,18 +268,33 @@ async function handler(req:Request) {
     }
     const outgoingOrdered=orderEventsByForeignKeys(d,outgoingEvents);
     const outgoingMappings=meta.remote_device_id ? mappingsForPeer(d,String(meta.remote_device_id),deviceId) : [];
-    let pushed=0; let remoteFieldConflicts=0;
+    let pushed=0; let remoteFieldConflicts=0; let pushRejected:any[]=[];
     if(outgoingEvents.length || outgoingMappings.length) {
       const resp=await fetch(remoteUrl+'/api/sync/exchange',{method:'POST',headers,body:JSON.stringify({events:outgoingOrdered,mappings:outgoingMappings}),cache:'no-store'});
       const data=await resp.json().catch(()=>({}));
       remoteFieldConflicts=Number(data?.field_conflicts||0);
-      if(!resp.ok) return NextResponse.json({error:data.error||`Remote push failed (${resp.status}).`,conflict:resp.status===409,conflict_detail:data.conflict_detail||null,conflict_event:data.conflict_event||null,conflict_phase:data.conflict_phase||'push',pending:pending.length},{status:resp.status===409?409:502});
+      if(Array.isArray(data.rejected)) for(const r of data.rejected){ const src=outgoingOrdered.find((x:any)=>String(x.event_id)===String(r.event_id)); try{ recordReject(d,{phase:'push',event:src||{event_id:r.event_id,table_name:r.table,pk_json:JSON.stringify(r.primary_key||{}),operation:r.operation},code:String(r.code||'CONFLICT'),reason:String(r.reason||'Rejected by the destination.'),detail:r.detail||null,correlationId}); }catch(err){ console.error('SOLIVY sync reject record failed',(err as any)?.message||err); } }
+      if(!resp.ok) {
+        // The destination could apply nothing in this batch. The per-item detail is still
+        // reported (and quarantined above), so the caller can act on the blocking record
+        // instead of seeing one unattributed message.
+        const rejectedNow=Array.isArray(data.rejected)&&data.rejected.length?data.rejected:(data.conflict_detail||data.conflict_event?[{event_id:String(data.conflict_event?.event_id||''),table:String(data.conflict_detail?.table||data.conflict_event?.table_name||''),primary_key:data.conflict_detail?.primary_key||null,operation:String(data.conflict_event?.operation||''),code:String(data.conflict_detail?.code||'CONFLICT'),reason:String(data.error||'Rejected by the destination.'),detail:data.conflict_detail||null}]:[]);
+        if(!Array.isArray(data.rejected)) for(const r of rejectedNow){ const src=outgoingOrdered.find((x:any)=>String(x.event_id)===String(r.event_id)); try{ recordReject(d,{phase:'push',event:src||{event_id:r.event_id||('push-'+correlationId),table_name:r.table,pk_json:JSON.stringify(r.primary_key||{}),operation:r.operation},code:r.code,reason:r.reason,detail:r.detail,correlationId}); }catch(err){ console.error('SOLIVY sync reject record failed',(err as any)?.message||err); } }
+        return NextResponse.json({error:data.error||`Remote push failed (${resp.status}).`,conflict:resp.status===409,conflict_detail:data.conflict_detail||rejectedNow[0]?.detail||null,conflict_event:data.conflict_event||null,conflict_phase:data.conflict_phase||'push',pending:pending.length,rejected:rejectedNow,rejected_count:rejectedNow.length,correlation_id:correlationId,open_rejects:openRejectCount(d)},{status:resp.status===409?409:502});
+      }
       if (Array.isArray(data.mappings)) storeInverseMappings(d,data.mappings,String(data.destination_device_id||'remote-device'));
       if (data.destination_device_id) d.prepare('UPDATE sync_meta SET remote_device_id=? WHERE id=1').run(String(data.destination_device_id));
-      const ids=pending.map(e=>e.event_id);
+      // v2.8.1: mark only what the destination actually accepted. Before this the whole pending
+      // batch was marked pushed on a 200 (which was safe only because the hub was all-or-nothing)
+      // and nothing at all was marked on a 409, so one unapplicable item kept the entire queue
+      // stuck. A rejected item stays pushed=0 and is therefore retried after its resolution.
+      const acceptedIds=Array.isArray(data.accepted_event_ids)?new Set(data.accepted_event_ids.map((x:any)=>String(x))):null;
+      const ids=pending.map(e=>String(e.event_id)).filter(id=>!acceptedIds||acceptedIds.has(id));
       const mark=d.prepare('UPDATE sync_changes SET pushed=1 WHERE event_id=?');
-      const tx=d.transaction(()=>{for(const id of ids)mark.run(id)});tx();
-      pushed=pending.length;
+      // An item the destination has now accepted is no longer blocked: close its quarantine entry.
+      const tx=d.transaction(()=>{for(const id of ids){mark.run(id);clearReject(d,id);}});tx();
+      pushed=ids.length;
+      pushRejected=Array.isArray(data.rejected)?data.rejected:[];
     }
     const pullUrl=remoteUrl+'/api/sync/exchange?cursor='+encodeURIComponent(String(meta.remote_cursor||0))+'&limit=500';
     const pull=await fetch(pullUrl,{method:'GET',headers,cache:'no-store'});
@@ -270,27 +302,47 @@ async function handler(req:Request) {
     if(!pull.ok) return NextResponse.json({error:pulled.error||`Remote pull failed (${pull.status}).`,pushed},{status:502});
     if (pulled.destination_device_id) { d.prepare('UPDATE sync_meta SET remote_device_id=? WHERE id=1').run(String(pulled.destination_device_id)); }
     const events=orderEventsByForeignKeys(d,Array.isArray(pulled.events)?pulled.events:[]);
-    const summary={applied:0,duplicates:0,unchanged:0};
+    const summary={applied:0,duplicates:0,unchanged:0,obsolete:0};
     const localMappings:any[]=[];
-    let activePullEvent:any=null;
-    try {
-      const tx=d.transaction(()=>{
-        for(const rawEvent of events) {
-          activePullEvent=rawEvent;
+    // v2.8.1: per-item apply. The pull used to run the whole downloaded batch in one
+    // transaction, so a single unapplicable event discarded the batch AND left the cursor
+    // unmoved — the same events were downloaded and failed again on every subsequent attempt.
+    // Each event now commits on its own; one that cannot be applied is stored in full in the
+    // quarantine (lib/sync-quarantine.ts) and replayed from there by the retry path, so the
+    // cursor can advance without losing the change.
+    const pullRejected:any[]=[];
+    for(const rawEvent of events) {
+      try {
+        const applyOne=d.transaction(()=>{
           const e=reconcileIncomingEvent(d,rawEvent,String(rawEvent?.origin_device||meta.remote_device_id||'remote-device'),localMappings);
-          const status=applyLocal(d,e,localCompanyName);
-          if(status==='duplicate')summary.duplicates++;else if(status==='same')summary.unchanged++;else summary.applied++;
+          return applyLocal(d,e,localCompanyName);
+        });
+        const status=applyOne();
+        if(status==='duplicate')summary.duplicates++;else if(status==='same')summary.unchanged++;else summary.applied++;
+        clearReject(d,String(rawEvent?.event_id||''));
+      } catch(err:any) {
+        const code=String(err?.syncCode||err?.conflictDetail?.code||(/foreign key constraint failed/i.test(String(err?.message||''))?'FOREIGN_KEY':'CONFLICT'));
+        const reason=describeForeignKeyFailure(d,rawEvent,err)||String(err?.message||'Could not be applied on this device.');
+        if(code==='LOCAL_ONLY'||code==='DELETED_HERE') {
+          recordObsolete(d,{phase:'pull',event:rawEvent,code,reason,detail:err?.conflictDetail||null,correlationId});
+          try { d.prepare('INSERT OR IGNORE INTO sync_applied_events(event_id) VALUES(?)').run(String(rawEvent?.event_id||'')); } catch {}
+          summary.obsolete++;
+          continue;
         }
-        d.prepare('UPDATE sync_meta SET remote_cursor=?,last_sync_at=CURRENT_TIMESTAMP,paired_url=?,paired_company_id=?,sync_mode=?,remote_device_id=? WHERE id=1')
-          .run(Number(pulled.cursor||meta.remote_cursor||0),remoteUrl,remoteCompanyId,mode,String(pulled.destination_device_id||meta.remote_device_id||'remote-device'));
-      });
-      tx();
-    } catch(e:any) {
-      return NextResponse.json({error:describeForeignKeyFailure(d,activePullEvent,e)||'Local apply failed; downloaded batch was not committed.',conflict:true,conflict_phase:'pull',conflict_event:activePullEvent?{event_id:activePullEvent.event_id,table_name:activePullEvent.table_name,pk_json:activePullEvent.pk_json,operation:activePullEvent.operation,base_json:activePullEvent.base_json,row_json:activePullEvent.row_json}:null,conflict_detail:e?.conflictDetail||null,pushed,pending_downloads:events.length,remote_cursor:Number(pulled.cursor||meta.remote_cursor||0)},{status:409});
+        pullRejected.push(recordReject(d,{phase:'pull',event:rawEvent,code,reason,detail:err?.conflictDetail||null,correlationId}));
+      }
     }
+    d.prepare('UPDATE sync_meta SET remote_cursor=?,last_sync_at=CURRENT_TIMESTAMP,paired_url=?,paired_company_id=?,sync_mode=?,remote_device_id=? WHERE id=1')
+      .run(Number(pulled.cursor||meta.remote_cursor||0),remoteUrl,remoteCompanyId,mode,String(pulled.destination_device_id||meta.remote_device_id||'remote-device'));
+    const conflicts=[...pushRejected.map((r:any)=>({...r,phase:'push'})),...pullRejected];
+    const first=conflicts[0]||null;
     let fieldConflictsRecorded=0;try{fieldConflictsRecorded=Number((d.prepare("SELECT COUNT(*) c FROM sync_conflict_history WHERE created_at>=datetime('now','-5 minutes')").get() as any)?.c||0)}catch{}
     let pruned:any=null;try{pruned=pruneSyncJournal(d)}catch(e){console.error('SOLIVY sync prune failed',e)}
-    return NextResponse.json({ok:true,pruned,field_conflicts_recorded:fieldConflictsRecorded,remote_field_conflicts:remoteFieldConflicts,mode,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,pushed,pulled:events.length,...summary,id_mappings_created:localMappings.length,last_sync_at:new Date().toISOString(),has_more:Boolean(pulled.has_more)});
+    const body2:any={ok:conflicts.length===0,pruned,field_conflicts_recorded:fieldConflictsRecorded,remote_field_conflicts:remoteFieldConflicts,mode,local_company_id:localCompanyId,remote_company_id:remoteCompanyId,pushed,pulled:events.length,...summary,id_mappings_created:localMappings.length,last_sync_at:new Date().toISOString(),has_more:Boolean(pulled.has_more),correlation_id:correlationId,rejected:conflicts,rejected_count:conflicts.length,open_rejects:openRejectCount(d)};
+    if(first){ body2.conflict=true; body2.conflict_phase=first.phase||'pull'; body2.error=first.reason; body2.conflict_detail=first.detail||{table:first.table,primary_key:first.primary_key,reason:first.reason,code:first.code};
+      const src=events.find((x:any)=>String(x?.event_id||'')===String(first.event_id))||outgoingOrdered.find((x:any)=>String(x?.event_id||'')===String(first.event_id));
+      body2.conflict_event=src?{event_id:src.event_id,table_name:src.table_name,pk_json:src.pk_json,operation:src.operation,base_json:src.base_json,row_json:src.row_json}:null; }
+    return NextResponse.json(body2);
   } catch(e:any) { return NextResponse.json({error:e?.message||'Sync failed.'},{status:400}); }
 }
 const __wrapped_POST=withPostgresSQLiteBridge(handler,{noRetry:true,audit:false});

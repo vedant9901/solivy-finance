@@ -6,6 +6,9 @@ import { applyResolvedDelete, alreadyResolved, staleDeleteGuard, postedGuard, de
 import { FINANCIAL_SYNC_TABLES, financialConflictError } from '../../../../lib/sync-policy';
 import { ensurePruneSchema, recordAck, historyPruned, pruneSyncJournal } from '../../../../lib/sync-prune';
 import { reconcileIncomingEvent, importPeerMappings } from '../../../../lib/sync-id-mapping';
+import { SYNC_EXCLUDED_TABLES, syncTableInfo } from '../../../../lib/sync-eligibility';
+import { decideAbsent } from '../../../../lib/sync-absent';
+import { recordReject, recordObsolete, openRejectCount } from '../../../../lib/sync-quarantine';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +31,9 @@ function ensureConflictHistory(d:any) {
   d.exec("CREATE TABLE IF NOT EXISTS sync_conflict_history (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, table_name TEXT NOT NULL, pk_json TEXT NOT NULL, field_name TEXT NOT NULL, base_value TEXT, local_value TEXT, incoming_value TEXT, resolution TEXT NOT NULL DEFAULT 'kept_local_audit_both', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 }
 
-const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks','sync_resolution_log','sync_conflict_history']);
+// v2.8.1: eligibility is decided in lib/sync-eligibility.ts for the hub, the device and the
+// trigger builder alike. The three divergent copies of this set are gone.
+const excluded = SYNC_EXCLUDED_TABLES;
 
 // Ensure local-only schema migrations are present before replaying their sync events.
 // Older peers may not have visited Admin -> Financial Repair yet, so relying on that
@@ -98,13 +103,11 @@ function tokenContext(req:Request) {
   return {companyId,mode:mode as Mode,deviceId};
 }
 function tableInfo(d:any, table:string) {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table) || excluded.has(table) || table.startsWith('license_') || table.startsWith('admin_')) throw new Error('Table is not eligible for synchronization.');
-  const exists=d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
-  if (!exists) throw new Error('Unknown synchronized table: '+table);
-  const cols=d.prepare(`PRAGMA table_info("${table}")`).all() as any[];
-  const pk=cols.filter(c=>Number(c.pk)>0).sort((a,b)=>a.pk-b.pk);
-  if (!cols.length || !pk.length) throw new Error('Table has no supported primary key.');
-  return {cols,pk};
+  const info=syncTableInfo(d,table);
+  // The message now names the table and says why, and the code lets the batch loop tell
+  // "obsolete bookkeeping" (drop) apart from "needs review" (quarantine).
+  if(!info.ok) throw Object.assign(new Error(info.message),{syncCode:info.code,conflictDetail:{table,reason:info.message,code:info.code}});
+  return {cols:info.cols,pk:info.pk};
 }
 
 function mergeInitialCompanySettings(current:any, incoming:any, cols:any[], companyName='') {
@@ -182,8 +185,18 @@ function applyEvent(d:any,e:any,localDeviceId:string,companyName:string) {
     const merged=mergeChangedFields(base,current,desired,cols); effectiveRow=merged.merged; fieldConflicts=merged.conflicts;
     if(fieldConflicts.length&&FINANCIAL_SYNC_TABLES.has(String(e.table_name)))throw financialConflictError(String(e.table_name),pkObj,base,current,desired,fieldConflicts);
     if(fieldConflicts.length){ensureConflictHistory(d);const log=d.prepare('INSERT INTO sync_conflict_history(event_id,table_name,pk_json,field_name,base_value,local_value,incoming_value) VALUES(?,?,?,?,?,?,?)');for(const c of fieldConflicts)log.run(String(e.event_id),String(e.table_name),JSON.stringify(pkObj),c.field,JSON.stringify(c.base),JSON.stringify(c.local),JSON.stringify(c.incoming));}
-  } else if(base!==null && !current) {
-    throw Object.assign(new Error(`Cannot merge ${e.table_name}: the record was deleted on the destination while the other side changed it.`), { conflictDetail: { table:String(e.table_name), primary_key:pkObj, reason:'This record was deleted here while the other device changed it. Keep the other device\'s version to restore the record, or keep this deletion to remove it there as well.', base, current:null, incoming:desired, operation:String(e.operation||''), code:'DELETED_HERE' } });
+  } else if(!current) {
+    // v2.8.1: the record is absent here. The outcome is decided per operation and explained,
+    // instead of one generic "deleted on the destination" conflict for every case.
+    const decision=decideAbsent(d,e,base);
+    if(decision.kind==='noop') {
+      d.prepare('INSERT OR IGNORE INTO sync_applied_events(event_id) VALUES(?)').run(e.event_id);
+      d.prepare('INSERT OR IGNORE INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,?,?,?,?,1)')
+        .run(e.event_id,e.table_name,e.pk_json,e.operation,e.base_json,e.row_json,e.origin_device||'remote');
+      return 'already-current';
+    }
+    if(decision.kind==='obsolete') throw Object.assign(new Error(decision.reason),{syncCode:decision.code,conflictDetail:{table:String(e.table_name),primary_key:pkObj,reason:decision.reason,base,current:null,incoming:desired,operation:String(e.operation||''),code:decision.code}});
+    effectiveRow=desired; // revive: this side never held the record, so the sender's copy is restored.
   }
   d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
   try {
@@ -311,27 +324,59 @@ async function handler(req:Request) {
       if (!events.length && !peerMappings.length) { const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device'); return NextResponse.json({ok:true,applied:0,duplicates:0,mappings:[],destination_device_id:ownDevice}); }
       if (events.length>500) return NextResponse.json({error:'Maximum 500 events per batch.'},{status:413});
       let conflictBaseline=0;try{ensureConflictHistory(d);conflictBaseline=Number((d.prepare('SELECT COALESCE(MAX(id),0) m FROM sync_conflict_history').get() as any).m)}catch{}
-      const result:any={applied:0,duplicates:0,alreadyCurrent:0};
+      const result:any={applied:0,duplicates:0,alreadyCurrent:0,obsolete:0};
       const mappings:any[]=[];
-      let activeEvent:any=null;
-      const tx=d.transaction(()=>{
-        importPeerMappings(d,peerMappings);
-        const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
-        for (const rawEvent of events) {
-          activeEvent=rawEvent;
-          const e=reconcileIncomingEvent(d,rawEvent,String(rawEvent?.origin_device||'unknown-device'),mappings);
-          // A remapped row now has destination-local identity. Advertise it as a
-          // destination-originated canonical event; the source has the inverse map.
-          if (String(e.pk_json||'')!==String(rawEvent?.pk_json||'')) e.origin_device=ownDevice;
-          const status=applyEvent(d,e,ctx.deviceId,companyName);
+      const correlationId=String(req.headers.get('x-solivy-sync-correlation')||'').slice(0,64)||undefined;
+      // v2.8.1: each event is applied in its own transaction. One unapplicable item used to roll
+      // back the entire batch, so a single stuck record blocked every other change on the device
+      // indefinitely. Now the batch continues, the item is quarantined with its table, key,
+      // operation and reason, and the sender keeps it retryable.
+      try { d.transaction(()=>importPeerMappings(d,peerMappings))(); } catch(e:any) { console.error('SOLIVY sync mapping import failed',e?.message||e); }
+      const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
+      const accepted:string[]=[]; const rejected:any[]=[];
+      for (const rawEvent of events) {
+        const sourceId=String(rawEvent?.event_id||'');
+        try {
+          const applyOne=d.transaction(()=>{
+            const e=reconcileIncomingEvent(d,rawEvent,String(rawEvent?.origin_device||'unknown-device'),mappings);
+            // A remapped row now has destination-local identity. Advertise it as a
+            // destination-originated canonical event; the source has the inverse map.
+            if (String(e.pk_json||'')!==String(rawEvent?.pk_json||'')) e.origin_device=ownDevice;
+            return applyEvent(d,e,ctx.deviceId,companyName);
+          });
+          const status=applyOne();
           if(status==='duplicate') result.duplicates++;
           else if(status==='already-current') result.alreadyCurrent++;
           else result.applied++;
+          accepted.push(sourceId);
+        } catch(err:any) {
+          const code=String(err?.syncCode||err?.conflictDetail?.code||(/foreign key constraint failed/i.test(String(err?.message||''))?'FOREIGN_KEY':'CONFLICT'));
+          const reason=describeForeignKeyFailure(d,rawEvent,err)||String(err?.message||'Could not be applied.');
+          if(code==='LOCAL_ONLY'||code==='DELETED_HERE') {
+            // Obsolete, not a decision for the user: per-device bookkeeping, or an edit against a
+            // record this side deliberately deleted. Kept in the quarantine for the audit trail
+            // and acknowledged so the sender stops resending it.
+            recordObsolete(d,{phase:'push',event:rawEvent,code,reason,detail:err?.conflictDetail||null,correlationId});
+            try { d.prepare('INSERT OR IGNORE INTO sync_applied_events(event_id) VALUES(?)').run(sourceId); } catch {}
+            result.obsolete++; accepted.push(sourceId);
+            continue;
+          }
+          rejected.push(recordReject(d,{phase:'push',event:rawEvent,code,reason,detail:err?.conflictDetail||null,correlationId}));
         }
-      });
-      try { tx(); } catch(e:any) { return NextResponse.json({error:describeForeignKeyFailure(d,activeEvent,e)||'Sync batch rejected; no changes in this batch were committed.',conflict:true,conflict_phase:'push',conflict_event:activeEvent?{event_id:activeEvent.event_id,table_name:activeEvent.table_name,pk_json:activeEvent.pk_json,operation:activeEvent.operation,base_json:activeEvent.base_json,row_json:activeEvent.row_json}:null,conflict_detail:e?.conflictDetail||null},{status:409}); }
-      const ownDevice=String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id||'remote-device');
-      const fieldConflictCount=Number((d.prepare('SELECT COUNT(*) c FROM sync_conflict_history WHERE id>?').get(conflictBaseline) as any)?.c||0);return NextResponse.json({ok:true,field_conflicts:fieldConflictCount,...result,mappings,destination_device_id:ownDevice,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode});
+      }
+      const fieldConflictCount=Number((d.prepare('SELECT COUNT(*) c FROM sync_conflict_history WHERE id>?').get(conflictBaseline) as any)?.c||0);
+      const first=rejected[0]||null;
+      const payload:any={ok:rejected.length===0,field_conflicts:fieldConflictCount,...result,rejected,rejected_count:rejected.length,accepted_event_ids:accepted,mappings,destination_device_id:ownDevice,company_id:ctx.companyId,company_name:companyName,mode:ctx.mode,correlation_id:correlationId||null,open_rejects:openRejectCount(d)};
+      if(first) {
+        // Compatible with the existing conflict UI: the first rejection is also reported in the
+        // single-conflict shape. 409 only when nothing at all could be applied; otherwise the
+        // accepted work is confirmed with 200 and the rejections are listed.
+        payload.conflict=true; payload.conflict_phase='push'; payload.conflict_detail=first.detail||{table:first.table,primary_key:first.primary_key,reason:first.reason,code:first.code};
+        payload.error=first.reason;
+        const src=events.find((x:any)=>String(x?.event_id||'')===String(first.event_id));
+        payload.conflict_event=src?{event_id:src.event_id,table_name:src.table_name,pk_json:src.pk_json,operation:src.operation,base_json:src.base_json,row_json:src.row_json}:null;
+      }
+      return NextResponse.json(payload,{status:rejected.length&&!(result.applied||result.duplicates||result.alreadyCurrent||result.obsolete)?409:200});
     }
     return NextResponse.json({error:'Method not allowed.'},{status:405});
   } catch(e:any) { return NextResponse.json({error:e?.message||'Sync exchange failed.'},{status:400}); }

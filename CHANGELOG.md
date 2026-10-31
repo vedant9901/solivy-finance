@@ -1,5 +1,44 @@
 # Changelog
 
+## 2.8.1 — 2026-10-31 (P0 synchronization repair)
+Built on v2.8.0, which is unchanged as the rollback baseline. Details in `SYNC-REPAIR-v2.8.1.md`.
+Schema 29 (adds the local-only `sync_rejects` table; no business table changed).
+- **Fixed — one unapplicable item no longer blocks the whole queue.** Both apply paths ran the
+  entire batch in a single transaction, so any single rejected event rolled back every other change
+  in it; the push then marked nothing as pushed and the pull committed no cursor, so the next
+  attempt re-sent the same batch and failed on the same item forever. Each event now applies in its
+  own transaction: valid items go through, the blocking item is quarantined with its table, record
+  key, operation and reason, and it stays retryable.
+- **Fixed — "Table is not eligible for synchronization." named no table and was decided three
+  different ways.** The hub, the device, the resolver and the trigger builder each carried their own
+  `excluded` set with different memberships (`login_attempts` only in one; `sync_resolution_log` and
+  `sync_conflict_history` missing from the device copy), so a table journalled on one side could be
+  refused on the other. Eligibility is now one shared rule (`lib/sync-eligibility.ts`) that names the
+  table and says why; per-device bookkeeping queued by an older build is acknowledged and discarded
+  as obsolete instead of blocking the queue.
+- **Fixed — a record absent on both sides raised a generic conflict.** Every operation hit the same
+  "the base record was deleted" error. The outcome is now deterministic per operation
+  (`lib/sync-absent.ts`): a deletion whose record is already gone is agreement and a no-op; an edit
+  to a record this side never received restores it; an edit against a record deliberately deleted
+  here does not resurrect it and is kept in the quarantine instead of being discarded.
+- **New — safe retry / reconcile path.** `/api/sync/rejects` lists each set-aside item with the live
+  local record, the incoming record and the safe resolutions, and replays it from storage (not from
+  the sync cursor), so an advanced cursor can never make a change unrecoverable. "Do not retry" is
+  recorded in `sync_rejects` rather than dropping the change silently. The Sync screen shows the
+  list with Retry and Do-not-retry.
+- **New — diagnostics.** One correlation id per sync run, carried on every request and returned to
+  the caller; rejections log table, record key, operation, device, code and that id only — no row
+  values, amounts, narrations or references.
+- Unchanged: financial conflicts are still never auto-merged, POSTED records are still corrected by
+  reversal, stale deletions still cannot remove newer records, dependents are still only removed on
+  confirmation, resolutions are still idempotent, and LIVE/TEST and organisation isolation are intact.
+- Also fixed (found by the test run): the Neon transfer-budget month-end projection computed the
+  month length from a local date while the month itself is UTC, so in any zone ahead of UTC it used
+  the wrong number of days and understated usage on a month's last day (`lib/transfer-budget.ts`).
+- Tests: 78 offline (real SQLite), 44 online (real PostgreSQL 16), 10 browser, 15 legacy scripts —
+  all passing. Evidence: `docs/verification/test-run-2026-10-31-v2.8.1.txt`.
+
+
 ## 2.8.0 — 2026-10-30 (SaaS redesign + sync fix)
 Built on v2.7.3 (this repository has no v2.7.5). Details in `RELEASE-NOTES-v2.8.0.md`.
 - Sync: delete / missing / recreate conflicts can now be resolved at all — push a deletion, accept

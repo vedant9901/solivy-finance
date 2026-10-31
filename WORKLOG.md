@@ -113,3 +113,31 @@ TTL caches (the conditional responses already remove the transfer, and a TTL wou
 5. Replace or isolate xlsx for imports.
 6. Nonce-based CSP.
 7. Post inventory to the GL, and record purchase GST.
+
+## 2026-10-31 — v2.8.1, P0 synchronization repair
+**Found (traced, not guessed):** the hub, the device, the resolver and the trigger builder each kept
+their own `excluded` table set with different memberships, and `tableInfo()` reported every
+ineligibility with one message that named no table — the reported "Table is not eligible for
+synchronization. · 409". Both apply paths ran the entire batch in one transaction, so one
+unapplicable event rolled back all the others; the push then marked nothing as pushed and the pull
+committed no cursor, so the identical batch was re-sent and failed identically forever. The
+absent-record branch threw the same conflict for every operation, including a DELETE whose record
+was already gone on both sides — the "records are null on both sides but the push still does not
+sync" report.
+
+**Done:** one shared eligibility rule (`lib/sync-eligibility.ts`); per-event apply with a quarantine
+(`lib/sync-quarantine.ts`, `sync_rejects`, schema 29); a deterministic per-operation rule for an
+absent record (`lib/sync-absent.ts`); `/api/sync/rejects` to list, retry (replayed from the stored
+event) and deliberately stop retrying an item; correlation ids on every sync request with
+identifier-only logging; the Sync screen lists set-aside items with Retry / Do not retry. Also fixed
+a UTC/local month-length error in the transfer-budget projection.
+
+**Tests:** 78 offline (real SQLite), 44 online (real PostgreSQL 16), 10 browser, 15 legacy scripts,
+typecheck clean — `docs/verification/test-run-2026-10-31-v2.8.1.txt`. The 12-point sync gate is
+mapped to named tests in `SYNC-REPAIR-v2.8.1.md`.
+
+**Not verified:** Neon itself (local PG16 only), production build and lint (no npm registry), schema
+29 against a copy of real production data.
+
+**Next:** P1 — GRN PDF extraction to a draft purchase (the sample PDF is attached), only after this
+gate is accepted.

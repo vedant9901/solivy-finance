@@ -74,6 +74,18 @@ from the conflict so a retry applies once.
 - Exchange is in `/api/sync/exchange` and `/api/sync/run`:
   - pruning is acknowledgement-based (`lib/sync-prune.ts`), and a pruned cursor gets 410;
   - financial tables block on conflict (`lib/sync-policy.ts`).
+- v2.8.1: **events apply one at a time**, each in its own transaction, on both the hub and the
+  device. A batch is never discarded as a whole; an item that cannot be applied is quarantined in
+  `sync_rejects` with its table, record key, operation, reason and the run's correlation id, and is
+  replayed from that stored event by `/api/sync/rejects` (not from the sync cursor). HTTP 409 means
+  nothing in the batch could be applied. The push marks only accepted events, so a rejected item
+  stays queued and retryable.
+- Table eligibility is decided once, in `lib/sync-eligibility.ts`, for the hub, the device, the
+  resolver and the trigger builder. Per-device bookkeeping (`LOCAL_ONLY`) queued by an older build
+  is acknowledged and discarded as obsolete; anything else unapplicable is quarantined by name.
+- An absent record resolves deterministically per operation (`lib/sync-absent.ts`): an already-done
+  deletion is a no-op, a never-received record is restored, and an edit against a record deliberately
+  deleted here is kept in the quarantine rather than resurrecting it.
 
 ## Tests
 `tests/` contains unit, integration (SQLite), online (real PostgreSQL), ui (Playwright) and bench suites. Commands are in `docs/OPERATIONS.md` §9.

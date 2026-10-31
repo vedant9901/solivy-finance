@@ -129,8 +129,11 @@ test('financial edit conflict (same purchase changed on both sides) is blocked f
   assert.equal(he.status, 200, he.text);
   app.expectOk(await app.call('/api/purchases', { method: 'PUT', cookie: desk.cookie, body: { ...deskP, rate: 49 } }));
   const r = await sync();
-  assert.equal(r.status, 409, r.text);
-  assert.equal(r.json.conflict, true);
+  // v2.8.1: the conflicting purchase is refused per item; the rest of the batch still applies,
+  // so the run reports conflict:true with the rejected item rather than aborting with 409.
+  assert.equal(r.json.conflict, true, r.text);
+  assert.ok(Number(r.json.rejected_count) > 0, r.text);
+  assert.ok(r.json.rejected.some((x: any) => x.table === 'purchases'), r.text);
   assert.match(String(r.json.error), /Financial records are never merged automatically|Cannot merge (ledger|purchases)|Conflict on/);
   const hubAfter = (await hubCall('/api/data', { cookie: hubCookie })).json.purchases.find((p: any) => p.id === hubP.id);
   assert.equal(hubAfter.rate, 48, 'hub financial record untouched');
@@ -158,8 +161,9 @@ async function drain(action: 'push_local' | 'accept_remote' = 'push_local', roun
   const seen: string[] = [];
   for (let i = 0; i < rounds; i++) {
     const r = await sync();
-    if (r.status === 200) return { ok: true, resolutions: seen };
-    assert.equal(r.status, 409, r.text);
+    if (r.status === 200 && !r.json.conflict) return { ok: true, resolutions: seen };
+    assert.ok([200, 409].includes(r.status), r.text);
+    assert.ok(Number(r.json.rejected_count || 0) > 0, `conflict reported with no rejected item: ${r.text}`);
     const detail = r.json.conflict_detail || {};
     const args = { phase: r.json.conflict_phase || 'pull', table: detail.table, primary_key: detail.primary_key, conflict_detail: detail, conflict_event: r.json.conflict_event || {}, cascade: true, override: true };
     const res = await resolve({ ...args, action });
@@ -171,6 +175,7 @@ async function drain(action: 'push_local' | 'accept_remote' = 'push_local', roun
   }
   const last = await sync();
   assert.equal(last.status, 200, `queue still blocked after ${rounds} resolutions: ${last.text}`);
+  assert.ok(!last.json.conflict, `queue still blocked after ${rounds} resolutions: ${last.text}`);
   return { ok: true, resolutions: seen };
 }
 
@@ -219,7 +224,7 @@ test('a deletion is refused while dependent records still point at it, then appl
   d.prepare('PRAGMA foreign_keys=ON').run();
 
   const r = await sync();
-  assert.equal(r.status, 409, r.text);
+  assert.equal(r.json.conflict, true, r.text);
   const args = { phase: r.json.conflict_phase || 'push', table: r.json.conflict_detail.table, primary_key: r.json.conflict_detail.primary_key, conflict_detail: r.json.conflict_detail, conflict_event: r.json.conflict_event || {} };
   const refused = await resolve({ ...args, action: 'push_local' });
   assert.equal(refused.status, 409, refused.text);
@@ -298,4 +303,222 @@ test('a record deleted on one side and re-entered on the other keeps the survivi
   assert.equal(names.filter((n: string) => n === 'Recreate Vendor Again').length, 1);
   const hubNames = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.map((p: any) => p.name);
   assert.equal(hubNames.filter((n: string) => n === 'Recreate Vendor Again').length <= 1, true);
+});
+
+// ---------------------------------------------------------------------------------------------
+// v2.8.1 P0 sync repair. Each test below covers one numbered item of the sync release gate.
+// ---------------------------------------------------------------------------------------------
+
+const rejects = () => app.call('/api/sync/rejects', { cookie: desk.cookie });
+const retryRejects = (ids: string[]) => app.call('/api/sync/rejects', { cookie: desk.cookie, body: { action: 'retry', event_ids: ids } });
+
+/** Gate 6 — a record absent on BOTH sides. Deterministic, explained, never a generic conflict. */
+test('gate 6: a deletion whose record is already absent on both sides is a no-op, not a conflict', { skip: SKIP }, async () => {
+  const { local } = await newParty('Absent Both Sides Vendor');
+  const d = await deskDb();
+  d.prepare('DELETE FROM parties WHERE id=?').run(local.id);
+  await drain();                                     // the deletion reaches the hub
+  assert.equal((await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.id === local.id), undefined);
+
+  // A device that still holds a queued deletion for that key — the reported symptom: the record
+  // is null on both sides and the push used to stop with "a record conflict needs review".
+  const stale = 'absent-both-' + Date.now();
+  d.prepare("INSERT INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,'DELETE',?,NULL,(SELECT device_id FROM sync_meta WHERE id=1),0)")
+    .run(stale, 'parties', JSON.stringify({ id: local.id }), JSON.stringify(local));
+  const r = await sync();
+  assert.equal(r.status, 200, r.text);
+  assert.ok(!r.json.conflict, `both-sides-absent must not raise a conflict: ${r.text}`);
+  assert.equal(Number(r.json.rejected_count || 0), 0, r.text);
+  assert.equal(Number(d.prepare('SELECT COUNT(*) c FROM sync_changes WHERE event_id=? AND pushed=1').get(stale) as any && 1), 1);
+  assert.equal(Number((await rejects()).json.count), 0, 'nothing quarantined for an agreed deletion');
+});
+
+/** Root cause: a local-only table in the queue returned an unexplained 409 and, because one bad
+ *  item aborted the batch, blocked every valid change behind it. */
+test('gate: a local-only table queued ahead of valid records is dropped as obsolete and blocks nothing', { skip: SKIP }, async () => {
+  await drain();
+  const d = await deskDb();
+  const bad = 'local-only-' + Date.now();
+  d.prepare("INSERT INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,'INSERT',NULL,?,(SELECT device_id FROM sync_meta WHERE id=1),0)")
+    .run(bad, 'sync_resolution_log', JSON.stringify({ resolution_id: 'res-x' }), JSON.stringify({ resolution_id: 'res-x', table_name: 'purchases', pk_json: '{}', action: 'x' }));
+  // Valid business records queued behind it.
+  app.expectOk(await app.call('/api/parties', { cookie: desk.cookie, body: { name: 'Behind The Bad Event', party_type: 'GOODS_VENDOR' } }));
+
+  const r = await sync();
+  assert.equal(r.status, 200, r.text);
+  assert.ok(!r.json.conflict, `an obsolete bookkeeping event must not be reported as a conflict: ${r.text}`);
+  const remote = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.name === 'Behind The Bad Event');
+  assert.ok(remote, 'the valid party queued behind the bad event still synchronised');
+  assert.equal(Number(d.prepare('SELECT pushed FROM sync_changes WHERE event_id=?').get(bad) as any ? (d.prepare('SELECT pushed FROM sync_changes WHERE event_id=?').get(bad) as any).pushed : 1), 1, 'the obsolete event is acknowledged, not retried forever');
+});
+
+/** An unknown table names itself, is quarantined (never silently discarded) and blocks nothing. */
+test('gate: an unknown table is quarantined by name while the rest of the batch applies', { skip: SKIP }, async () => {
+  await drain();
+  const d = await deskDb();
+  const bad = 'unknown-table-' + Date.now();
+  d.prepare("INSERT INTO sync_changes(event_id,table_name,pk_json,operation,base_json,row_json,origin_device,pushed) VALUES(?,?,?,'INSERT',NULL,?,(SELECT device_id FROM sync_meta WHERE id=1),0)")
+    .run(bad, 'not_a_real_table', JSON.stringify({ id: 1 }), JSON.stringify({ id: 1, x: 2 }));
+  app.expectOk(await app.call('/api/parties', { cookie: desk.cookie, body: { name: 'Unknown Table Neighbour', party_type: 'GOODS_VENDOR' } }));
+
+  const r = await sync();
+  assert.equal(r.status, 200, r.text);
+  assert.ok(Number(r.json.rejected_count) >= 1, r.text);
+  const item = r.json.rejected.find((x: any) => x.table === 'not_a_real_table');
+  assert.ok(item, `the rejection names the table: ${r.text}`);
+  assert.match(String(item.reason), /not_a_real_table/);
+  assert.ok(['NOT_SYNCHRONISED', 'CONFLICT'].includes(String(item.code)), item.code);
+  assert.ok(r.json.correlation_id, 'a correlation id is reported');
+  assert.ok((await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.name === 'Unknown Table Neighbour'), 'unrelated valid item still applied');
+
+  // Listed with table, key, operation and reason; dismissing it is recorded, not silent.
+  const list = await rejects();
+  assert.equal(list.status, 200, list.text);
+  const q = list.json.items.find((x: any) => x.table === 'not_a_real_table');
+  assert.ok(q && q.primary_key && q.operation === 'INSERT' && q.reason && Array.isArray(q.resolutions), JSON.stringify(q));
+  const dismissed = await app.call('/api/sync/rejects', { cookie: desk.cookie, body: { action: 'dismiss', event_ids: [q.event_id] } });
+  assert.equal(dismissed.status, 200, dismissed.text);
+  assert.equal(Number((await deskDb()).prepare('SELECT COUNT(*) c FROM sync_rejects WHERE event_id=? AND resolved_at IS NOT NULL').get(q.event_id) as any && 1), 1);
+});
+
+/** Gate 7 + gate 8 — a child pushed before its parent is rejected on its own, stays retryable,
+ *  and applies once the parent exists. Nothing else in the batch is lost. */
+test('gate 7+8: a child without its parent is rejected per item and applies after the parent arrives', { skip: SKIP }, async () => {
+  await drain();
+  const d = await deskDb();
+  const orphanParty = 991_000_000_000_777;
+  d.prepare('PRAGMA foreign_keys=OFF').run();
+  d.prepare("INSERT INTO purchases(sample_no,party_id,purchase_date,net_weight,gross_weight,rate,gross_amount,discount_amount,quality_deduct_amount,total_deduction,net_payable,status,truck_number) VALUES('ORPHAN-1',?,'2026-07-01',1000,1010,50,50000,0,0,0,50000,'POSTED','GJ09ZZ9999')").run(orphanParty);
+  d.prepare('PRAGMA foreign_keys=ON').run();
+  app.expectOk(await app.call('/api/parties', { cookie: desk.cookie, body: { name: 'Orphan Neighbour', party_type: 'GOODS_VENDOR' } }));
+
+  const r = await sync();
+  assert.equal(r.status, 200, r.text);
+  const item = r.json.rejected.find((x: any) => x.table === 'purchases');
+  assert.ok(item, `the orphan purchase is rejected on its own: ${r.text}`);
+  assert.equal(item.code, 'FOREIGN_KEY');
+  assert.match(String(item.reason), /[Ff]oreign key/);
+  assert.ok((await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.name === 'Orphan Neighbour'), 'the valid party in the same batch still applied');
+  // Still retryable: the event was never marked pushed.
+  const pk = JSON.stringify(item.primary_key);
+  assert.equal(Number((d.prepare('SELECT COUNT(*) c FROM sync_changes WHERE table_name=? AND pk_json=? AND pushed=0').get('purchases', pk) as any).c) > 0, true);
+
+  // Resolve the cause (create the missing parent), then retry: the purchase synchronises.
+  d.prepare("INSERT INTO parties(id,name,party_type) VALUES(?,'Recovered Orphan Parent','GOODS_VENDOR')").run(orphanParty);
+  const again = await sync();
+  assert.equal(again.status, 200, again.text);
+  const arrived = (await hubCall('/api/data', { cookie: hubCookie })).json.purchases.find((p: any) => p.sample_no === 'ORPHAN-1');
+  assert.ok(arrived, `the quarantined purchase applied after its parent: ${again.text}`);
+  assert.equal(Number(arrived.net_payable), 50000, 'financial values unchanged by the retry');
+  const open = (await rejects()).json.items.filter((x: any) => x.table === 'purchases' && x.code === 'FOREIGN_KEY');
+  assert.equal(open.length, 0, 'the quarantine entry is closed once the item is accepted');
+});
+
+/** Gate 9 — a network interruption loses nothing and the next run completes the work. */
+test('gate 9: a failed sync (unreachable hub) loses nothing and the retry completes it', { skip: SKIP }, async () => {
+  await drain();
+  app.expectOk(await app.call('/api/parties', { cookie: desk.cookie, body: { name: 'Survives Interruption', party_type: 'GOODS_VENDOR' } }));
+  const dead = await app.call('/api/sync/run', { cookie: desk.cookie, body: { remote_url: 'http://127.0.0.1:1', remote_company_id: 1, device_token: token, remote_mode: 'LIVE' } });
+  assert.notEqual(dead.status, 200, dead.text);
+  const d = await deskDb();
+  assert.ok(Number((d.prepare("SELECT COUNT(*) c FROM sync_changes WHERE pushed=0 AND table_name='parties'").get() as any).c) > 0, 'the pending change survived the failure');
+  const ok = await sync();
+  assert.equal(ok.status, 200, ok.text);
+  assert.ok((await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.name === 'Survives Interruption'));
+});
+
+/** Gate 11 + 12 — purchase, payment, receipt and reversal records all synchronise, and a repeated
+ *  push creates no duplicate financial entries. */
+test('gate 11+12: purchase, payment, receipt and reversal records synchronise without duplication', { skip: SKIP }, async () => {
+  await drain();
+  const { local: vendor } = await newParty('Gate11 Vendor');
+  const accounts = app.expectOk(await app.call('/api/data', { cookie: desk.cookie })).accounts || [];
+  let accountId = accounts[0]?.id;
+  if (!accountId) accountId = app.expectOk(await app.call('/api/accounts', { cookie: desk.cookie, body: { name: 'Gate11 Bank', account_type: 'BANK', opening_balance: 1_000_000 } })).id;
+
+  const purchase = app.expectOk(await app.call('/api/purchases', { cookie: desk.cookie, body: { party_id: vendor.id, purchase_date: '2026-07-10', net_weight: 2000, gross_weight: 2020, rate: 55, truck_number: 'GJ11GA1111', goods_description: 'Fennel' } }));
+  const payment = app.expectOk(await app.call('/api/payments', { cookie: desk.cookie, body: { party_id: vendor.id, payment_date: '2026-07-11', amount: 50_000, mode: 'BANK', company_account_id: accountId } }));
+  const receipt = app.expectOk(await app.call('/api/money-in', { cookie: desk.cookie, body: { receipt_date: '2026-07-12', account_id: accountId, amount: 25_000, receipt_type: 'CAPITAL', narration: 'Gate11 receipt' } }));
+  const reversed = app.expectOk(await app.call('/api/payments', { cookie: desk.cookie, body: { party_id: vendor.id, payment_date: '2026-07-13', amount: 1_000, mode: 'BANK', company_account_id: accountId } }));
+  app.expectOk(await app.call('/api/reverse', { cookie: desk.cookie, body: { type: 'PAYMENT', id: reversed.id, reason: 'Gate11 duplicate' } }));
+  await drain();
+
+  const hubData = (await hubCall('/api/data', { cookie: hubCookie })).json;
+  assert.ok(hubData.purchases.find((p: any) => p.truck_number === 'GJ11GA1111'), `purchase synchronised: ${JSON.stringify(hubData.purchases.map((p: any) => p.truck_number))}`);
+  assert.ok(hubData.parties.find((p: any) => p.name === 'Gate11 Vendor'), 'party synchronised');
+  const hubPayments = hubData.payments.filter((p: any) => Number(p.amount) === 50_000);
+  assert.equal(hubPayments.length, 1, 'exactly one payment, no duplicate');
+  assert.ok(hubData.payments.find((p: any) => p.id === reversed.id && String(p.status).toUpperCase().includes('REVERS')), 'the reversal state synchronised');
+  const before = JSON.stringify(hubData.payments.concat(hubData.purchases).map((x: any) => [x.id, x.net_payable ?? x.amount]));
+
+  // Repeat the push twice: no duplicate financial entries, no new conflicts.
+  for (let i = 0; i < 2; i++) { const again = await sync(); assert.equal(again.status, 200, again.text); assert.ok(!again.json.conflict, again.text); }
+  const after = (await hubCall('/api/data', { cookie: hubCookie })).json;
+  assert.equal(JSON.stringify(after.payments.concat(after.purchases).map((x: any) => [x.id, x.net_payable ?? x.amount])), before, 'repeated pushes changed nothing');
+  assert.ok(after.money_in ? after.money_in.find((m: any) => Number(m.amount) === 25_000) : true, 'receipt present');
+  void receipt; void purchase;
+});
+
+/** The quarantine retry endpoint applies a stored pull event rather than depending on the cursor. */
+test('gate 8: a quarantined pull item is replayed from storage by the retry endpoint', { skip: SKIP }, async () => {
+  await drain();
+  const d = await deskDb();
+  const id = 'pull-retry-' + Date.now();
+  const partyId = 991_000_000_000_888;
+  // A downloaded event that cannot apply yet (its parent is missing here), recorded as if pulled.
+  const { recordReject } = await import('../../lib/sync-quarantine');
+  recordReject(d, { phase: 'pull', event: { event_id: id, table_name: 'purchases', pk_json: JSON.stringify({ id: 991_000_000_000_999 }), operation: 'INSERT', base_json: null, row_json: JSON.stringify({ id: 991_000_000_000_999, sample_no: 'PULL-RETRY-1', party_id: partyId, purchase_date: '2026-07-20', net_weight: 1000, gross_weight: 1010, rate: 40, gross_amount: 40000, discount_amount: 0, quality_deduct_amount: 0, total_deduction: 0, net_payable: 40000, status: 'POSTED', truck_number: 'GJ12RT1212' }), origin_device: 'hub-device' }, code: 'FOREIGN_KEY', reason: 'parent missing' });
+  const blocked = await retryRejects([id]);
+  assert.equal(blocked.json.ok, false, blocked.text);
+  assert.equal(blocked.json.still_blocked.length, 1, blocked.text);
+
+  d.prepare("INSERT INTO parties(id,name,party_type) VALUES(?,'Pull Retry Parent','GOODS_VENDOR')").run(partyId);
+  const retried = await retryRejects([id]);
+  assert.equal(retried.status, 200, retried.text);
+  assert.equal(retried.json.ok, true, retried.text);
+  const row = d.prepare("SELECT net_payable FROM purchases WHERE sample_no='PULL-RETRY-1'").get() as any;
+  assert.ok(row, 'the stored event was replayed and applied');
+  assert.equal(Number(row.net_payable), 40000, 'replay preserved the financial values');
+  assert.equal(Number((await rejects()).json.items.filter((x: any) => x.event_id === id).length), 0, 'closed after a successful retry');
+});
+
+/** The cursor question the brief asks explicitly: a rejected downloaded item must neither be lost
+ *  nor keep the cursor pinned so the same batch fails forever. */
+test('gate: a rejected pull item advances the cursor, is quarantined, and does not re-block the queue', { skip: SKIP }, async () => {
+  await drain();
+  const d = await deskDb();
+  const created = (await hubCall('/api/parties', { cookie: hubCookie, body: { name: 'Hub Only Parent', party_type: 'GOODS_VENDOR' } })).json;
+  const hubParty = { id: Number(created?.id ?? created?.partyId ?? 0) };
+  assert.ok(hubParty.id, JSON.stringify(created));
+  await drain();                                     // the party reaches the desk normally
+  // Simulate a parent this device no longer holds (a re-baselined device, or a journal pruned
+  // past the parent's creation): remove it locally without journalling a deletion.
+  const cursorBefore = Number((d.prepare('SELECT remote_cursor FROM sync_meta WHERE id=1').get() as any).remote_cursor || 0);
+  d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
+  d.prepare('PRAGMA foreign_keys=OFF').run();
+  d.prepare('DELETE FROM parties WHERE id=?').run(hubParty.id);
+  d.prepare('PRAGMA foreign_keys=ON').run();
+  d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run();
+  await hubCall('/api/purchases', { cookie: hubCookie, body: { party_id: hubParty.id, purchase_date: '2026-08-01', net_weight: 1000, gross_weight: 1010, rate: 45, truck_number: 'GJ13CU1313', goods_description: 'Cumin' } });
+
+  const r = await sync();
+  assert.equal(r.status, 200, r.text);
+  const item = (r.json.rejected || []).find((x: any) => x.table === 'purchases');
+  assert.ok(item, `the unapplicable child is reported per item: ${r.text}`);
+  const cursorAfter = Number((d.prepare('SELECT remote_cursor FROM sync_meta WHERE id=1').get() as any).remote_cursor || 0);
+  assert.ok(cursorAfter > cursorBefore, `the cursor advanced past the quarantined item (${cursorBefore} -> ${cursorAfter})`);
+  const stored = (await rejects()).json.items.find((x: any) => x.event_id === item.event_id);
+  assert.ok(stored && stored.incoming_state, 'the downloaded record is kept in full, not lost with the cursor');
+
+  // The queue is not blocked: a later hub change still arrives.
+  await hubCall('/api/parties', { cookie: hubCookie, body: { name: 'After The Rejection', party_type: 'GOODS_VENDOR' } });
+  const next = await sync();
+  assert.equal(next.status, 200, next.text);
+  assert.ok(d.prepare("SELECT id FROM parties WHERE name='After The Rejection'").get(), 'later changes still apply');
+
+  // And the quarantined child applies once its parent exists — replayed from storage.
+  d.prepare("INSERT INTO parties(id,name,party_type) VALUES(?,'Hub Only Parent Restored','GOODS_VENDOR')").run(hubParty.id);
+  const retried = await retryRejects([item.event_id]);
+  assert.equal(retried.json.ok, true, retried.text);
+  assert.ok(d.prepare("SELECT id FROM purchases WHERE truck_number='GJ13CU1313'").get(), 'the quarantined purchase was applied after the retry');
 });

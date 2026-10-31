@@ -50,7 +50,11 @@ export async function budgetState(client: PoolClient, opts: { raise?: boolean } 
   const budget = budgetBytes();
   const percent = budget > 0 ? (used / budget) * 100 : 0;
   const now = new Date();
-  const daysInMonth = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0).getUTCDate();
+  // The month is a UTC month (`month` above comes from toISOString), so its length must be
+  // computed in UTC too. Building a local date and reading getUTCDate() returned the wrong length
+  // in any zone ahead of UTC — October read as 30 days in Asia/Kolkata — which made the month-end
+  // projection understate measured usage on the last day of a month.
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
   const daysElapsed = now.getUTCDate();
   const projected = Math.round(used / Math.max(1, daysElapsed) * daysInMonth);
 

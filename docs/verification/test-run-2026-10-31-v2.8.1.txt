@@ -1,0 +1,37 @@
+# SOLIVY Finance v2.8.1 — P0 sync repair test run
+Run at 2026-10-31T07:04:31Z (UTC), Node v22.23.4
+
+## npx tsc --noEmit -p tsconfig.verify.json
+exit 0 — 0 errors
+
+## npm test (offline, real SQLite)
+# tests 78
+# pass 78
+# fail 0
+
+## npm run test:online (real PostgreSQL 16 at 127.0.0.1:54329 — NOT Neon)
+# tests 44
+# pass 44
+# fail 0
+
+## npm run test:ui (Playwright Chromium)
+# tests 10
+# pass 10
+# fail 0
+
+## scripts/check-*.cjs
+PASS scripts/check-api-access.cjs
+PASS scripts/check-dashboard-metrics.cjs
+PASS scripts/check-dynamic-module-access.cjs
+PASS scripts/check-finance-mis.cjs
+PASS scripts/check-financial-repair-tds.cjs
+PASS scripts/check-funding-transfer.cjs
+PASS scripts/check-moisture-data-api.cjs
+PASS scripts/check-money-out.cjs
+PASS scripts/check-multicompany-sync.cjs
+PASS scripts/check-online-login-org.cjs
+PASS scripts/check-release-safety.cjs
+PASS scripts/check-security.cjs
+PASS scripts/check-source.cjs
+PASS scripts/check-sync-company-settings.cjs
+PASS scripts/check-user-org-conflicts.cjs

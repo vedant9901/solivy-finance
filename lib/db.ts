@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { SYNC_EXCLUDED_TABLES } from './sync-eligibility';
+import { REJECTS_DDL } from './sync-quarantine';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'node:crypto';
@@ -96,7 +98,14 @@ CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT,
   // v2.8.0: the conflict-resolution log and the conflict history are local audit artefacts, not
   // business data. They were being journalled and pushed (a resolution's before-image could make a
   // sync payload too large to accept), so any queued events for them are dropped once.
-  try { d.exec("DELETE FROM sync_changes WHERE table_name IN ('sync_resolution_log','sync_conflict_history')"); } catch {}
+  // v2.8.1: the same applies to every other per-device table, and the cleanup now uses the shared
+  // membership so a name added to it can never be left queued on an older device.
+  try {
+    d.exec(REJECTS_DDL);
+    d.exec('CREATE INDEX IF NOT EXISTS idx_sync_rejects_open ON sync_rejects(resolved_at,last_seen_at)');
+    const names=[...SYNC_EXCLUDED_TABLES].filter((n)=>/^[A-Za-z_][A-Za-z0-9_]*$/.test(n)).map((n)=>`'${n}'`).join(',');
+    d.exec(`DELETE FROM sync_changes WHERE table_name IN (${names}) OR table_name LIKE 'license\\_%' ESCAPE '\\' OR table_name LIKE 'admin\\_%' ESCAPE '\\'`);
+  } catch {}
   if((d.prepare('SELECT COUNT(*) c FROM company_settings').get() as any).c===0)d.prepare("INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY')").run();
   // v2.7.0: legacy bill-number renumbering is no longer automatic. It is reported by
   // lib/data-health.ts and applied only through the audited admin repair endpoint.
@@ -164,7 +173,10 @@ function ensureSyncSchema(d: Database.Database) {
   if (!meta) d.prepare('INSERT INTO sync_meta(id,device_id) VALUES(1,?)').run(cryptoId());
   // Install change-capture triggers for existing business tables. System, identity,
   // licensing and sync tables are deliberately excluded from financial synchronization.
-  const excluded = new Set(['sync_meta','sync_changes','sync_applied_events','sync_id_mappings','users','sqlite_sequence','schema_migrations','idempotency_keys','sync_device_acks','sync_resolution_log','sync_conflict_history','login_attempts']);
+  // v2.8.1: one shared membership (lib/sync-eligibility.ts). The hub and the device used to
+  // carry their own divergent copies of this set, so the two sides disagreed about which tables
+  // may be synchronised at all — a table journalled here could be refused there with HTTP 409.
+  const excluded = SYNC_EXCLUDED_TABLES;
   const tables = d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as Array<{name:string}>;
   for (const {name} of tables) {
     if (excluded.has(name) || name.startsWith('license_') || name.startsWith('admin_')) continue;
@@ -225,7 +237,7 @@ function openDb(file:string){
 }
 
 /** Schema version for company/admin SQLite files. Bump when ensureSchema/applyV27Schema change. */
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 type BridgeScope = { allowed: Set<string>; allowCreate: boolean; created: Set<string> };
 let bridgeScope: BridgeScope | null = null;
 /** Set by the PostgreSQL bridge: only these files may be opened during the current request. */

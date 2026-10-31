@@ -15,7 +15,10 @@ check('Other money out and loan repayment create counterpart Money In',out.inclu
 check('Destination organization and account are validated for current environment',targets.includes('user_companies')&&targets.includes('can_test=1')&&targets.includes('can_live=1'));
 check('Inter-company reversal also reverses destination receipt and requires mapped access',reverse.includes('destination_receipt_id')&&reverse.includes('must be mapped to the destination organization'));
 check('Money-out entitlement matches middleware and server security',middleware.includes("['/api/money-out','money-out']")&&security.includes("['/api/money-out', ['money-out']]"));
-check('Theme persists in local storage and app-wide provider',page.includes("localStorage.setItem('solivy-theme',theme)")&&layout.includes('AppearanceSync')&&appearance.includes('solivy-theme'));
+// v2.8.0 moved accent reading into app/lib/appearance.ts, so AppearanceSync delegates instead of
+// naming the key itself. The property checked is unchanged: the accent is persisted and re-applied
+// app-wide on load and across tabs.
+check('Theme persists in local storage and app-wide provider',page.includes("localStorage.setItem('solivy-theme',theme)")&&layout.includes('AppearanceSync')&&appearance.includes('applyAppearance')&&fs.readFileSync('app/lib/appearance.ts','utf8').includes("'solivy-theme'"));
 check('Payment advice PDF accent follows selected theme',page.includes('&theme=${theme}')&&pdf.includes('themePalette'));
 check('Hindi/Gujarati selector is available and preference persists',page.includes('solivy-language')&&page.includes('value="hi"')&&page.includes('value="gu"'));
 if(failed)process.exit(1);console.log('Finance MIS, bank matching, inter-company and appearance source checks passed.');

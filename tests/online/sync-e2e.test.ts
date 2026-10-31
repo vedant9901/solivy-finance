@@ -522,3 +522,124 @@ test('gate: a rejected pull item advances the cursor, is quarantined, and does n
   assert.equal(retried.json.ok, true, retried.text);
   assert.ok(d.prepare("SELECT id FROM purchases WHERE truck_number='GJ13CU1313'").get(), 'the quarantined purchase was applied after the retry');
 });
+
+// ---------------------------------------------------------------------------------------------
+// v2.8.3 — party deletion blocked by financial history (the reported `parties · DELETE · id 15`).
+// ---------------------------------------------------------------------------------------------
+
+/** The device side used to apply a pulled deletion with no guard, so a record other rows still
+ *  referenced failed with a bare FOREIGN KEY error naming nothing. */
+test('party delete: a deletion pulled onto a device that holds the financial history names the blockers', { skip: SKIP }, async () => {
+  await drain();
+  const d = await deskDb();
+  // The party, its purchase and a payment exist on both sides.
+  const { local: party } = await newParty('History Vendor');
+  const accounts = app.expectOk(await app.call('/api/data', { cookie: desk.cookie })).accounts || [];
+  const accountId = accounts[0]?.id || app.expectOk(await app.call('/api/accounts', { cookie: desk.cookie, body: { name: 'Hist Bank', account_type: 'BANK', opening_balance: 1_000_000 } })).id;
+  app.expectOk(await app.call('/api/purchases', { cookie: desk.cookie, body: { party_id: party.id, purchase_date: '2026-09-01', net_weight: 1000, gross_weight: 1010, rate: 50, truck_number: 'GJ15PD1515', goods_description: 'Cumin' } }));
+  app.expectOk(await app.call('/api/payments', { cookie: desk.cookie, body: { party_id: party.id, payment_date: '2026-09-02', amount: 10_000, mode: 'BANK', company_account_id: accountId } }));
+  await drain();
+
+  // The hub deletes the party directly (its own children were removed there first), and that
+  // deletion is pulled onto this device, which still holds the purchase, payment and ledger rows.
+  const hubEvent = `hub-party-delete-${Date.now()}`;
+  const hubRow = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.name === 'History Vendor');
+  assert.ok(hubRow, 'the party is on the hub');
+  await hubCall('/api/sync/pair', { cookie: hubCookie, body: { device_id: 'probe-only', device_name: 'probe' } }).catch(() => ({}));
+  d.prepare("INSERT INTO sync_applied_events(event_id) VALUES(?) ON CONFLICT DO NOTHING").run('unused-' + hubEvent);
+  // Simulate the pulled event directly: the hub's journal is not writable from this test process.
+  const { recordReject } = await import('../../lib/sync-quarantine');
+  const { applyLocal } = await import('../../lib/sync-apply');
+  const event = { event_id: hubEvent, table_name: 'parties', pk_json: JSON.stringify({ id: party.id }), operation: 'DELETE', base_json: JSON.stringify(hubRow), row_json: null, origin_device: 'hub-device' };
+  let failure: any = null;
+  try { applyLocal(d, event, 'SOLIVY'); } catch (e) { failure = e; }
+  assert.ok(failure, 'the deletion is refused, not applied');
+  assert.equal(String(failure.syncCode), 'HAS_DEPENDENTS', String(failure.message));
+  assert.ok(!/not discoverable from this table schema/.test(String(failure.message)), String(failure.message));
+  const detail = failure.conflictDetail;
+  assert.equal(detail.table, 'parties');
+  assert.deepEqual(detail.primary_key, { id: party.id });
+  assert.equal(detail.code, 'HAS_DEPENDENTS');
+  const blockers = (detail.dependents || []).map((x: any) => x.table);
+  for (const t of ['purchases', 'payments', 'ledger']) assert.ok(blockers.includes(t), `${t} is named as a blocker: ${JSON.stringify(blockers)}`);
+  assert.ok((detail.dependents || []).every((x: any) => Array.isArray(x.ids)), 'each blocker carries its record ids');
+  assert.equal(detail.soft_delete_column, 'active', 'deactivation is offered as the safe outcome');
+  // Nothing was deleted: the history is intact.
+  assert.ok(d.prepare('SELECT id FROM parties WHERE id=?').get(party.id), 'the party row is untouched');
+  assert.ok(Number((d.prepare('SELECT COUNT(*) c FROM purchases WHERE party_id=?').get(party.id) as any).c) > 0, 'purchases preserved');
+
+  // Quarantined, listed with the blockers, and offering deactivation.
+  recordReject(d, { phase: 'pull', event, code: 'HAS_DEPENDENTS', reason: String(failure.message), detail });
+  const item = (await rejects()).json.items.find((x: any) => x.event_id === hubEvent);
+  assert.ok(item, 'the blocked deletion is listed');
+  assert.match(String(item.reason), /purchases/);
+  assert.ok(item.resolutions.some((r: any) => r.action === 'deactivate'), 'deactivation is offered');
+
+  // Deactivating preserves every referencing record and resolves the queued deletion idempotently.
+  const first = await app.call('/api/sync/rejects', { cookie: desk.cookie, body: { action: 'deactivate', event_ids: [hubEvent] } });
+  assert.equal(first.status, 200, first.text);
+  assert.equal(first.json.deactivated, 1, first.text);
+  assert.equal(Number((d.prepare('SELECT active FROM parties WHERE id=?').get(party.id) as any).active), 0, 'the party is inactive, not deleted');
+  assert.ok(Number((d.prepare('SELECT COUNT(*) c FROM purchases WHERE party_id=?').get(party.id) as any).c) > 0, 'purchases still there');
+  assert.ok(Number((d.prepare('SELECT COUNT(*) c FROM payments WHERE party_id=?').get(party.id) as any).c) > 0, 'payments still there');
+  assert.equal((await rejects()).json.items.filter((x: any) => x.event_id === hubEvent).length, 0, 'the item is resolved');
+  const again = await app.call('/api/sync/rejects', { cookie: desk.cookie, body: { action: 'deactivate', event_ids: [hubEvent] } });
+  assert.equal(again.status, 200, again.text);
+  assert.ok(again.json.refused.length || again.json.done.some((x: any) => x.already_resolved), 'repeating it changes nothing further');
+
+  // The deactivation is a journalled change, so the other device receives the same state.
+  const after = await sync();
+  assert.equal(after.status, 200, after.text);
+  // Matched by name: the hub may hold this party under a remapped id (sync id reconciliation).
+  const onHub = (await hubCall('/api/data', { cookie: hubCookie })).json.parties.find((p: any) => p.name === 'History Vendor');
+  assert.ok(onHub, 'the party still exists on the hub');
+  assert.equal(Number(onHub.active), 0, `the hub received the deactivation (sync: ${after.text.slice(0, 200)})`);
+});
+
+/** With the referencing records resolved first, the same queued deletion goes through — the
+ *  "dependent records synchronise before parent deletion" ordering requirement. A non-financial
+ *  dependent is used deliberately: a POSTED purchase is never deletable, by design. */
+test('party delete: once the referencing records are gone the queued deletion applies, with no duplicates', { skip: SKIP }, async () => {
+  await drain();
+  const d = await deskDb();
+  const { local: party } = await newParty('Deletable Vendor');
+  const alias = await app.call('/api/party-aliases', { cookie: desk.cookie, body: { party_id: party.id, alias: 'DV Trading Co' } });
+  assert.ok(alias.status < 400, alias.text);
+  await drain();
+  assert.ok(Number((d.prepare('SELECT COUNT(*) c FROM party_aliases WHERE party_id=?').get(party.id) as any).c) > 0, 'the alias exists');
+
+  const eventId = `queued-party-delete-${Date.now()}`;
+  const row = d.prepare('SELECT * FROM parties WHERE id=?').get(party.id) as any;
+  const event = { event_id: eventId, table_name: 'parties', pk_json: JSON.stringify({ id: party.id }), operation: 'DELETE', base_json: JSON.stringify(row), row_json: null, origin_device: 'hub-device' };
+  const { recordReject } = await import('../../lib/sync-quarantine');
+  const { applyLocal } = await import('../../lib/sync-apply');
+  try { applyLocal(d, event, 'SOLIVY'); assert.fail('the deletion should be blocked while the alias exists'); }
+  catch (e: any) {
+    assert.equal(String(e.syncCode), 'HAS_DEPENDENTS', String(e.message));
+    assert.match(String(e.message), /party aliases/);
+    assert.ok((e.conflictDetail.dependents || []).some((x: any) => x.table === 'party_aliases' && x.ids.length), 'the blocking alias id is reported');
+    recordReject(d, { phase: 'pull', event, code: 'HAS_DEPENDENTS', reason: String(e.message), detail: e.conflictDetail });
+  }
+
+  // A retry while still blocked changes nothing and keeps the item queued.
+  const blocked = await retryRejects([eventId]);
+  assert.equal(blocked.json.ok, false, blocked.text);
+  assert.ok(d.prepare('SELECT id FROM parties WHERE id=?').get(party.id), 'still not deleted');
+  assert.equal((await rejects()).json.items.filter((x: any) => x.event_id === eventId).length, 1, 'still retryable');
+
+  // Resolve the cause through the application: remove the alias that referenced the party.
+  const aliasRow = d.prepare('SELECT id FROM party_aliases WHERE party_id=? LIMIT 1').get(party.id) as any;
+  const removed = await app.call('/api/party-aliases', { method: 'DELETE', cookie: desk.cookie, body: { alias_id: aliasRow.id } });
+  assert.ok(removed.status < 400, removed.text);
+  assert.equal(Number((d.prepare('SELECT COUNT(*) c FROM party_aliases WHERE party_id=?').get(party.id) as any).c), 0);
+
+  const retried = await retryRejects([eventId]);
+  assert.equal(retried.json.ok, true, retried.text);
+  assert.equal(d.prepare('SELECT id FROM parties WHERE id=?').get(party.id), undefined, 'the party is now deleted');
+  // Idempotent: replaying it is a no-op and recreates nothing.
+  const thrice = await retryRejects([eventId]);
+  assert.equal(thrice.status, 200, thrice.text);
+  assert.equal(d.prepare('SELECT id FROM parties WHERE id=?').get(party.id), undefined, 'still deleted, nothing recreated');
+  const final = await drain();
+  assert.ok(final.ok, 'the queue drains');
+});

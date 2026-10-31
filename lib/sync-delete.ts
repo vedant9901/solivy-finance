@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { referencesTo, describeReferences } from './sync-fk';
 
 /**
  * Delete / recreate conflict resolution for synchronization (v2.8.0).
@@ -54,26 +55,18 @@ export function classifyConflict(input: { localRow: any; localVersion: any; remo
   return 'update';
 }
 
-/** Tables that reference `table`, with how many rows currently point at this record. */
-export function dependentsOf(d: any, table: string, key: Record<string, any>): Array<{ table: string; count: number }> {
-  const out: Array<{ table: string; count: number }> = [];
-  const tables = (d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as any[]).map((t) => String(t.name));
-  for (const child of tables) {
-    if (child === table) continue;
-    let fks: any[] = [];
-    try { fks = d.prepare(`PRAGMA foreign_key_list("${child}")`).all() as any[]; } catch { continue; }
-    for (const fk of fks.filter((f: any) => String(f.table) === table)) {
-      const parentCol = String(fk.to || Object.keys(key)[0]);
-      const value = key[parentCol] ?? key[Object.keys(key)[0]];
-      if (value === undefined) continue;
-      try {
-        const row = d.prepare(`SELECT COUNT(*) n FROM "${child}" WHERE "${String(fk.from)}"=?`).get(value) as any;
-        const n = Number(row?.n || 0);
-        if (n > 0) out.push({ table: child, count: n });
-      } catch { /* column shape changed; reported as no dependents rather than blocking blindly */ }
-    }
-  }
-  return out;
+/**
+ * Tables that reference `table`, with how many rows point at this record and which rows they are.
+ *
+ * v2.8.3: resolved by lib/sync-fk.ts from the live schema in the correct direction, case
+ * insensitively, with the blocking record identifiers, and without the former `catch {}` that
+ * reported "no dependents" when a probe failed — that silence is what turned a blocked party
+ * deletion into a bare FOREIGN KEY error. Undeclared conventional references (a column like
+ * purchases.broker_party_id with no foreign key) are reported too: SQLite does not block on them,
+ * so deleting would leave them dangling.
+ */
+export function dependentsOf(d: any, table: string, key: Record<string, any>): Array<{ table: string; count: number; column?: string; ids?: any[]; declared?: boolean }> {
+  return referencesTo(d, table, key).map((r) => ({ table: r.table, count: r.count, column: r.column, ids: r.ids, declared: r.declared }));
 }
 
 /** Refuse deletions that accounting rules reserve for the reversal workflow. */
@@ -123,7 +116,7 @@ export function applyResolvedDelete(d: any, opts: {
   }
   const dependents = dependentsOf(d, table, key);
   if (dependents.length && !opts.cascade) {
-    return { outcome: null, guard: { ok: false, code: 'HAS_DEPENDENTS', message: `This record still has ${dependents.map((x) => `${x.count} ${x.table.replace(/_/g, ' ')}`).join(', ')} attached to it. Confirm removing them together, or resolve those records first.`, dependents } };
+    return { outcome: null, guard: { ok: false, code: 'HAS_DEPENDENTS', message: `This record is still referenced by ${describeReferences(referencesTo(d, table, key)).join('; ')}. Confirm removing them together, deactivate the record instead of deleting it, or resolve those records first.`, dependents } };
   }
 
   const cascaded: Array<{ table: string; rows: number }> = [];

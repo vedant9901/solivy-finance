@@ -1,0 +1,56 @@
+# SOLIVY Finance v2.9.0 — bidirectional sync & full database clone test run
+Run at 2026-10-31T12:14:03Z (UTC), Node v22.23.4
+
+## Architecture identified (not assumed)
+Online storage holds the whole organisation SQLite file in PostgreSQL as 4 KiB page-aligned
+Brotli chunks plus a base blob, with a manifest and optimistic versioning (lib/snapshot-store.ts).
+Device <-> hub synchronisation on top of it is event replication through the sync_changes journal.
+The system is therefore a HYBRID: a clone is a verified snapshot transfer, incremental sync stays
+event-based. The clone engine is built on the existing chunk store, so only differing pages move.
+
+## npx tsc --noEmit -p tsconfig.verify.json
+exit 0 - 0 errors
+
+## npm test (offline, real SQLite)
+# tests 90
+# pass 90
+# fail 0
+
+## npm run test:online (real PostgreSQL 16 at 127.0.0.1:54329 - NOT Neon)
+ok 17 - offline → online full clone: uploaded, verified table by table, then activated
+ok 18 - repeating the clone changes nothing and creates no duplicates
+ok 21 - online → offline full clone: downloaded, verified, activated, previous file kept
+ok 22 - incremental sync works in both directions after a clone, with no duplicates
+ok 23 - a clone of one organisation does not touch another, and validation covers both sides
+ok 24 - the online snapshot can be rolled back to the version kept before the last clone
+ok 25 - two clones of the same organisation cannot run at once
+# tests 56
+# pass 56
+# fail 0
+
+## npm run test:ui (Playwright Chromium)
+# tests 10
+# pass 10
+# fail 0
+
+## API surface + release package guards
+PASS API surface: 71 routes, 115 exported methods; every baseline route and method is present
+
+## scripts/check-*.cjs
+PASS scripts/check-api-access.cjs
+PASS scripts/check-api-routes.cjs
+PASS scripts/check-clone-dashboard.cjs
+PASS scripts/check-dashboard-metrics.cjs
+PASS scripts/check-dynamic-module-access.cjs
+PASS scripts/check-finance-mis.cjs
+PASS scripts/check-financial-repair-tds.cjs
+PASS scripts/check-funding-transfer.cjs
+PASS scripts/check-moisture-data-api.cjs
+PASS scripts/check-money-out.cjs
+PASS scripts/check-multicompany-sync.cjs
+PASS scripts/check-online-login-org.cjs
+PASS scripts/check-release-safety.cjs
+PASS scripts/check-security.cjs
+PASS scripts/check-source.cjs
+PASS scripts/check-sync-company-settings.cjs
+PASS scripts/check-user-org-conflicts.cjs

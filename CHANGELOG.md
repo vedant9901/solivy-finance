@@ -1,5 +1,70 @@
 # Changelog
 
+## 2.9.0 — 2026-10-31 (bidirectional sync + full database clone)
+Built on v2.8.0–v2.8.3, all unchanged. Architecture and recovery steps in
+`CLONE-AND-SYNC-ARCHITECTURE-v2.9.0.md`. No business schema change.
+- **Root cause of the endless conflicts, named.** Online storage holds the whole organisation
+  SQLite file in PostgreSQL as page-aligned chunks; device ⇄ hub sync is event replication on top.
+  Event replication can only converge from a common ancestor, so two databases that had drifted
+  apart produced a conflict per record, and resolving one exposed the next. A clone establishes that
+  ancestor; `realignAfterClone` then puts the journal and cursor in the one state where incremental
+  sync is correct from that point.
+- **New — full clone engine, both directions.** `lib/clone-engine.ts` + `lib/clone-store.ts` +
+  `/api/sync/clone` (hub) + `/api/sync/clone/run` (device). Consistent snapshot (`VACUUM INTO`,
+  never a live WAL copy) → validation (integrity, foreign keys, schema version, accounting
+  invariants) → fingerprint (per-table rows and content hashes plus 16 financial aggregates) →
+  staging (a separate key online, a temporary file offline) → read-back verification that must match
+  the source exactly → activation with the replaced copy kept for rollback. Any failure aborts
+  before activation and leaves both databases untouched.
+- **New — resumable chunked transfer.** 1 MiB per request; every upload chunk is stored in
+  PostgreSQL keyed by (upload_id, chunk_no), so a resend is idempotent and an interruption or an
+  application restart resumes from what arrived (the upload id is derived from the snapshot's
+  sha256). A commit with any chunk missing is refused and names the missing ones. Downloads are
+  checksum-verified per chunk and retried. One clone per organisation and environment at a time,
+  enforced by a lock row other instances can see.
+- **Fixed — a clone would have broken sync silently.** A snapshot carries the other side's
+  `sync_meta`, so activating it verbatim made the receiving side adopt the sender's device id; the
+  pull filter (`origin_device <> me`) then discarded that side's own changes and hub changes never
+  arrived. Reproduced in the test suite, then fixed: each side keeps its own identity and pairing.
+- **New — dashboard.** The Sync screen now shows clone and health status (uploaded/downloaded
+  counts, records awaiting review, last successful sync) with five actions: preview or run a full
+  push, preview or run a full pull, validate both databases, roll back the online copy. A preview
+  changes nothing; running a clone needs `REPLACE ONLINE|OFFLINE <organisation> <LIVE|TEST>` typed
+  exactly and an administrator session.
+- Carried forward unchanged: per-item rejection with quarantine and replay, no auto-merge of
+  financial conflicts, POSTED records corrected by reversal only, deactivation instead of deleting a
+  party with history, LIVE/TEST and organisation isolation.
+- Tests: 90 offline (real SQLite), 56 online (real PostgreSQL 16, including 10 new clone tests), 10
+  browser, 17 legacy scripts, typecheck clean — all passing. Evidence:
+  `docs/verification/test-run-2026-10-31-v2.9.0.txt`.
+
+## 2.8.3 — 2026-10-31 (party DELETE sync conflict)
+Built on v2.8.0 / v2.8.1 / v2.8.2, all unchanged. Details in `PARTY-DELETE-SYNC-v2.8.3.md`. No schema change.
+- **Fixed — `parties · DELETE · id 15` / "FOREIGN_KEY: Referenced tables not discoverable from this
+  table schema."** Two defects: the device-side apply deleted the row with no dependency guard (the
+  hub had one), so SQLite raised a bare foreign-key error; and the message was built from
+  `PRAGMA foreign_key_list(parties)`, which lists what parties points at — nothing — while the
+  blockers are the 12 foreign-key columns in 11 tables that point at it.
+- **New `lib/sync-fk.ts`** resolves both directions from the live schema and returns the blocking
+  tables, columns and record ids. `describeForeignKeyFailure` is operation-aware: a DELETE lists the
+  blockers with their ids, an INSERT/UPDATE still lists its parents. Both sync routes share it.
+- **Fixed — a failed dependency probe no longer reads as "no dependents."** `dependentsOf` swallowed
+  errors and returned nothing, which let a blocked deletion reach the database.
+- **Device-side DELETE now runs the hub's guards**: posted records are never deleted, a stale
+  deletion cannot discard a newer record, and a referenced record raises `HAS_DEPENDENTS` naming
+  every blocking table and record id. Nothing is deleted and the item stays retryable.
+- **New — deactivate instead of delete.** `POST /api/sync/rejects {action:'deactivate'}` sets
+  `active=0` on `parties`, `third_parties`, `company_accounts`, `godowns` or `companies` as a
+  journalled UPDATE, so the other device receives the same state, every referencing record is kept,
+  and the queued deletion is resolved idempotently. Explicit request only; offered on the Sync
+  screen as "Deactivate instead"; refused for financial tables with the reason.
+- Undeclared conventional references (such as `purchases.broker_party_id`, which has no foreign key)
+  are reported as "would be left dangling" rather than passing unnoticed.
+- Foreign keys are never disabled, financial history is never cascade-deleted, and a queued deletion
+  is never discarded automatically.
+- Tests: 90 offline (real SQLite), 46 online (real PostgreSQL 16), 10 browser, 16 legacy scripts,
+  typecheck clean — all passing. Evidence: `docs/verification/test-run-2026-10-31-v2.8.3.txt`.
+
 ## 2.8.2 — 2026-10-31 (API compatibility guard + packaging fix)
 Built on v2.8.0 / v2.8.1, both unchanged. Details in `API-COMPATIBILITY-v2.8.2.md`. No schema change.
 - **Fixed — the cause of the reported `GET /api/data … → 404`: `app/api/data/route.ts` was missing

@@ -4,6 +4,8 @@ import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge
 import { openRejects, rejectedEvents, clearReject, ensureRejectSchema, describeReject } from '../../../../lib/sync-quarantine';
 import { reconcileIncomingEvent } from '../../../../lib/sync-id-mapping';
 import { applyLocal } from '../../../../lib/sync-apply';
+import { referencesTo, describeReferences, softDeleteColumn } from '../../../../lib/sync-fk';
+import { resolutionIdFor, ensureResolutionLog, alreadyResolved } from '../../../../lib/sync-delete';
 import { adminDb } from '../../../../lib/db';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -55,6 +57,43 @@ async function handler(req: Request) {
       });
       tx();
       return NextResponse.json({ ok: true, dismissed: closed });
+    }
+    if (action === 'deactivate') {
+      // v2.8.3: the safe outcome for a deletion blocked by financial history. The record is
+      // deactivated instead of deleted, as an ordinary journalled UPDATE so the other device
+      // receives the same state, and the queued deletion is recorded as resolved this way rather
+      // than discarded. Idempotent: the resolution id is derived from the record.
+      ensureResolutionLog(d);
+      const done: any[] = []; const refused: any[] = [];
+      for (const id of ids) {
+        const row = d.prepare('SELECT phase,table_name,pk_json,event_json FROM sync_rejects WHERE event_id=? AND resolved_at IS NULL').get(id) as any;
+        if (!row) { refused.push({ event_id: id, reason: 'Not an open quarantined item.' }); continue; }
+        const table = String(row.table_name);
+        const column = softDeleteColumn(d, table);
+        if (!column) { refused.push({ event_id: id, reason: `${table.replace(/_/g, ' ')} records cannot be deactivated on this schema; resolve the referencing records instead.` }); continue; }
+        let key: any = {}; try { key = JSON.parse(String(row.pk_json || '{}')); } catch { key = {}; }
+        const pk = (d.prepare(`PRAGMA table_info("${table}")`).all() as any[]).filter((c: any) => Number(c.pk) > 0);
+        if (!pk.length || !pk.every((c: any) => Object.prototype.hasOwnProperty.call(key, c.name))) { refused.push({ event_id: id, reason: 'The record key is incomplete.' }); continue; }
+        const where = pk.map((c: any) => `"${c.name}"=?`).join(' AND ');
+        const values = pk.map((c: any) => key[c.name]);
+        const current = d.prepare(`SELECT * FROM "${table}" WHERE ${where}`).get(...values) as any;
+        if (!current) { refused.push({ event_id: id, reason: 'The record is already absent here; retry the item instead.' }); continue; }
+        const resolutionId = resolutionIdFor({ phase: String(row.phase), action: 'deactivate', table, key, eventId: id });
+        if (alreadyResolved(d, resolutionId)) { clearReject(d, id); done.push({ event_id: id, already_resolved: true }); continue; }
+        const refs = referencesTo(d, table, key);
+        const tx = d.transaction(() => {
+          // Journalled deliberately (triggers stay on) so the deactivation synchronises.
+          d.prepare(`UPDATE "${table}" SET "${column}"=0 WHERE ${where}`).run(...values);
+          if (String(row.phase) === 'push') d.prepare('UPDATE sync_changes SET pushed=1 WHERE event_id=?').run(id);
+          else d.prepare('INSERT OR IGNORE INTO sync_applied_events(event_id) VALUES(?)').run(id);
+          d.prepare('INSERT OR IGNORE INTO sync_resolution_log(resolution_id,table_name,pk_json,action,before_json,after_json,device_id) VALUES(?,?,?,?,?,?,?)')
+            .run(resolutionId, table, JSON.stringify(key), 'deactivate-instead-of-delete', JSON.stringify(current), JSON.stringify({ ...current, [column]: 0 }), String((d.prepare('SELECT device_id FROM sync_meta WHERE id=1').get() as any)?.device_id || ''));
+        });
+        tx();
+        clearReject(d, id);
+        done.push({ event_id: id, table, primary_key: key, deactivated: true, column, preserved: describeReferences(refs) });
+      }
+      return NextResponse.json({ ok: refused.length === 0, deactivated: done.length, done, refused });
     }
     if (action !== 'retry') return NextResponse.json({ error: 'Unsupported action.' }, { status: 400 });
     const stored = rejectedEvents(d, ids);

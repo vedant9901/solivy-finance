@@ -173,3 +173,54 @@ and is not diagnosed.
 
 **Next:** P2 — GRN PDF to a draft purchase, once the P0/P1 gate is accepted.
 
+## 2026-10-31 — v2.8.3, party DELETE sync conflict
+**Found:** two defects behind `parties · DELETE · id 15` / "Referenced tables not discoverable from
+this table schema". (1) The device-side apply (`lib/sync-apply.ts`) deleted the row with no guard at
+all, unlike the hub, so SQLite raised a bare FOREIGN KEY error. (2) `describeForeignKeyFailure` named
+parents from `PRAGMA foreign_key_list(parties)` — the direction parties points at, which is empty —
+instead of the 12 foreign-key columns in 11 tables that point at a party (purchases, payments,
+ledger, money_in, money_out, financing_receivables, interest_payments, funding_loans, saudas x2,
+bank_accounts, party_aliases). `dependentsOf` also swallowed probe errors and reported "no
+dependents", which is how a blocked deletion reached the database.
+
+**Done:** `lib/sync-fk.ts` resolves both directions from the live schema with blocking record ids and
+reports undeclared conventional references; the device DELETE runs the posted, stale and reference
+guards; `HAS_DEPENDENTS` names tables, columns and ids; `/api/sync/rejects {action:'deactivate'}`
+preserves history by setting `active=0` as a journalled UPDATE, idempotently, on explicit request
+only, with a "Deactivate instead" button on the Sync screen.
+
+**Tests:** 90 offline, 46 online (PG16), 10 browser, 16 scripts, typecheck clean —
+`docs/verification/test-run-2026-10-31-v2.8.3.txt`. New: `tests/integration/party-delete-refs.test.ts`
+and two multi-device party-deletion tests in `tests/online/sync-e2e.test.ts`.
+
+**Not verified:** the user's own party id 15 (no access to that database; the conflict will now name
+its exact blockers), production build and lint, Neon.
+
+**Next:** P2 — GRN PDF to a draft purchase.
+
+## 2026-10-31 — v2.9.0, bidirectional sync and full database clone
+**Found:** the architecture is a hybrid — the online side stores the whole organisation SQLite file
+in PostgreSQL as page-aligned chunks (lib/snapshot-store.ts), while device <-> hub sync is event
+replication over the sync_changes journal. Event replication cannot converge without a common
+ancestor, which is why two drifted databases produced a conflict per record and resolving one
+exposed the next. Also found and fixed while testing: activating a clone verbatim transfers the
+sender's sync_meta, so the receiving side adopts the sender's device id and its own changes are then
+filtered out by `origin_device <> me` — sync would have looked healthy and moved nothing.
+
+**Done:** clone engine in both directions (snapshot via VACUUM INTO, validate, fingerprint with 16
+financial aggregates, stage, read-back verification, activate with the replaced copy kept), durable
+resumable 1 MiB chunked transfer with locks and run log in PostgreSQL, identity-preserving
+realignment so incremental sync continues correctly, and a clone/health dashboard with preview,
+typed confirmation, validation and online rollback.
+
+**Tests:** 90 offline, 56 online (PG16; 10 new clone tests covering both directions, repeat clones,
+incremental sync after a clone, interruption, restart, duplicate retry, partial batch, schema
+mismatch, isolation, rollback, concurrent clones), 10 browser, 17 scripts, typecheck clean —
+`docs/verification/test-run-2026-10-31-v2.9.0.txt`.
+
+**Not verified:** Neon itself (local PG16 only), production build and lint, clones of
+multi-hundred-megabyte databases, and merging two databases that each hold records the other needs
+(a clone replaces the destination; use the kept copy to re-enter the few records).
+
+**Next:** P2 — GRN PDF to a draft purchase.
+

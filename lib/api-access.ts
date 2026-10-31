@@ -90,6 +90,8 @@ export const API_ACCESS: Record<string, MethodMap> = {
   '/api/switch-environment': { POST: W },
   '/api/sync/exchange': { GET: W, POST: W },  // records device acknowledgements and last-seen
   '/api/sync/pair': { POST: W, DELETE: W },
+  '/api/sync/clone': { GET: W, POST: W },      // hub side: staging, verification, activation
+  '/api/sync/clone/run': { POST: W },          // device side: orchestrates a clone in either direction
   '/api/sync/rejects': { GET: W, POST: W },  // creates/updates the local quarantine table
   '/api/sync/resolve': { POST: W },
   '/api/sync/run': { POST: W },

@@ -174,7 +174,10 @@ function resolutionsFor(code: string, phase: string): Array<{ action: string; la
   const dismiss = { action: 'dismiss', label: 'Discard this queued change (recorded, not silent)' };
   if (code === 'FOREIGN_KEY') return [{ action: 'retry', label: 'Retry after the parent record has synchronised' }, dismiss];
   if (code === 'POSTED_RECORD') return [{ action: 'reverse', label: 'Reverse the posted record on the device that should not have it, then retry' }, dismiss];
-  if (code === 'HAS_DEPENDENTS') return [{ action: 'resolve-cascade', label: 'Remove the record together with its dependent entries' }, retry, dismiss];
+  if (code === 'HAS_DEPENDENTS') return [
+    { action: 'deactivate', label: 'Deactivate this record instead of deleting it (keeps the financial history)' },
+    { action: 'resolve-cascade', label: 'Remove the record together with its dependent entries' },
+    { action: 'retry', label: 'Retry after the referencing records have been resolved' }, dismiss];
   if (code === 'DELETE_STALE' || code === 'DELETE_WITHOUT_BASE') return [{ action: 'keep-local', label: 'Keep this device\'s newer record' }, { action: 'confirm-delete', label: 'Confirm the deletion and discard the newer record' }, dismiss];
   if (code === 'NOT_SYNCHRONISED' || code === 'NO_PRIMARY_KEY') return [{ action: 'upgrade', label: 'Upgrade this installation to the same schema version, then retry' }, dismiss];
   if (phase === 'push') return [{ action: 'resolve', label: 'Choose which version to keep, then retry' }, retry, dismiss];

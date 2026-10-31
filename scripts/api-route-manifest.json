@@ -1,5 +1,5 @@
 {
- "generated_for": "v2.8.2",
+ "generated_for": "v2.9.0",
  "note": "Baseline API surface. scripts/check-api-routes.cjs fails if any route or exported method here is missing. Additions are allowed; removals are not, unless this file is updated deliberately in the same change.",
  "routes": {
   "/api/account-movements": [
@@ -199,6 +199,13 @@
    "POST"
   ],
   "/api/switch-environment": [
+   "POST"
+  ],
+  "/api/sync/clone": [
+   "GET",
+   "POST"
+  ],
+  "/api/sync/clone/run": [
    "POST"
   ],
   "/api/sync/exchange": [

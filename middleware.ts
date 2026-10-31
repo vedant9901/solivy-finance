@@ -105,9 +105,11 @@ export async function middleware(req: NextRequest) {
     return securityHeaders(res, req);
   }
 
-  // Device sync is authenticated by a scoped, revocable sync-device token inside
-  // /api/sync/exchange. Do not require a browser session cookie on this endpoint.
-  if (path === '/api/sync/exchange') {
+  // Device sync is authenticated by a scoped, revocable sync-device token inside the endpoint
+  // itself (/api/sync/exchange, and from v2.9.0 the hub side of the clone engine). Do not require
+  // a browser session cookie on these. The device-side clone orchestrator (/api/sync/clone/run) is
+  // NOT in this set: it runs in the operator's own browser session and requires an administrator.
+  if (path === '/api/sync/exchange' || path === '/api/sync/clone') {
     const syncCompanyId=Number(req.headers.get('x-aksh-company-id')||0);
     const syncMode=req.headers.get('x-aksh-mode');
     if(!syncCompanyId||!['LIVE','TEST'].includes(String(syncMode))) return securityHeaders(NextResponse.json({error:'Sync company and environment are required.'},{status:400}),req);

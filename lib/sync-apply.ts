@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { syncTableInfo } from './sync-eligibility';
 import { decideAbsent } from './sync-absent';
 import { FINANCIAL_SYNC_TABLES, financialConflictError } from './sync-policy';
+import { postedGuard, staleDeleteGuard } from './sync-delete';
+import { referencesTo, describeReferences, softDeleteColumn } from './sync-fk';
 
 /**
  * Applying one incoming sync event to a local SQLite database (v2.8.2).
@@ -113,7 +115,30 @@ export function applyLocal(d:any,e:any,companyName='') {
   }
   d.prepare('UPDATE sync_meta SET suppress_triggers=1 WHERE id=1').run();
   try {
-    if(e.operation==='DELETE') { if(current)d.prepare(`DELETE FROM "${table}" WHERE ${where}`).run(...pk.map((c:any)=>key[c.name])); }
+    if(e.operation==='DELETE') {
+      // v2.8.3: the device side applied a deletion with no guard at all, so a record that other
+      // rows still referenced produced a bare "FOREIGN KEY constraint failed" with no indication
+      // of what blocked it (the reported `parties · DELETE · id 15`). The hub's guards now apply
+      // here too: a POSTED financial record is never deleted, a stale deletion cannot discard a
+      // newer record, and a still-referenced record raises a conflict that names the blocking
+      // tables and record ids instead of a database error.
+      if(current) {
+        const posted=postedGuard(table,current);
+        if(!posted.ok) { d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run(); throw Object.assign(new Error(posted.message),{syncCode:posted.code,conflictDetail:{table,primary_key:key,reason:posted.message,base,current,incoming:null,operation:'DELETE',code:posted.code}}); }
+        if(FINANCIAL_SYNC_TABLES.has(table)) {
+          const stale=staleDeleteGuard(current,base);
+          if(!stale.ok) { d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run(); throw Object.assign(new Error(`Cannot delete ${table}: ${stale.message}`),{syncCode:stale.code,conflictDetail:{table,primary_key:key,reason:stale.message,base,current,incoming:null,operation:'DELETE',code:stale.code}}); }
+        }
+        const refs=referencesTo(d,table,key);
+        if(refs.length) {
+          d.prepare('UPDATE sync_meta SET suppress_triggers=0 WHERE id=1').run();
+          const soft=softDeleteColumn(d,table);
+          const message=`Cannot delete ${table.replace(/_/g,' ')} ${JSON.stringify(key)} on this device: it is still referenced by ${describeReferences(refs).join('; ')}.${soft?` Financial history must be preserved, so deactivate this record (${soft}=0) instead of deleting it, or resolve the referencing records first.`:' Resolve or remove the referencing records first.'} Nothing was deleted and the item stays retryable.`;
+          throw Object.assign(new Error(message),{syncCode:'HAS_DEPENDENTS',conflictDetail:{table,primary_key:key,reason:message,base,current,incoming:null,operation:'DELETE',code:'HAS_DEPENDENTS',dependents:refs.map(r=>({table:r.table,count:r.count,column:r.column,ids:r.ids,declared:r.declared})),soft_delete_column:soft}});
+        }
+        d.prepare(`DELETE FROM "${table}" WHERE ${where}`).run(...pk.map((c:any)=>key[c.name]));
+      }
+    }
     else {
       if(!effectiveRow||typeof effectiveRow!=='object') throw new Error('Missing row data.');
       const names=cols.map((c:any)=>c.name).filter((n:string)=>Object.prototype.hasOwnProperty.call(effectiveRow,n));

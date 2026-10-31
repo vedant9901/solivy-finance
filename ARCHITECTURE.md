@@ -83,9 +83,29 @@ from the conflict so a retry applies once.
 - Table eligibility is decided once, in `lib/sync-eligibility.ts`, for the hub, the device, the
   resolver and the trigger builder. Per-device bookkeeping (`LOCAL_ONLY`) queued by an older build
   is acknowledged and discarded as obsolete; anything else unapplicable is quarantined by name.
+- v2.8.3: foreign-key dependencies are resolved in `lib/sync-fk.ts` from the live schema in both
+  directions. A DELETE is blocked by the rows that reference the record, so that is what its conflict
+  names (table, column, record ids), including columns that reference by convention without a foreign
+  key. The device-side apply runs the same posted/stale/reference guards as the hub, and a record
+  whose deletion is blocked by history can be deactivated instead (`active=0`, journalled so both
+  devices agree) rather than deleted.
 - An absent record resolves deterministically per operation (`lib/sync-absent.ts`): an already-done
   deletion is a no-op, a never-received record is restored, and an edit against a record deliberately
   deleted here is kept in the quarantine rather than resurrecting it.
+
+## Clone engine (v2.9.0)
+- The online side stores the whole organisation SQLite file in PostgreSQL (page-aligned chunks), so a
+  full clone is a verified snapshot transfer while incremental sync stays event-based: a hybrid.
+- `lib/clone-engine.ts` snapshots with `VACUUM INTO`, validates (integrity, foreign keys, schema
+  version, accounting invariants), fingerprints every business table and 16 financial aggregates,
+  stages to a separate key or temporary file, verifies the staged copy against the source, and only
+  then activates — keeping the replaced copy for rollback.
+- `lib/clone-store.ts` keeps upload chunks, the per-organisation clone lock and the run log in
+  PostgreSQL, so transfers resume after an interruption or a restart and two clones cannot overlap.
+- `/api/sync/clone` is the hub side (device-token auth, like exchange); `/api/sync/clone/run` is the
+  device side and drives both directions, requiring an administrator and a typed confirmation.
+- Each side keeps its own `sync_meta` identity across a clone; `realignAfterClone` settles the
+  journal and sets the cursor to the snapshot's high-water mark so incremental sync continues.
 
 ## Tests
 `tests/` contains unit, integration (SQLite), online (real PostgreSQL), ui (Playwright) and bench suites. Commands are in `docs/OPERATIONS.md` §9.

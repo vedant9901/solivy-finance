@@ -301,6 +301,16 @@ function applyV27Schema(d: Database.Database) {
 }
 
 export function closeAllDatabases(){ for (const d of dbCache.values()) { try { d.close(); } catch {} } dbCache.clear(); }
+/**
+ * Close and forget one organization database handle (v2.9.0). The clone engine needs this before
+ * it replaces an organization's file on disk: swapping the file under an open handle would leave
+ * the process reading a stale page cache and a mismatched WAL.
+ */
+export function closeDatabase(mode:Mode, companyId=1){
+  const file=databasePath(mode,companyId);                       // dbCache is keyed by file path
+  const d=dbCache.get(file);
+  if (d) { try { d.close(); } catch {} dbCache.delete(file); }
+}
 
 function legacyFile(mode:Mode){return path.join(dataDir,mode==='LIVE'?'live.db':'test.db')}
 export function db(mode:Mode='LIVE',companyId=1){

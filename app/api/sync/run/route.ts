@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { describeForeignKeyFailure } from '../../../../lib/sync-fk';
 import crypto from 'node:crypto';
 import { adminDb, db, type Mode } from '../../../../lib/db';
 import { withPostgresSQLiteBridge } from '../../../../lib/postgres-sqlite-bridge';
@@ -35,14 +36,6 @@ function orderEventsByForeignKeys(d:any, events:any[]) {
     if(ra!==rb) return da?rb-ra:ra-rb;
     return a.i-b.i;
   }).map(x=>x.e);
-}
-function describeForeignKeyFailure(d:any, event:any, error:any) {
-  const message=String(error?.message||error||'Sync failed');
-  if(!/foreign key constraint failed/i.test(message)) return message;
-  const table=String(event?.table_name||'unknown');
-  let refs:any[]=[]; try { if(/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) refs=d.prepare(`PRAGMA foreign_key_list("${table}")`).all(); } catch {}
-  const pk=String(event?.pk_json||'');
-  return `Foreign key constraint failed while syncing ${table} (operation ${String(event?.operation||'unknown')}, key ${pk||'unknown'}). Referenced tables: ${refs.map(r=>`${r.table}.${r.to||'id'} via ${r.from}`).join(', ')||'not discoverable from this table schema'}. The batch was rolled back; parent records must exist before dependent records.`;
 }
 
 

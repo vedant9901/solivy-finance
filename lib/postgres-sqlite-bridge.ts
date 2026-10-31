@@ -66,6 +66,18 @@ let readPersistBlocked = 0;
 let readSkippedNew = 0;
 let lastReadViolation = '';
 /** Diagnostics for the guards added in v2.7.2. */
+/**
+ * Keys whose online snapshot this request has already replaced itself (v2.9.0).
+ *
+ * The clone engine stages, verifies and activates a whole snapshot through its own PostgreSQL
+ * client. The bridge must then not also upload the organization file it hydrated at the start of
+ * the request: it holds the version from before the activation, so the write would be refused as a
+ * concurrent update, and the file it holds is the pre-clone one. The clone marks the key here, the
+ * bridge skips persisting it once, and the next request re-materialises from the new version.
+ */
+const snapshotReplaced = new Set<string>();
+export function markSnapshotReplaced(companyId: number, mode: 'LIVE' | 'TEST') { snapshotReplaced.add(keyFor(companyId, mode)); }
+
 export function bridgeGuardStats() { return { coalescedReads, readPersistBlocked, readSkippedNew, lastReadViolation }; }
 export function resetBridgeGuardStats() { coalescedReads = 0; readPersistBlocked = 0; readSkippedNew = 0; lastReadViolation = ''; }
 /**
@@ -257,6 +269,7 @@ export function withPostgresSQLiteBridge(handler: RouteHandler, options: BridgeO
       const writes: Array<{ e: Entry; bytes: Buffer }> = [];
       for (const e of entries) {
         if (!fs.existsSync(e.file)) continue;
+        if (snapshotReplaced.has(e.key)) { snapshotReplaced.delete(e.key); continue; }
         const bytes = fs.readFileSync(e.file);
         if (state.get(e.key)?.copy?.sha === sha256(bytes)) continue;
         // A READ route may not persist. The one thing that must still go through is a schema

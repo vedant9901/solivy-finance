@@ -1,5 +1,62 @@
 # Changelog
 
+## 2.12.2 — 2026-11-05 (advice: the commercial bill's treatment only; bags on the bills)
+Built on v2.12.1. No schema change, no new API route, no new network call, no sync change, no change
+to `purchaseCalc`. Details in `PAYMENT-ADVICE-MOISTURE-v2.12.2.md`.
+- **Reverted the payment advice's layout to what it was.** v2.12.1 added two information rows and a
+  note paragraph to each settled bill on the advice; those are removed. The moisture percentage now
+  rides in the existing "Less: Moisture Deduction (…)" row's label and the money sits in the amount
+  column — exactly the treatment the commercial bill already had, and nothing more. The two advice
+  settings v2.12.1 introduced are removed with the rows they controlled, and the threshold lookup
+  added to the query is removed with them.
+- The v2.12.1 fix itself stands: the advice and the bills share one deduction rule, so under the
+  rate-per-kg quality rule the quality deduction appears **once** with the percentage in its label
+  rather than a percentage printed as rupees plus a separate quality row. The advice's original row
+  order — unload, freight, moisture, discount, rokdi, quality, other — is preserved.
+- **Added — a Bags column on the commercial and third-party bills**, listed in Document Settings as
+  "Bags / Packages column". Off by default, so existing bills print unchanged; turn it on and switch
+  Quantity off to show packages instead of weight, or show both, in which case Bags prints after HSN
+  and before Quantity. It prints the purchase's `bags_qty` and nothing when none was recorded, and
+  changes no money. Added in `lib/documents/bill-model.ts`, so all five templates get it.
+  The purchase bill has its own column list and was not changed.
+- Tests: `tests/integration/bill-bags-column.test.ts` (8 new, including a Document Settings
+  round-trip); the advice tests trimmed to the deduction behaviour; 193 offline, 57 online
+  (PostgreSQL 16.15), 22 browser, 25/25 source scripts, typecheck clean. Rendered evidence:
+  `docs/verification/payment-advice-moisture-v2.12.2.pdf`. **NOT VERIFIED:** `next build`,
+  `next lint`, Neon, Windows.
+
+## 2.12.1 — 2026-11-05 (payment advice: moisture always shown, quality deduction by the approved rule)
+Built on v2.12.0. No schema change, no new API route, no new network call, no sync change, and no
+change to `purchaseCalc`. Details in `PAYMENT-ADVICE-MOISTURE-v2.12.1.md`.
+- **Fixed — the payment advice printed a recorded moisture percentage as a rupee deduction.** The
+  advice built its own deduction list, separate from the bills', and its query never selected
+  `quality_deduct_rate_per_kg`. A purchase saved under the rate-per-kg quality rule therefore looked
+  legacy to it: 11.50 % moisture printed as "Less: Moisture Deduction (11.5%) ₹11.50", money the
+  accounting record never deducted, leaving the rows adding to 21.50 against a stored total of 10.
+  Selecting that column alone would have printed the same ₹10 twice, as moisture and as quality.
+- `lib/documents/advice-model.ts` (new) holds the rule once and both documents use it: under the
+  rate-per-kg rule the quality deduction **is** the moisture deduction and appears once with the
+  percentage in its label; under the legacy rule the stored moisture amount is the deduction and
+  quality is listed separately. A test asserts the advice and the bills produce identical rows.
+- (Superseded by 2.12.2, which removed these: moisture stated on its own row, the supplier's
+  threshold shown as information, and the quality deduction's basis. The advice's layout is
+  unchanged from 2.12.0 again, and the percentage rides in the deduction row's label.)
+- **No threshold formula was invented.** `purchaseCalc` has no threshold and no per-excess rate;
+  excess moisture is therefore not shown, and a new source check fails the build if a threshold ever
+  starts multiplying anything in this path.
+- **Added a review note where the figures cannot both be true:** without a quality rate the
+  calculation deducts the moisture field itself, so one number serves as both the reading and the
+  rupees. The advice says so, names the threshold it sits below, and states that nothing was altered.
+  A stored value above 100 is reported as not a percentage rather than printed as one.
+- Added a reconciliation note for the case where the rows fail to add up to the stored
+  `total_deduction` with every row enabled; a row switched off is the user's choice, not a mismatch.
+- Two new Document Settings, on by default: `show_moisture_percent`, `show_quality_basis`.
+- Tests: `tests/integration/payment-advice-moisture.test.ts` (14 new) and one online parity test
+  through the PostgreSQL bridge. 192 offline, 57 online (PostgreSQL 16.15), 22 browser, 25/25 source
+  scripts (`check-payment-advice.cjs`, 13 invariants), typecheck clean. Rendered evidence:
+  `docs/verification/payment-advice-moisture-v2.12.1.pdf`. **NOT VERIFIED:** `next build`,
+  `next lint`, Neon, Windows.
+
 ## 2.12.0 — 2026-11-02 (a consignment list is many GRNs; every page of a document is read)
 Built on v2.11.2. No schema change, no new API route, no new network call, no sync change. Details
 in `GRN-MULTI-DOCUMENT-v2.12.0.md`.

@@ -456,3 +456,78 @@ Windows, Neon and a byte measurement remain unverified. The 13-page PDF is delib
 committed: three suppliers' GSTINs, bank accounts, PANs and contacts. Masked OCR fixtures are.
 
 **Next:** manual bill-to-row attach/detach, or P3 (purchase-linked payment obligation and Mark Paid).
+
+## 2026-11-05 — v2.12.1, payment advice moisture and quality deduction
+
+**Asked for:** show the recorded moisture on the payment advice and make the quality deduction follow
+the approved business rule, without inventing a formula.
+
+**Answered the formula question first.** There is no above-threshold moisture rule in this software.
+`purchaseCalc` has no threshold and no per-excess-percentage rate: a quality deduction comes only
+from `quality_deduct_rate_per_kg` (rate × rate) or `quality_deduct_per_mt` (net_weight/1000 × rate)
+entered on the purchase. The 14.00 % on the Sayaji note is the supplier's stated condition, recorded
+by the GRN extractor, and is now displayed as information. Nothing was fabricated above the
+threshold, and a source check now fails the build if a threshold starts multiplying anything there.
+
+**Found a real defect while tracing it.** The advice had its own deduction list, separate from
+`billDeductions`, and never selected `quality_deduct_rate_per_kg` — so a per-kg-rule purchase looked
+legacy and the recorded moisture PERCENTAGE was printed as rupees. Measured before the change: rows
+21.50 against a stored total_deduction of 10. Selecting the column alone would have double-counted.
+`lib/documents/advice-model.ts` now holds the rule once for both documents.
+
+**Also surfaced, not papered over:** without a quality rate the legacy branch deducts the moisture
+field itself, so 11.50 is both the reading and ₹11.50. The advice now states that, names the
+threshold it sits below, and says the figures are unaltered. Changing that branch would alter
+historic posted amounts, so I did not — the decision is in §7 of the release note.
+
+**Evidence:** `docs/verification/test-run-2026-11-05-v2.12.1.txt` and a rendered advice at
+`docs/verification/payment-advice-moisture-v2.12.1.pdf`, which shows
+`Moisture | 11.50% (supplier deducts above 14.00%)`, the review note,
+`Less: Moisture Deduction (11.5%) (-) INR 12` and `Net Payable INR 4,25,228`. Typecheck 0 errors;
+192/192 offline; 57/57 online on PostgreSQL 16.15; 22/22 browser; 25/25 source scripts.
+
+**Two rounding facts recorded rather than hidden:** `purchaseCalc` rounds `total_deduction` to the
+rupee, so the model's unrounded sum can sit 50 paise from it, and because it rounds before
+subtracting, adding the rows by hand can land a rupee from the stored net payable. The printed
+figures agree exactly; the advice prints the stored net payable.
+
+**Not verified:** `next build`, `next lint` (no npm registry), Neon, Windows.
+
+**Next:** the decision in §7 (whether moisture alone should ever deduct, or what rate applies above
+14 %), then P3 — purchase-linked payment obligation and Mark Paid.
+
+## 2026-11-05 — v2.12.2, advice layout restored; bags on the bills
+
+**Asked for:** "dont change structure of pdf! just change like what was done for commercial bill",
+and add a bags option instead of quantity on the commercial and third-party bills, in Document
+Settings.
+
+**Done, part one.** v2.12.1 had added two information rows (moisture %, quality basis) and a note
+paragraph to each settled bill on the payment advice. Removed, along with the two settings that
+controlled them and the GRN threshold lookup added to the query. What remains is the commercial
+bill's treatment and nothing else: the percentage rides in the existing
+"Less: Moisture Deduction (…)" label, the money in the amount column. The underlying fix stands —
+advice and bills share one deduction rule, so the per-kg rule yields one row instead of a percentage
+printed as rupees plus a separate quality row — and the advice's original row order is preserved.
+Verified by rendering: the advice prints `Rate / Kg | INR 20.00`,
+`Less: Moisture Deduction (11.5%) | (-) INR 12`, `Net Payable | INR 4,25,228` and nothing new; the
+PDF is 16,879 bytes against v2.12.1's 17,620.
+
+**Done, part two.** A Bags column on both bills in `lib/documents/bill-model.ts`, which all five
+templates share, offered in Document Settings as "Bags / Packages column". Off by default so
+existing bills are untouched; on, it prints `375 Bags` after HSN and before Quantity, prints nothing
+when no bags were recorded, and changes no money. The purchase bill has its own column list and was
+deliberately left alone.
+
+**Evidence:** `docs/verification/test-run-2026-11-05-v2.12.2.txt`; typecheck 0 errors; 193/193
+offline; 57/57 online
+on PostgreSQL 16.15; 22/22 browser; 25/25 source scripts; 8 new bags tests including a Document
+Settings round-trip.
+
+**Not verified:** `next build`, `next lint` (no npm registry), Neon, Windows.
+
+**Still open, unchanged:** whether a moisture reading should ever deduct by itself (the legacy branch
+of `purchaseCalc` deducts the field as rupees), or what rate applies above 14 %. Section 1 of the
+release note sets out the three options; nothing was changed unilaterally.
+
+**Next:** that decision, or P3 — purchase-linked payment obligation and Mark Paid.

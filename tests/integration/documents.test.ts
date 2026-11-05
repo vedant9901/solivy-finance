@@ -174,6 +174,8 @@ test('moisture display (v2.7.3) across records old and new, without changing any
   const advice = await call('/api/payment-advice', { cookie: s.cookie, query: { id: String(pay.id || pay.payment_id) } });
   if (advice.status === 200) {
     assert.ok(advice.text.includes('Moisture Deduction \\(20%\\)') || advice.text.includes('Moisture Deduction'), 'payment advice names the deduction, not a rupee percentage');
+    // v2.12.2: the advice's layout is unchanged, so the bare "Moisture" label must not appear at
+    // all — a percentage printed as rupees is exactly what that label used to mean.
     assert.doesNotMatch(advice.text, /\(Moisture\) Tj/, 'the bare "Moisture" money label is gone');
   }
 

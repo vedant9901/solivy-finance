@@ -101,6 +101,10 @@ export function buildBillModel(input: { row: any; company: any; companyBank: any
   const net = Number(row.net_weight || 0), gw = Number(row.gross_weight || 0);
   const columns: BillModel['columns'] = [{ key: 'sl', label: 'Sl No.', value: '1', weight: 8 }, { key: 'description', label: 'Description of Goods', value: clean(row.goods_description) || clean(row.notes), weight: 36 }];
   if (bool(s, 'show_hsn') && clean(row.hsn)) columns.push({ key: 'hsn', label: 'HSN/SAC', value: clean(row.hsn), weight: 12 });
+  // v2.12.2: bags as a column in its own right, so a bill can show the packages received instead of
+  // (or alongside) the weight. Off by default, so an existing bill prints exactly as it did; turn
+  // "Bags / Packages" on and "Quantity" off in Document Settings to swap one for the other.
+  if (bool(s, 'show_bags', false) && Number(row.bags_qty) > 0) columns.push({ key: 'bags', label: 'Bags', value: `${kg(row.bags_qty)} Bags`, weight: 12 });
   if (bool(s, 'show_quantity') && net > 0) columns.push({ key: 'quantity', label: 'Quantity', value: `${kg(net)} Kg`, weight: 15 });
   if (bool(s, 'show_net_weight') && net > 0) columns.push({ key: 'net', label: 'Net Weight', value: `${kg(net)} Kg`, weight: 14 });
   if (bool(s, 'show_gross_weight') && gw > 0) columns.push({ key: 'gross', label: 'Gross Weight', value: `${kg(gw)} Kg`, weight: 14 });

@@ -261,3 +261,47 @@ test('a write by another instance is visible immediately: no conditional cache c
   assert.equal(revalidated.status, 200, 'the old representation must not be confirmed after another instance wrote');
   assert.ok(revalidated.json.parties.some((p: any) => p.name === 'Other Instance Vendor'));
 });
+
+/**
+ * v2.12.1 — the payment advice online must show the same moisture and deductions as offline. The
+ * document model is shared code, so what is tested here is the part that is not: the route's query
+ * through the PostgreSQL bridge, which now carries the quality-rule columns the model needs.
+ */
+test('payment advice: moisture, deductions and the GRN threshold behave identically online', { skip: SKIP }, async () => {
+  const { adviceDeductions } = await import('../../lib/documents/advice-model');
+  const party = app.expectOk(await app.call('/api/parties', { cookie, body: { name: 'Advice Vendor', contact: '9100000000' } }));
+  const partyId = Number(party.id ?? party.partyId);
+  // The rate-per-kg quality rule: the case that used to print the moisture PERCENTAGE as rupees.
+  const saved = app.expectOk(await app.call('/api/purchases', {
+    cookie,
+    body: {
+      party_id: partyId, purchase_date: '2026-10-17', sample_no: 'ONLINE-ADV-1', truck_number: 'GJ04X5630',
+      goods_description: 'Maize', bags_qty: 375, gross_weight: 1040, net_weight: 1000, rate: 20,
+      freight: 0, unload_charge: 0, driver_rokdi: 0, other_charges: 0, discount_pct: 0,
+      moisture: 11.5, quality_deduct_per_mt: 0, quality_deduct_rate_per_kg: 0.5,
+    },
+  }));
+  const purchaseId = Number(saved.id ?? saved.purchaseId);
+  const row = app.expectOk(await app.call('/api/data', { cookie })).purchases.find((x: any) => Number(x.id) === purchaseId);
+  assert.equal(Number(row.moisture), 11.5, 'the percentage is stored as recorded');
+  assert.equal(Number(row.quality_deduct_amount), 10);
+  assert.equal(Number(row.total_deduction), 10, 'moisture adds nothing under this rule');
+
+  const d = adviceDeductions(row, {});
+  assert.equal(d.deductions.length, 1, 'one row, not moisture and quality both');
+  assert.equal(d.shownTotal, 10, 'and it reconciles with the record online too');
+  assert.match(d.deductions[0].label, /Moisture Deduction \(11\.5%\)/, 'the percentage rides in the label');
+
+  const payment = app.expectOk(await app.call('/api/payments', {
+    cookie, body: { party_id: partyId, payment_date: '2026-10-20', amount: row.net_payable, mode: 'NEFT', allocations: [{ purchase_id: purchaseId, amount: row.net_payable }] },
+  }));
+  const pdf = await app.call('/api/payment-advice', { cookie, query: { id: Number(payment.id ?? payment.paymentId) } });
+  assert.equal(pdf.status, 200, pdf.text?.slice(0, 200));
+  assert.equal(pdf.buffer.subarray(0, 5).toString('latin1'), '%PDF-');
+
+  // And producing it wrote nothing back.
+  const after = app.expectOk(await app.call('/api/data', { cookie })).purchases.find((x: any) => Number(x.id) === purchaseId);
+  assert.equal(Number(after.moisture), 11.5);
+  assert.equal(Number(after.total_deduction), Number(row.total_deduction));
+  assert.equal(Number(after.net_payable), Number(row.net_payable));
+});

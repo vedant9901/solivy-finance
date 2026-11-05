@@ -1,6 +1,23 @@
-# SOLIVY Finance v2.12.0 — Release verification report
+# SOLIVY Finance v2.12.2 — Release verification report
 
-**Status: RELEASE CANDIDATE — NOT PRODUCTION-READY.** v2.12.0 reads a whole upload instead of its
+**Status: RELEASE CANDIDATE — NOT PRODUCTION-READY.** v2.12.2 restores the payment advice's original
+layout — v2.12.1's added information rows and notes are removed, leaving only the commercial bill's
+treatment, with the moisture percentage in the existing deduction row's label — and adds a **Bags**
+column option to the commercial and third-party bills, off by default
+(`PAYMENT-ADVICE-MOISTURE-v2.12.2.md`, evidence
+`docs/verification/test-run-2026-11-05-v2.12.2.txt` and the rendered
+`docs/verification/payment-advice-moisture-v2.12.2.pdf`: typecheck clean, 193 offline, 57 online on
+PostgreSQL 16.15, 22 browser, 25/25 source checks). **No above-threshold moisture formula
+exists in this software and none was invented**; the decision on whether a reading should deduct by
+itself remains open. v2.12.1 fixes the payment advice printing a
+recorded moisture percentage as a rupee deduction (its rows added to 21.50 against a stored total of
+10), by giving the advice and the bills one shared deduction rule; it always states the recorded
+moisture, shows the supplier's threshold as information, and describes the quality deduction's basis.
+**No above-threshold moisture formula exists in this software and none was invented** — see §1 and §7
+of `PAYMENT-ADVICE-MOISTURE-v2.12.1.md`, which set out the decision needed. Evidence
+`docs/verification/test-run-2026-11-05-v2.12.1.txt` and the rendered
+`docs/verification/payment-advice-moisture-v2.12.1.pdf`: typecheck clean, 192 offline, 57 online on
+PostgreSQL 16.15, 22 browser, 25/25 source checks. v2.12.0 reads a whole upload instead of its
 first GRN: every data row of a consignment list is its own GRN with its own draft, every page is
 classified and kept, every bill's goods lines are read from the column order it prints, the printed
 total is a cross-check against the summed rows, and bills are linked to rows only on corroborating

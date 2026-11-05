@@ -107,6 +107,22 @@ from the conflict so a retry applies once.
 - Each side keeps its own `sync_meta` identity across a clone; `realignAfterClone` settles the
   journal and sets the cursor to the snapshot's high-water mark so incremental sync continues.
 
+## Payment advice, moisture and the quality deduction (v2.12.1)
+- `lib/utils.ts purchaseCalc` is the only calculation. It has **no moisture threshold and no
+  per-excess-percentage rate**: a quality deduction comes from `quality_deduct_rate_per_kg`
+  (rate × rate, and then nothing is deducted for moisture) or `quality_deduct_per_mt`
+  (net_weight/1000 × rate, with the `moisture` field's value deducted as rupees alongside it).
+- `lib/documents/moisture.ts` decides how a stored moisture figure is *presented*;
+  `lib/documents/advice-model.ts` (v2.12.1) and `lib/documents/bill-model.ts` apply the same
+  deduction rule, so the advice and all five bill templates print the same rows from one purchase.
+  Under the per-kg rule the quality deduction is the moisture deduction and appears once.
+- The advice's layout is the one it has always had (v2.12.2): the moisture percentage rides in the
+  existing "Less: Moisture Deduction (…)" row's label, and the row order is unload, freight,
+  moisture, discount, rokdi, quality, other. The model reports, and never adjusts, a disagreement
+  between the rows and the stored `total_deduction`; it is not printed.
+- `bill-model.ts` also offers a **Bags** column on the commercial and third-party bills
+  (`show_bags`, off by default), printing the purchase's `bags_qty` after HSN and before Quantity.
+
 ## GRN to draft purchase (v2.10.0, tool-independent since v2.10.2)
 - `lib/grn/pdf-native.ts` reads the PDF in plain JavaScript with Node's `zlib` alone — no tool, no
   dependency, nothing executed or fetched. It gives the real page count from the page tree, the

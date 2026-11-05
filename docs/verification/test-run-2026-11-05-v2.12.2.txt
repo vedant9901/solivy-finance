@@ -1,0 +1,132 @@
+SOLIVY Finance v2.12.2 — verification run, 2026-11-05 06:01 UTC
+Environment: Linux 6.18.44-fc-v236, Node v22.23.4, PostgreSQL 16.15 at 127.0.0.1:54329, Playwright Chromium.
+NOTE: Linux host. No Windows, next build or Neon evidence is in this file.
+
+## PASS  npx tsc --noEmit -p tsconfig.verify.json  — 0 errors
+
+## PASS  the payment advice's layout is unchanged
+Rendered docs/verification/payment-advice-moisture-v2.12.2.pdf, 16879 bytes (v2.12.1 was 17620:
+the difference is the information rows and notes that were removed). Row sequence as printed:
+  BILL-WISE PAYMENT SETTLEMENT
+  Invoice 274    Sample 2627-22603
+  INR 4,25,228
+  Date
+  17-Oct-2026
+  Description
+  Maize
+  Net Weight
+  21,262 Kg
+  Bags / Packages
+  375
+  Rate / Kg
+  INR 20.00
+  Less: Moisture Deduction \(11.5%\)
+  \(-\) INR 12
+  Net Payable
+  INR 4,25,228
+  O
+
+## PASS  tests/integration/payment-advice-moisture.test.ts
+ok 1 - above the threshold, the deduction is the stored quality rule applied exactly once
+ok 2 - the advice reconciles with the authoritative purchase calculation
+ok 3 - the advice and the bills produce the same deduction rows from the same purchase
+ok 4 - received weight, dispatched weight, deducted weight and the other deductions stay distinct
+ok 5 - switching a deduction row off is not reported as a mismatch
+ok 6 - the advice PDF is produced for a purchase recording moisture, and nothing is written
+ok 7 - the per-kg rule through the real endpoint: one deduction, and the advice reconciles
+# tests 7
+# pass 7
+# fail 0
+
+## PASS  tests/integration/bill-bags-column.test.ts
+ok 1 - commercial bill: bags is off by default, so an existing bill is unchanged
+ok 2 - commercial bill: bags instead of quantity
+ok 3 - commercial bill: bags and quantity together, in invoice order
+ok 4 - third-party bill: bags is off by default, so an existing bill is unchanged
+ok 5 - third-party bill: bags instead of quantity
+ok 6 - third-party bill: bags and quantity together, in invoice order
+ok 7 - a purchase with no bags recorded shows no bags column even when the option is on
+ok 8 - the bags option is offered for both bills in document settings, defaulting to off
+# tests 8
+# pass 8
+# fail 0
+
+## PASS  npm test  (offline, SQLite, both GRN samples)
+# tests 193
+# pass 193
+# fail 0
+# skipped 0
+
+## PASS  npm run test:online  (real PostgreSQL 16.15 — NOT Neon)
+# tests 57
+# pass 57
+# fail 0
+
+## PASS  npm run test:ui  (Playwright Chromium)
+# tests 22
+# pass 22
+# fail 0
+
+## PASS  scripts/check-*
+PASS  check-api-access.cjs
+PASS  check-api-routes.cjs
+PASS  check-clone-dashboard.cjs
+PASS  check-dashboard-metrics.cjs
+PASS  check-dynamic-module-access.cjs
+PASS  check-finance-mis.cjs
+PASS  check-financial-repair-tds.cjs
+PASS  check-funding-transfer.cjs
+PASS  check-grn.cjs
+PASS  check-moisture-data-api.cjs
+PASS  check-money-out.cjs
+PASS  check-multicompany-sync.cjs
+PASS  check-online-login-org.cjs
+PASS  check-payment-advice.cjs
+PASS  check-release-safety.cjs
+PASS  check-security.cjs
+PASS  check-source.cjs
+PASS  check-sync-company-settings.cjs
+PASS  check-user-org-conflicts.cjs
+NOT APPLICABLE  check-api-live.mjs
+PASS  check-database-bridge.mjs
+NOT APPLICABLE  check-env.mjs
+PASS  check-import-schema.mjs
+NOT APPLICABLE  check-release-package.mjs
+PASS  check-sync-id-mapping.mjs
+PASS  check-sync.mjs
+PASS  check-test-to-live-purge-fix.mjs
+PASS  check-transfers.mjs
+
+## PASS  scripts/check-payment-advice.cjs in full
+PASS the advice no longer builds its own deduction list; it uses the shared model
+PASS the query selects the quality rule, so a recorded percentage is never printed as rupees
+PASS under the rate-per-kg rule the quality deduction appears once, not as moisture and quality both
+PASS the advice and the bills apply the same rule
+PASS the advice keeps the layout it had: the percentage rides in the deduction row label
+PASS no threshold is applied, and none appears as a figure in this path
+PASS no moisture threshold or per-excess rate exists in the authoritative calculation
+PASS no deduction is derived from a threshold anywhere in the advice path
+PASS the row order the advice has always printed is preserved
+PASS the rows are compared with the stored total, and nothing is adjusted to make them agree
+PASS a row the user switched off is not reported as a mismatch
+PASS the advice remains read-only: no write of any kind in the route
+PASS no new payment-advice setting was introduced for this fix
+Payment advice checks passed
+
+
+## The defect that remains fixed, measured
+Purchase: 1,000 kg at INR 20, moisture 11.50, quality_deduct_rate_per_kg 0.50.
+  purchaseCalc        quality_deduct_amount 10   total_deduction 10   net_payable 19990
+  advice rows (old)   Moisture Deduction (11.5%) 11.50 + Quality Deduct 10 = 21.50  -> did not reconcile
+  advice rows (now)   Moisture Deduction (11.5%) 10                                 -> reconciles
+
+## NOT VERIFIED — stated plainly
+- An above-threshold moisture formula: NONE EXISTS in the code, the settings or the data, so none was
+  implemented. Whether a moisture reading should ever deduct by itself (the legacy branch of
+  purchaseCalc deducts the field as rupees) is an open decision; nothing was changed unilaterally.
+- Bags on the purchase bill (/api/purchase-bill): NOT DONE. It was not asked for and keeps its own
+  column list.
+- next build, next lint: NOT VERIFIED — the npm registry is unreachable here, so Next.js 15.5.27 is
+  not installed (`npm run lint` is `next lint`).
+- Neon: NOT VERIFIED — the online suite runs against a local PostgreSQL 16.
+- Windows: NOT VERIFIED — no Windows machine in this environment.

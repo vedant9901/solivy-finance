@@ -1,0 +1,130 @@
+SOLIVY Finance v2.12.1 — verification run, 2026-11-05 05:48 UTC
+Environment: Linux 6.18.44-fc-v236, Node v22.23.4, PostgreSQL 16.15 at 127.0.0.1:54329, Playwright Chromium.
+NOTE: Linux host. No Windows, next build or Neon evidence is in this file.
+
+## The formula question, answered from the source
+lib/utils.ts purchaseCalc contains no threshold and no per-excess-percentage rate. Verified:
+  occurrences of "threshold" in lib/utils.ts: 0
+  occurrences of "excess" in lib/utils.ts: 0
+  quality deduction = round(usesNewQualityRule ? rate * quality_deduct_rate_per_kg
+                                                : net_weight/1000 * quality_deduct_per_mt)
+  moisture deduction = usesNewQualityRule ? 0 : the stored moisture value, as rupees
+
+## PASS  npx tsc --noEmit -p tsconfig.verify.json  — 0 errors
+
+## PASS  tests/integration/payment-advice-moisture.test.ts
+ok 1 - 11.50% moisture against a 14.00% threshold: the percentage is shown and nothing is deducted
+ok 2 - below the threshold with no quality rule, the only deduction is the recorded moisture amount
+ok 3 - exactly 14.00% is not above a "more than 14%" threshold, so nothing extra is deducted
+ok 4 - above the threshold, the deduction is the stored quality rule applied exactly once
+ok 5 - moisture that was not recorded shows as not recorded, never as 0%
+ok 6 - a missing threshold or rule produces no deduction and no invented figure
+ok 7 - a moisture figure doing double duty as both percentage and rupees is flagged
+ok 8 - the advice reconciles with the authoritative purchase calculation
+ok 9 - the advice and the bills produce the same deduction rows from the same purchase
+ok 10 - received weight, dispatched weight, deducted weight and the other deductions stay distinct
+ok 11 - switching a deduction row off is not reported as a mismatch
+ok 12 - the advice PDF is produced for a purchase recording moisture, and nothing is written
+ok 13 - the per-kg rule through the real endpoint: one deduction, and the advice reconciles
+ok 14 - the threshold printed on the GRN reaches the advice, and drives no deduction
+# tests 14
+# pass 14
+# fail 0
+
+## PASS  npm test  (offline, SQLite)
+# tests 192
+# pass 192
+# fail 0
+# skipped 0
+
+## PASS  npm run test:online  (real PostgreSQL 16.15 — NOT Neon) — includes the new advice parity test
+# tests 57
+# pass 57
+# fail 0
+
+## PASS  npm run test:ui  (Playwright Chromium)
+# tests 22
+# pass 22
+# fail 0
+
+## PASS  scripts/check-*
+PASS  check-api-access.cjs
+PASS  check-api-routes.cjs
+PASS  check-clone-dashboard.cjs
+PASS  check-dashboard-metrics.cjs
+PASS  check-dynamic-module-access.cjs
+PASS  check-finance-mis.cjs
+PASS  check-financial-repair-tds.cjs
+PASS  check-funding-transfer.cjs
+PASS  check-grn.cjs
+PASS  check-moisture-data-api.cjs
+PASS  check-money-out.cjs
+PASS  check-multicompany-sync.cjs
+PASS  check-online-login-org.cjs
+PASS  check-payment-advice.cjs
+PASS  check-release-safety.cjs
+PASS  check-security.cjs
+PASS  check-source.cjs
+PASS  check-sync-company-settings.cjs
+PASS  check-user-org-conflicts.cjs
+NOT APPLICABLE  check-api-live.mjs
+PASS  check-database-bridge.mjs
+NOT APPLICABLE  check-env.mjs
+PASS  check-import-schema.mjs
+NOT APPLICABLE  check-release-package.mjs
+PASS  check-sync-id-mapping.mjs
+PASS  check-sync.mjs
+PASS  check-test-to-live-purge-fix.mjs
+PASS  check-transfers.mjs
+
+## PASS  scripts/check-payment-advice.cjs in full
+PASS the advice no longer builds its own deduction list; it uses the shared model
+PASS the query selects the quality rule, so a recorded percentage is never printed as rupees
+PASS under the rate-per-kg rule the quality deduction appears once, not as moisture and quality both
+PASS the advice and the bills apply the same rule
+PASS moisture is always presented, and a missing reading is never shown as zero
+PASS the supplier threshold is shown as information and drives no calculation
+PASS no moisture threshold or per-excess rate exists in the authoritative calculation
+PASS no deduction is derived from a threshold anywhere in the advice path
+PASS the quality basis is described from the purchase's own stored fields
+PASS the rows are compared with the stored total, and nothing is adjusted to make them agree
+PASS a row the user switched off is not reported as a mismatch
+PASS the advice remains read-only: no write of any kind in the route
+PASS the moisture and quality rows are settings-driven like every other row
+Payment advice checks passed
+
+## PASS  the rendered advice (docs/verification/payment-advice-moisture-v2.12.1.pdf)
+  size: 17620 bytes
+  Moisture
+  11.50% \(supplier deducts above 14.00%\)
+  This purchase records no quality rate, so the calculation deducted the moisture figure itself: 11.50% was taken as INR
+  11.50. If the intention was a reading with no deduction \(it is below the supplier's 14.00%\), record the quality rate on the
+  purchase and re-save it; the figures above are what this bill was saved with and have not been altered.
+  Less: Moisture Deduction \(11.5%\)
+  \(-\) INR 12
+  Net Payable
+  INR 4,25,228
+  Outstanding After Payment
+  INR 0
+  SETTLEMENT SUMMARY
+  TDS Deducted 
+
+## Measured BEFORE the change, for the record
+Purchase: 1,000 kg at INR 20, moisture 11.50, quality_deduct_rate_per_kg 0.50.
+  purchaseCalc        quality_deduct_amount 10   total_deduction 10   net_payable 19990
+  advice rows (old)   Moisture Deduction (11.5%) 11.50 + Quality Deduct 10 = 21.50
+                      -> 21.50 against a stored total of 10: the document did not reconcile
+                      -> selecting quality_deduct_rate_per_kg alone would have printed INR 10 twice
+
+## NOT VERIFIED — stated plainly
+- An above-threshold moisture formula: NONE EXISTS in the code, the settings or the data, so none was
+  implemented. purchaseCalc has no threshold term. If a rate applies above 14%, it must be supplied
+  and will be added as a company setting. Section 7 of PAYMENT-ADVICE-MOISTURE-v2.12.1.md sets out
+  the decision needed.
+- Whether a moisture reading should ever deduct by itself: the legacy branch of purchaseCalc deducts
+  the moisture field as rupees. Changing it would alter historic posted amounts, so it was NOT
+  changed. The advice now reports the ambiguity on every affected bill.
+- next build, next lint: NOT VERIFIED — the npm registry is unreachable here, so Next.js 15.5.27 is
+  not installed (`npm run lint` is `next lint`).
+- Neon: NOT VERIFIED — the online suite runs against a local PostgreSQL 16.
+- Windows: NOT VERIFIED — no Windows machine in this environment.

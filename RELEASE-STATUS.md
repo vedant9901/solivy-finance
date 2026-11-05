@@ -1,6 +1,53 @@
-# SOLIVY Finance v2.9.0 — Release verification report
+# SOLIVY Finance v2.12.0 — Release verification report
 
-**Status: RELEASE CANDIDATE — NOT PRODUCTION-READY.** v2.9.0 adds the full database clone engine in
+**Status: RELEASE CANDIDATE — NOT PRODUCTION-READY.** v2.12.0 reads a whole upload instead of its
+first GRN: every data row of a consignment list is its own GRN with its own draft, every page is
+classified and kept, every bill's goods lines are read from the column order it prints, the printed
+total is a cross-check against the summed rows, and bills are linked to rows only on corroborating
+evidence (`GRN-MULTI-DOCUMENT-v2.12.0.md`, evidence
+`docs/verification/test-run-2026-11-02-v2.12.0.txt`: typecheck clean, 178 offline, 56 online on
+PostgreSQL 16.15, 22 browser, 24/24 source checks, 100 GRN invariants). Against the supplied
+13-page document: 13 pages classified, 12 of 12 rows extracted, 11 bills, 10 goods lines, and no
+accounting record created. **Six bills could not be linked and four gave no usable goods line** —
+both shown rather than guessed. v2.11.2 fixes the reported
+`undefined is not a function` on every page: the OCR engine never loaded, because a Next.js server
+bundle can leave `createRequire` undefined. The engine file is now loaded through five guarded
+routes, each proven independently, the engine's own methods are checked before use, a failure names
+every attempt, and `GET /api/grn?selftest=1` reports a machine's engine without uploading anything
+(`GRN-OCR-LOADER-FIX-v2.11.2.md`, evidence
+`docs/verification/test-run-2026-11-02-v2.11.2.txt`: typecheck clean, 164 offline, 56 online on
+PostgreSQL 16.15, 20 browser, 24/24 source checks, 86 GRN invariants). **That it fixes the reporting
+installation is NOT VERIFIED** — a Next.js build cannot be reproduced in this environment; the
+self-test output from that machine is what will confirm it. v2.11.1 adds a targeted second OCR pass,
+located from the page's own label words, gated on the first pass leaving a required field unread and
+kept only when it covers more; and fixes a supplier name the document prints wrapped
+(`ENTERPRIS` → `AKSH ENTERPRISE`). The reported diagnosis — that whole-page OCR misses the truck
+number, weight and moisture — did not reproduce on the shipped pipeline; see section 1 of
+`GRN-REGION-OCR-v2.11.1.md` (evidence `docs/verification/test-run-2026-11-02-v2.11.1.txt`:
+typecheck clean, 155 offline, 56 online on PostgreSQL 16.15, 20 browser, 24/24 source checks, 76 GRN
+invariants). **No document was found where the second pass changes the outcome**, so its value is
+proven mechanically rather than on a failing page. v2.11.0 bundles a WebAssembly Tesseract with
+SOLIVY, so a scanned GRN is recognised automatically with nothing installed — no Tesseract, no
+Poppler, no PATH entry, no environment variable, no internet, and no document leaving the machine
+(`GRN-AUTOMATIC-OCR-v2.11.0.md`, licences `vendor/tesseract-wasm/NOTICE.md`, evidence
+`docs/verification/test-run-2026-11-02-v2.11.0.txt`: typecheck clean, 141 offline, 56 online on
+PostgreSQL 16.15, 20 browser, 24/24 source checks, 12/12 bundled-OCR tests with the installed tools
+removed; both pages of the supplied sample recognised, every acceptance field asserted). **Windows
+development and a packaged Windows build are NOT VERIFIED** — no Windows machine was available and
+this repository has no Windows installer to extend; PowerShell verification steps are in section 6
+of that document. v2.10.2 makes the GRN import work on a machine
+with no poppler and no tesseract installed: the PDF is read in plain JavaScript (real page count,
+text layer, page images), recognition needs tesseract alone, an installed tool off the PATH is
+found, and a document that cannot be read becomes a manual entry against its own pages instead of a
+refusal (`GRN-NO-TOOLS-v2.10.2.md`, evidence
+`docs/verification/test-run-2026-11-01-v2.10.2.txt`: typecheck clean, 129 offline, 56 online on
+PostgreSQL 16.15, 17 browser, 24/24 source checks). v2.10.1 moves the GRN import into the Add
+Purchase modal and fixes the `draft.calculation` crash at the API contract
+(`GRN-IMPORT-MODAL-v2.10.1.md`, evidence `docs/verification/test-run-2026-11-01-v2.10.1.txt`).
+v2.10.0 adds GRN document → draft purchase
+(`GRN-TO-PURCHASE-v2.10.0.md`, evidence `docs/verification/test-run-2026-11-01-v2.10.0.txt`: 104
+offline, 14/14 with the real sample PDF, 56 online on PostgreSQL 16, 10 browser, 18 legacy scripts,
+typecheck clean). v2.9.0 adds the full database clone engine in
 both directions with staged, verified, rollback-able activation and a clone/health dashboard
 (`CLONE-AND-SYNC-ARCHITECTURE-v2.9.0.md`, evidence
 `docs/verification/test-run-2026-10-31-v2.9.0.txt`: 90 offline, 56 online on PostgreSQL 16, 10
@@ -30,12 +77,12 @@ measurements: `docs/PERFORMANCE-v2.7.2.md` (v2.7.2 vs v2.7.1) and `docs/PERFORMA
 | 2 | `next build` (production build) | **NOT VERIFIED** | Next.js 15.5.27 could not be installed. Routes and components are exercised through a `next/server` shim and an esbuild bundle, not by the framework. |
 | 3 | `next lint` | **NOT VERIFIED** | Depends on Next.js/ESLint, which could not be installed. |
 | 4 | TypeScript typecheck | **PASS (qualified)** | `tsc --noEmit -p tsconfig.verify.json`: exit 0, 0 errors. Uses stub declarations for `next/*`, so it does not check against the real Next types. |
-| 5 | Unit and integration tests (offline/SQLite) | **PASS** | `npm test`: **90/90** (adds the v2.8.1 eligibility, absent-record and quarantine tests). |
+| 5 | Unit and integration tests (offline/SQLite) | **PASS** | `npm test`: **104 tests, 102 pass, 0 fail** (2 report NOT VERIFIED without the uncommitted sample GRN; run with `SOLIVY_GRN_SAMPLE_PDF` they pass) (adds the v2.8.1 eligibility, absent-record and quarantine tests). |
 | 6 | Online tests (PostgreSQL bridge) | **PASS on PostgreSQL 16 / NOT VERIFIED on Neon** | `npm run test:online`: **56/56** (adds 10 clone tests) against a local PostgreSQL 16, including the 9 NEON GUARD tests and 5 sync delete/recreate tests. Covers multi-instance concurrency, delta chunks, the 4 KiB page-aligned format, the base blob, corruption fallback, the login projection, metrics, idempotency, sync end-to-end, backup/restore/rollback. Neon specifics (pooler, TLS, latency, billing meter) untested. |
-| 7 | Browser UI test | **PASS (structure, theming, mobile metrics)** | `npm run test:ui`: **10/10** (Playwright Chromium), covering the regrouped navigation, light/dark/accent themes and their persistence, the profile module, and mobile layout at 390×844. The UI is an esbuild bundle with the hand-written CSS linked; **Tailwind utility classes are not compiled there**, so final compiled appearance is NOT VERIFIED. Screenshots: `docs/ui/v280-*.png`. |
+| 7 | Browser UI test | **PASS (structure, theming, mobile metrics, GRN wizard)** | `npm run test:ui`: **16/16** (Playwright Chromium), covering the regrouped navigation, light/dark/accent themes and their persistence, the profile module, and mobile layout at 390×844. The UI is an esbuild bundle with the hand-written CSS linked; **Tailwind utility classes are not compiled there**, so final compiled appearance is NOT VERIFIED. Screenshots: `docs/ui/v280-*.png`. |
 | 7a | Sync: delete/recreate conflicts, per-item rejection, quarantine retry, absent-record rule, cursor progress | **PASS on PostgreSQL 16** (12-point gate mapped in `SYNC-REPAIR-v2.8.1.md`) | `tests/online/sync-e2e.test.ts`: a deletion pushes to the hub; dependents refuse then apply on confirmation; a POSTED record is never deleted; a stale deletion cannot discard a newer record; retries create no duplicates; the conflict queue drains. |
 | 7b | Purchase register equals the purchase form | **PASS** | `tests/integration/register-parity.test.ts`: the defect is reproduced (difference = quality × discount%), the rule is recorded with new records and derived for legacy ones, unreproducible rows are flagged, and stored figures are asserted unchanged. |
-| 8 | Legacy regression scripts (`scripts/check-*`) | **PASS** | All 17 `scripts/check-*.cjs` exit 0, now including `check-api-routes.cjs` (69 routes, 112 exported methods, nothing lost against the v2.8.0 baseline), including `check-api-access.cjs`. Two had become stale against v2.8.0's redesign and v2.8.1's per-item conflict reporting and were re-pointed at the current mechanism (same property asserted): `check-finance-mis.cjs` theme persistence, `check-user-org-conflicts.cjs` conflict detail. |
+| 8 | Legacy regression scripts (`scripts/check-*`) | **PASS** | All 18 `scripts/check-*.cjs` exit 0, now including `check-api-routes.cjs` (69 routes, 112 exported methods, nothing lost against the v2.8.0 baseline), including `check-api-access.cjs`. Two had become stale against v2.8.0's redesign and v2.8.1's per-item conflict reporting and were re-pointed at the current mechanism (same property asserted): `check-finance-mis.cjs` theme persistence, `check-user-org-conflicts.cjs` conflict detail. |
 | 9 | Transfer reduction measured before/after | **PASS on local PostgreSQL (measured) / NOT VERIFIED on Neon** | Per-workflow byte accounting in `docs/PERFORMANCE-v2.7.1.md` from `docs/bench/client-before-v2.7.0.json` vs `client-after-v2.7.1.json`, plus `after-v2.7.0.json` vs `after-v2.7.1.json`. Neon's own data-transfer meter was not read. |
 | 10 | Declared access classes enforced (READ never persists, NO_DB never connects, WRITE persists only changes) | **PASS** | `tests/online/neon-guard.test.ts`: 45 read calls upload nothing; NO_DB moves zero bytes and materialises no file; a refused write persists nothing; the audit script keeps the registry complete. |
 | 10a | Caching cannot serve stale financial data | **PASS** | Reuse requires a server 304; the ETag derives from change watermarks. Tested: 200 after an insert, an in-place edit, a receipt, a reversal, a document-settings change, a template save, and a write by another instance; LIVE/TEST and module/permission scoping. |

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS sauda_allocations (id INTEGER PRIMARY KEY AUTOINCREME
 CREATE TABLE IF NOT EXISTS saudas (id INTEGER PRIMARY KEY AUTOINCREMENT, sauda_no TEXT UNIQUE NOT NULL, sauda_date TEXT NOT NULL, commodity TEXT NOT NULL, purchase_party_id INTEGER NOT NULL REFERENCES parties(id), selling_party_id INTEGER NOT NULL REFERENCES parties(id), third_party_id INTEGER REFERENCES third_parties(id), quantity REAL NOT NULL DEFAULT 0, unit TEXT NOT NULL DEFAULT 'MT', purchase_rate REAL NOT NULL DEFAULT 0, sale_rate REAL NOT NULL DEFAULT 0, truck_number TEXT DEFAULT '', from_location TEXT DEFAULT '', to_location TEXT DEFAULT '', delivery_date TEXT DEFAULT '', expenses REAL NOT NULL DEFAULT 0, notes TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'BOOKED', created_by TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS parties (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, address TEXT DEFAULT '', contact TEXT DEFAULT '', email TEXT DEFAULT '', gst TEXT DEFAULT '', pan TEXT DEFAULT '', party_type TEXT NOT NULL DEFAULT 'GOODS_VENDOR', entity_type TEXT NOT NULL DEFAULT 'OTHER', resident_status TEXT NOT NULL DEFAULT 'RESIDENT', pan_status TEXT NOT NULL DEFAULT 'VALID', tds_enabled INTEGER NOT NULL DEFAULT 0, tds_section TEXT DEFAULT '', tds_rate REAL NOT NULL DEFAULT 0, tds_exempt INTEGER NOT NULL DEFAULT 0, opening_balance REAL NOT NULL DEFAULT 0, opening_balance_type TEXT NOT NULL DEFAULT 'PAYABLE', source_company_id INTEGER DEFAULT NULL, source_party_id INTEGER DEFAULT NULL, source_company_name TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS party_aliases (id INTEGER PRIMARY KEY AUTOINCREMENT, party_id INTEGER NOT NULL REFERENCES parties(id) ON DELETE CASCADE, alias TEXT NOT NULL COLLATE NOCASE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(alias));
+CREATE TABLE IF NOT EXISTS grn_documents (id INTEGER PRIMARY KEY AUTOINCREMENT, file_name TEXT NOT NULL, file_sha256 TEXT NOT NULL, page_count INTEGER NOT NULL DEFAULT 0, extraction_source TEXT NOT NULL DEFAULT 'none', extracted_json TEXT NOT NULL DEFAULT '{}', draft_json TEXT NOT NULL DEFAULT '{}', purchase_id INTEGER REFERENCES purchases(id), party_id INTEGER REFERENCES parties(id), status TEXT NOT NULL DEFAULT 'extracted', note TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS bank_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, party_id INTEGER NOT NULL REFERENCES parties(id) ON DELETE CASCADE, bank_name TEXT NOT NULL, account_holder TEXT DEFAULT '', account_number TEXT DEFAULT '', ifsc TEXT DEFAULT '', branch TEXT DEFAULT '', is_primary INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS company_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, account_name TEXT NOT NULL, bank_name TEXT NOT NULL, account_number TEXT DEFAULT '', ifsc TEXT DEFAULT '', branch TEXT DEFAULT '', account_type TEXT NOT NULL DEFAULT 'BANK', opening_balance REAL NOT NULL DEFAULT 0, opening_date TEXT NOT NULL DEFAULT CURRENT_DATE, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS account_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES company_accounts(id), transaction_date TEXT NOT NULL, transaction_type TEXT NOT NULL, amount REAL NOT NULL, reference_type TEXT DEFAULT '', reference_id INTEGER, reference_no TEXT DEFAULT '', narration TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -106,6 +107,15 @@ CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT,
     const names=[...SYNC_EXCLUDED_TABLES].filter((n)=>/^[A-Za-z_][A-Za-z0-9_]*$/.test(n)).map((n)=>`'${n}'`).join(',');
     d.exec(`DELETE FROM sync_changes WHERE table_name IN (${names}) OR table_name LIKE 'license\\_%' ESCAPE '\\' OR table_name LIKE 'admin\\_%' ESCAPE '\\'`);
   } catch {}
+  // v2.10.0: the source document a purchase was created from (GRN scan to draft purchase).
+  d.exec(`CREATE TABLE IF NOT EXISTS grn_documents (id INTEGER PRIMARY KEY AUTOINCREMENT, file_name TEXT NOT NULL, file_sha256 TEXT NOT NULL, page_count INTEGER NOT NULL DEFAULT 0, extraction_source TEXT NOT NULL DEFAULT 'none', extracted_json TEXT NOT NULL DEFAULT '{}', draft_json TEXT NOT NULL DEFAULT '{}', purchase_id INTEGER REFERENCES purchases(id), party_id INTEGER REFERENCES parties(id), status TEXT NOT NULL DEFAULT 'extracted', note TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+  // The original PDF stays on the machine it was uploaded on: a BLOB cannot pass through the
+  // change-capture trigger (json_object), and megabytes of scans have no business in every
+  // device's snapshot. The audit record — checksum, recognised text, link — synchronises.
+  d.exec('CREATE TABLE IF NOT EXISTS grn_document_files (document_id INTEGER PRIMARY KEY, pdf BLOB NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+  try { d.exec('ALTER TABLE grn_documents DROP COLUMN pdf'); } catch { /* only present on a 2.10.0 pre-release */ }
+  d.exec('CREATE INDEX IF NOT EXISTS idx_grn_documents_sha ON grn_documents(file_sha256)');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_grn_documents_purchase ON grn_documents(purchase_id)');
   if((d.prepare('SELECT COUNT(*) c FROM company_settings').get() as any).c===0)d.prepare("INSERT INTO company_settings(id,entity_name) VALUES(1,'SOLIVY')").run();
   // v2.7.0: legacy bill-number renumbering is no longer automatic. It is reported by
   // lib/data-health.ts and applied only through the audited admin repair endpoint.
@@ -237,7 +247,7 @@ function openDb(file:string){
 }
 
 /** Schema version for company/admin SQLite files. Bump when ensureSchema/applyV27Schema change. */
-export const SCHEMA_VERSION = 29;
+export const SCHEMA_VERSION = 30;
 type BridgeScope = { allowed: Set<string>; allowCreate: boolean; created: Set<string> };
 let bridgeScope: BridgeScope | null = null;
 /** Set by the PostgreSQL bridge: only these files may be opened during the current request. */

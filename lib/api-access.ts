@@ -44,6 +44,7 @@ export const API_ACCESS: Record<string, MethodMap> = {
   '/api/funding': { GET: R, POST: W, PUT: W },
   '/api/funding/pay': { POST: W },
   '/api/funding/transfer': { GET: R, POST: W },
+  '/api/grn': { GET: W, POST: W },             // records the source document; the purchase itself goes through /api/purchases
   '/api/godowns': { GET: R, POST: W },
   '/api/group-mis': { GET: R },
   '/api/import-finance': { GET: R, POST: W },

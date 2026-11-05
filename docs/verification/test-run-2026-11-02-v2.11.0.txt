@@ -1,0 +1,90 @@
+SOLIVY Finance v2.11.0 — verification run, 2026-11-02 07:12 UTC
+Environment: Linux 6.18.44-fc-v185, Node v22.23.4, PostgreSQL 16.15 at 127.0.0.1:54329, Playwright Chromium.
+Sample: the supplied VRHUF-DEEPAKTRA-17.10.pdf (2 scanned pages, one embedded JPEG each), via SOLIVY_GRN_SAMPLE_PDF.
+NOTE: this is a Linux host. No Windows development or packaged-Windows evidence is in this file.
+
+## PASS  npx tsc --noEmit -p tsconfig.verify.json  — 0 errors
+
+## PASS  npm test  (offline, SQLite)
+# tests 141
+# pass 141
+# fail 0
+# skipped 0
+
+## PASS  npm run test:online  (real PostgreSQL 16.15 — NOT Neon)
+# tests 56
+# pass 56
+# fail 0
+
+## PASS  npm run test:ui  (Playwright Chromium, real esbuild bundles)
+# tests 20
+# pass 20
+# fail 0
+
+## PASS  tests/integration/grn-ocr-bundled.test.ts  (bundled OCR, installed tools removed)
+ok 1 - the bundled engine is present, licensed and found without anything installed
+ok 2 - the engine recognises a page image handed to it directly, and reports its confidence
+ok 3 - the real two-page scan is read automatically with nothing installed, and every printed field is found
+ok 4 - the two pages are linked on corroborating evidence, and the reasons are stated
+ok 5 - dispatched and received weights stay separate, and no deduction is invented
+ok 6 - uploading the scan with nothing installed returns a reviewable draft and posts nothing
+ok 7 - no network request is made while a document is read
+ok 8 - a missing language file is reported with the fix, and nothing is claimed to be read
+ok 9 - an unreadable page image is recorded as a failure, not as an empty success
+ok 10 - recognition has a time budget, and a page it does not reach is marked not attempted
+ok 11 - a corrupt, encrypted or oversized upload is still refused before any recognition
+ok 12 - a text-layer PDF is still read without recognition, and its per-page status says so
+# tests 12
+# pass 12
+# fail 0
+
+## PASS  scripts/check-*  (source invariants)
+PASS  check-api-access.cjs
+PASS  check-api-routes.cjs
+PASS  check-clone-dashboard.cjs
+PASS  check-dashboard-metrics.cjs
+PASS  check-dynamic-module-access.cjs
+PASS  check-finance-mis.cjs
+PASS  check-financial-repair-tds.cjs
+PASS  check-funding-transfer.cjs
+PASS  check-grn.cjs
+PASS  check-moisture-data-api.cjs
+PASS  check-money-out.cjs
+PASS  check-multicompany-sync.cjs
+PASS  check-online-login-org.cjs
+PASS  check-release-safety.cjs
+PASS  check-security.cjs
+PASS  check-source.cjs
+PASS  check-sync-company-settings.cjs
+PASS  check-user-org-conflicts.cjs
+NOT APPLICABLE  check-api-live.mjs  (needs a running server, a built ZIP, or an installed .env.local)
+PASS  check-database-bridge.mjs
+NOT APPLICABLE  check-env.mjs  (needs a running server, a built ZIP, or an installed .env.local)
+PASS  check-import-schema.mjs
+NOT APPLICABLE  check-release-package.mjs  (needs a running server, a built ZIP, or an installed .env.local)
+PASS  check-sync-id-mapping.mjs
+PASS  check-sync.mjs
+PASS  check-test-to-live-purge-fix.mjs
+PASS  check-transfers.mjs
+
+check-grn.cjs invariant count: 66
+
+## PASS  measured OCR of the real sample, nothing installed (PATH emptied, SOLIVY_PDFTOTEXT/PDFTOPPM/TESSERACT pointed at a missing path)
+engine: bundled-wasm  tesseract 5.1.0-288-g2a9c1  languages eng  psm 4
+page_count 2  source ocr  total 13696ms  tools found: {"pdftotext":null,"pdftoppm":null,"tesseract":null}
+  page 1: recognised by bundled-wasm in 5703ms, 1034 chars, confidence 89
+  page 2: recognised by bundled-wasm in 7981ms, 1461 chars, confidence 70
+
+## NOT VERIFIED — stated plainly, not simulated
+- Windows development run: no Windows machine in this environment. PowerShell commands in
+  GRN-AUTOMATIC-OCR-v2.11.0.md section 6. A Linux run is NOT Windows evidence.
+- Packaged Windows build: this repository contains no Windows installer or packaging configuration
+  (no .bat/.ps1, no electron-builder/NSIS/MSI config); LOCAL-INSTALL-GUIDE.md describes a manual
+  Node install. There was nothing to package the engine into, so nothing was packaged or tested.
+- next build: the npm registry is unreachable from this environment, so Next.js 15.5.27 is not
+  installed. Routes and components run through a next/server shim and real esbuild+Chromium bundles.
+- GRN upload against Neon: the online suite runs on a local PostgreSQL 16 and has no GRN upload.
+- API/Neon byte measurement before and after: no instrumented request/byte comparison was run.
+  Structurally, recognition adds no endpoint and issues no request (asserted by test 7 above, which
+  fails if fetch/http is reached while a document is read), so the Add Purchase + OCR + Save flow
+  makes the same calls as before plus the one existing POST /api/grn.

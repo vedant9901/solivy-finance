@@ -1,0 +1,67 @@
+# Recognition output of page 2 of the sample GRN/party-bill PDF (Bill of Supply), produced by
+# `pdftoppm -r 300 -png` + `tesseract --psm 4`. Kept verbatim, OCR noise included, so the parser is
+# tested against what it will really be given. The vendor's bank account number (last four digits replaced), email address and
+# telephone numbers are masked; nothing else is altered.
+/
+|
+
+Bill of Supply
+___WShreé Ganeshay Namah il
+
+oe amen t lll tp tee
+‘Deepak Enterprises Invoice No. ~ 'Dated
+‘Lonara Road Segaon (274 13-Oct-26
+Dist Khargone | Delivery Note |Mode/Terms of Payment
+‘Msme Reg.No. UDYAM-MP-28-0001910 Shyam Broker
+GSTIN/UIN: 23AAKPA7592B 120 | Reference No & Date | Other References
+State Name Madhya Pradesh, Code : 23 |
+Contact +91-9100000000 9100000001 ' Buyer's Order No Dated
+E-Mail : vendor.contact@example.com
+one ee lp tch Doc N ‘Delivery Note Dat
+| 4 . | Dale
+Sayaji Industries Limited - Unit Maize Products apaon WY ower
+Maize Products po 88 -Ot-26
+'P.O. Kathwada Dispatched through Destination
+Ahmedabad | Kathwada
+Ahmedabad Bill of Lading/LR-RR No. | Motor Vehicle No
+GSTIN/UIN : 24AADCS0861R1ZZ |GJ04X5630 ¢
+PAN/IT No : AADCS0861R Terms ofDelivery |
+‘State Name : Gujarat, Code : 24
+
+Place of Supply : Gujarat
+
+No. & Kind) Description of Goods HSN/SAC | Quantity Rate |per Amount
+_of Pkgs._| | | | {
+| a |
+375 | Maize 10059000 | 218.90 qtl., 2,000.00) qt!  4,37,800.00°
+| NO CLAIM CONDITION |
+
+| €
+
+[ a | | |
+
+| | Total 248.90 qtl. | |24,37,800.00.
+“Amount Chargeable (in words) E&OE
+_INR Four Lakh Thirty Seven Thousand Eight Hundred Only
+; oS HSNISAC ; Taxable
+= - | Value
+10059000 - | 437,800 00
+
+_ Total, 4,37,800.00.
+
+‘Tax Amount (in words) : NIL
+Company's Bank Details
+
+Bank Name : ICICI BANK LTD. OD A/C
+
+Alc No. : 086705010000
+
+Branch & IFS Code: KHARGONE &ICICQ000867——
+Declaration for Deapak Enterprises
+We Geclare that this invoice shows the actual price of the | Tmey ae 4 Wan
+goods described and that all particulars are true and | mY ees ast) me come so
+correct | Prepared by Verified by Authorised Sxgnatory
+
+SUBJECT TO KHARGONE JURISDICTION
+
+This is a Computer Generated Invoice

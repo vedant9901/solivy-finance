@@ -1,0 +1,81 @@
+SOLIVY Finance v2.11.2 — verification run, 2026-11-02 10:08 UTC
+Environment: Linux 6.18.44-fc-v185, Node v22.23.4, PostgreSQL 16.15 at 127.0.0.1:54329, Playwright Chromium.
+Reported fault: 'Page 1/2 could not be recognised (undefined is not a function)' on a live installation.
+NOTE: a Next.js server build cannot be reproduced here (no npm registry), so the fix is verified
+      by proving each load route works independently — NOT by reproducing that installation.
+
+## PASS  npx tsc --noEmit -p tsconfig.verify.json  — 0 errors
+
+## PASS  npm test  (offline, SQLite, sample set)
+# tests 164
+# pass 164
+# fail 0
+# skipped 0
+
+## PASS  npm run test:online  (real PostgreSQL 16.15 — NOT Neon)
+# tests 56
+# pass 56
+# fail 0
+
+## PASS  npm run test:ui  (Playwright Chromium)
+# tests 20
+# pass 20
+# fail 0
+
+## PASS  tests/integration/grn-ocr-loader.test.ts  (the five load routes, each on its own)
+ok 1 - the engine loads through "createRequire" on its own, so this fallback really works
+ok 2 - the engine loads through "import-module" on its own, so this fallback really works
+ok 3 - the engine loads through "require" on its own, so this fallback really works
+ok 4 - the engine loads through "eval-require" on its own, so this fallback really works
+ok 5 - the engine loads through "import-url" on its own, so this fallback really works
+ok 6 - with no route allowed, the failure names every attempt instead of a bare type error
+ok 7 - a module that does not export a function is reported as that, not called
+ok 8 - the engine can be checked from the application without uploading a document
+ok 9 - a failing engine makes the self-test say so, with the attempts, and answers 503
+# tests 9
+# pass 9
+# fail 0
+
+## PASS  scripts/check-*  (86 GRN invariants)
+PASS  check-api-access.cjs
+PASS  check-api-routes.cjs
+PASS  check-clone-dashboard.cjs
+PASS  check-dashboard-metrics.cjs
+PASS  check-dynamic-module-access.cjs
+PASS  check-finance-mis.cjs
+PASS  check-financial-repair-tds.cjs
+PASS  check-funding-transfer.cjs
+PASS  check-grn.cjs
+PASS  check-moisture-data-api.cjs
+PASS  check-money-out.cjs
+PASS  check-multicompany-sync.cjs
+PASS  check-online-login-org.cjs
+PASS  check-release-safety.cjs
+PASS  check-security.cjs
+PASS  check-source.cjs
+PASS  check-sync-company-settings.cjs
+PASS  check-user-org-conflicts.cjs
+NOT APPLICABLE  check-api-live.mjs
+PASS  check-database-bridge.mjs
+NOT APPLICABLE  check-env.mjs
+PASS  check-import-schema.mjs
+NOT APPLICABLE  check-release-package.mjs
+PASS  check-sync-id-mapping.mjs
+PASS  check-sync.mjs
+PASS  check-test-to-live-purge-fix.mjs
+PASS  check-transfers.mjs
+
+## PASS  GET /api/grn?selftest=1 on this machine
+SELFTEST HTTP 200 {"ok":true,"engine":{"kind":"bundled-wasm","available":true,"reason":null,"dir":"/home/claude/solivy/vendor/tesseract-wasm","core":"/home/claude/solivy/vendor/tesseract-wasm/tesseract-core-lstm.wasm.js","tessdata":"/home/claude/solivy/vendor/tesseract-wasm/tessdata","languages":["eng"]},"version":"5.1.0-288-g2a9c1","load_route":"createRequire(node:module)","load_attempts":[],"error":null,"ms":120,"tools":{"pdftotext":"/usr/bin/pdftotext","pdftoppm":"/usr/local/bin/pdftoppm","tesseract":"/usr/local/bin/tesseract"},"node":"v22.23.4","platform":"linux-x64"}
+
+## NOT VERIFIED — stated plainly
+- That this fixes the reporting installation: NOT VERIFIED. A Next.js server build cannot be
+  reproduced in this environment (the npm registry is unreachable, so Next.js 15.5.27 is not
+  installed). The fault is identified from the reported error message, and all five load routes are
+  proven to work under the module system available here. `GET /api/grn?selftest=1` run on that
+  machine is what will confirm it.
+- next build, next lint: NOT VERIFIED (both need the uninstalled Next.js).
+- Windows development, packaged Windows build: NOT VERIFIED. No Windows machine; this repository
+  has no Windows installer. A Linux run is not Windows evidence.
+- Neon, and an instrumented before/after byte measurement: NOT VERIFIED. The self-test and
+  recognition issue no network request, which is asserted, but no byte comparison was run.

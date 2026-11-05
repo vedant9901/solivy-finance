@@ -1,0 +1,104 @@
+SOLIVY Finance v2.11.1 — verification run, 2026-11-02 09:48 UTC
+Environment: Linux 6.18.44-fc-v185, Node v22.23.4, PostgreSQL 16.15 at 127.0.0.1:54329, Playwright Chromium.
+Sample: the supplied VRHUF-DEEPAKTRA-17.10.pdf via SOLIVY_GRN_SAMPLE_PDF.
+  sha256 7a14c52099abdc94182283e7621980019ef328470aebf1351a6e174268d663a0
+  = the file attached with this brief (byte-identical), so this evidence is about that document.
+NOTE: Linux host. No Windows or packaged-Windows evidence is in this file.
+
+## PASS  npx tsc --noEmit -p tsconfig.verify.json  — 0 errors
+
+## PASS  npm test  (offline, SQLite, sample set)
+# tests 155
+# pass 155
+# fail 0
+# skipped 0
+
+## PASS  npm run test:online  (real PostgreSQL 16.15 — NOT Neon)
+# tests 56
+# pass 56
+# fail 0
+
+## PASS  npm run test:ui  (Playwright Chromium)
+# tests 20
+# pass 20
+# fail 0
+
+## PASS  tests/integration/grn-regions.test.ts  (the second pass: anchors, rebuild, gate, guard)
+ok 1 - a GRN page and a bill page are told apart from their printed labels
+ok 2 - the table region is located from the header words, and stops at the totals line
+ok 3 - regions are page-relative, not pixel coordinates fixed for one document
+ok 4 - a page without the anchors yields no region rather than a guessed one
+ok 5 - a bill proposes its header and goods-table regions, each inside the page
+ok 6 - the row is rebuilt by column, and a cell the document wrapped arrives whole
+ok 7 - the rebuilt row is emitted as labelled lines, never as positional guesswork
+ok 8 - a table with no header, or no body, is reported as nothing rather than a wrong row
+ok 9 - coverage is measured with the real parser, so the gate uses the draft's own rules
+ok 10 - the second pass improves a page only when it adds a field, and is otherwise discarded
+ok 11 - combined passes keep their provenance and do not duplicate a value into two fields
+ok 12 - the real sample: the first pass covers every required field, so no region is read again
+ok 13 - the engine reads a located region of a real image, and reports its words and confidence
+ok 14 - a rebuild whose cells do not fit their columns is discarded, not handed to the parser
+# tests 14
+# pass 14
+# fail 0
+
+## PASS  scripts/check-*  (source invariants; check-grn.cjs = 76 invariants)
+PASS  check-api-access.cjs
+PASS  check-api-routes.cjs
+PASS  check-clone-dashboard.cjs
+PASS  check-dashboard-metrics.cjs
+PASS  check-dynamic-module-access.cjs
+PASS  check-finance-mis.cjs
+PASS  check-financial-repair-tds.cjs
+PASS  check-funding-transfer.cjs
+PASS  check-grn.cjs
+PASS  check-moisture-data-api.cjs
+PASS  check-money-out.cjs
+PASS  check-multicompany-sync.cjs
+PASS  check-online-login-org.cjs
+PASS  check-release-safety.cjs
+PASS  check-security.cjs
+PASS  check-source.cjs
+PASS  check-sync-company-settings.cjs
+PASS  check-user-org-conflicts.cjs
+NOT APPLICABLE  check-api-live.mjs
+PASS  check-database-bridge.mjs
+NOT APPLICABLE  check-env.mjs
+PASS  check-import-schema.mjs
+NOT APPLICABLE  check-release-package.mjs
+PASS  check-sync-id-mapping.mjs
+PASS  check-sync.mjs
+PASS  check-test-to-live-purge-fix.mjs
+PASS  check-transfers.mjs
+
+## The brief's diagnosis, tested directly against the shipped pipeline
+Bundled WASM engine, PATH emptied, SOLIVY_PDFTOTEXT/PDFTOPPM/TESSERACT all pointed at a missing path:
+engine bundled-wasm / Tesseract 5.1.0-288-g2a9c1 / tools found {"pdftotext":null,"pdftoppm":null,"tesseract":null}
+  page 1: recognised 5619ms conf=89 chars=1034 image=2388x2139 regions=0
+    The first pass covered every required field of this goods-receipt note, so no region was read again.
+  page 2: recognised 6521ms conf=70 chars=1461 image=2330x3112 regions=0
+    The first pass covered every required field of this supplier bill, so no region was read again.
+  page 1 whole-page OCR row verbatim: "2627-22603 | 17.10.2026 | 5630 ENTERPRIS 375 21262 0 0 0 11.50 0.00"
+  GRN parsed: sample=2627-22603 date=2026-10-17 truck=5630 supplier=AKSH ENTERPRISE bags=375 received=21262kg freight=0 load=0 rokdi=0 moist=11.5% deduction=0 threshold=14%
+  BILL parsed: invoice=274 date=2026-10-13 vehicle=GJ04X5630 packages=375 Maize hsn=10059000 dispatched=218.9atl.=21890kg rate=2000/qtl=20/kg amount=437800
+
+## FAIL as specified / NOT VERIFIED — stated plainly, not simulated
+- "Assert page 1 full-page OCR alone is insufficient but targeted table OCR recovers the row":
+  FAIL AS SPECIFIED. The full-page pass IS sufficient on this document, as the row above shows, so
+  the suite asserts what is true (the gate skips the second pass) rather than the opposite.
+- A low-quality scan where the second pass rescues the page: NOT VERIFIED. Pages rendered as low as
+  100 dpi were still fully covered by the first pass, and the band-level pass read the table worse.
+  The mechanism is proven on a real image (region located, read, words and confidence returned,
+  rebuild validated) but no document is yet known where it changes the outcome.
+- Rotated page: NOT VERIFIED (no fixture). A page that yields no characters IS covered.
+- The exact PDF as a committed fixture: NOT DONE, deliberately — it carries a vendor's GSTIN, bank
+  account, phone and email. Tests read it from SOLIVY_GRN_SAMPLE_PDF; committed fixtures are masked
+  OCR text.
+- Windows development and packaged Windows build: NOT VERIFIED. No Windows machine, and this
+  repository has no Windows installer or packaging configuration. PowerShell steps are in
+  GRN-AUTOMATIC-OCR-v2.11.0.md section 6. A Linux run is not Windows evidence.
+- next build, next lint: NOT VERIFIED — the npm registry is unreachable here, so Next.js 15.5.27 is
+  not installed (`npm run lint` is `next lint`).
+- Neon, and an instrumented before/after byte measurement: NOT VERIFIED. Recognition adds no
+  endpoint and issues no request, which IS asserted by a test that fails if fetch/http is reached
+  during a read, but no byte comparison was run.

@@ -1,0 +1,71 @@
+# SOLIVY Finance v2.10.0 — GRN document to draft purchase, test run
+Run at 2026-11-01T08:13:25Z (UTC), Node v22.23.4
+
+## The sample document (inspected, not assumed)
+VRHUF-DEEPAKTRA-17.10.pdf: 2 pages, produced by OpenPDF, NO text layer (pdftotext returns only
+form feeds) - it is a scan. Page 1: Sayaji Industries 'GRN List Report'. Page 2: a Tally-style
+'Bill of Supply' from Deepak Enterprises. Recognition settings measured on it: pdftoppm -r 300
+plus tesseract --psm 4 (the 150 dpi / psm 6 default lost the GRN table's numeric cells).
+Note: the brief expected the bill rate per KG; this bill quotes per QUINTAL (2,000.00 per qtl),
+so the unit is read from the page and converted (= 20.00 per kg).
+
+## npx tsc --noEmit -p tsconfig.verify.json
+exit 0 - 0 errors
+
+## npm test (offline, real SQLite)
+# tests 104
+# pass 102
+# fail 0
+
+## GRN suite WITH the real sample document (SOLIVY_GRN_SAMPLE_PDF set, poppler + tesseract present)
+ok 1 - the GRN page yields every printed field of the sample document
+ok 2 - the party bill yields the seller, the invoice, the vehicle and the goods line
+ok 3 - values the scanner got wrong are reported as uncertain, never corrected
+ok 4 - the two pages are linked by vehicle number, package count and date
+ok 5 - a bill for a different vehicle is not linked to this GRN
+ok 6 - unit, number and date readers handle the forms these documents use
+ok 7 - the draft maps the document onto the purchase form and values it with the approved rules
+ok 8 - the review points a person has to decide are raised, with the document as evidence
+ok 9 - the party is matched on GSTIN, and a party draft is offered when there is no match
+ok 10 - a GRN, an invoice or a vehicle+date already entered is reported as a duplicate
+ok 11 - an unreadable page is reported rather than guessed
+ok 12 - a bill whose rate unit cannot be read blocks instead of assuming kilograms
+ok 13 - end to end: the real scanned PDF produces the same draft
+ok 14 - workflow: upload → draft → confirmed save → linked, with duplicates caught on re-upload
+# tests 14
+# pass 14
+# fail 0
+
+## npm run test:online (real PostgreSQL 16 - NOT Neon)
+# tests 56
+# pass 56
+# fail 0
+
+## npm run test:ui (Playwright Chromium)
+# tests 10
+# pass 10
+# fail 0
+
+## guards
+note: 1 route(s) added since the manifest: /api/grn
+PASS API surface: 72 routes, 117 exported methods; every baseline route and method is present
+
+## scripts/check-*.cjs
+PASS scripts/check-api-access.cjs
+PASS scripts/check-api-routes.cjs
+PASS scripts/check-clone-dashboard.cjs
+PASS scripts/check-dashboard-metrics.cjs
+PASS scripts/check-dynamic-module-access.cjs
+PASS scripts/check-finance-mis.cjs
+PASS scripts/check-financial-repair-tds.cjs
+PASS scripts/check-funding-transfer.cjs
+PASS scripts/check-grn.cjs
+PASS scripts/check-moisture-data-api.cjs
+PASS scripts/check-money-out.cjs
+PASS scripts/check-multicompany-sync.cjs
+PASS scripts/check-online-login-org.cjs
+PASS scripts/check-release-safety.cjs
+PASS scripts/check-security.cjs
+PASS scripts/check-source.cjs
+PASS scripts/check-sync-company-settings.cjs
+PASS scripts/check-user-org-conflicts.cjs

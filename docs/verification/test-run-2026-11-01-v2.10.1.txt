@@ -1,0 +1,81 @@
+# SOLIVY Finance v2.10.1 — GRN import inside Add Purchase, test run
+Run at 2026-11-01T09:19:44Z (UTC), Node v22.23.4
+
+## npx tsc --noEmit -p tsconfig.verify.json
+exit 0 - 0 errors
+
+## next build (production build)
+NOT VERIFIED - the npm registry is unreachable in this environment, so Next.js 15.5.27 is not installed. Routes and components are exercised through a next/server shim and esbuild bundles in the tests below.
+
+## npm test (offline, real SQLite)
+# tests 112
+# pass 110
+# fail 0
+
+## GRN suite WITH the real sample PDF
+ok 1 - the GRN page yields every printed field of the sample document
+ok 2 - the party bill yields the seller, the invoice, the vehicle and the goods line
+ok 3 - values the scanner got wrong are reported as uncertain, never corrected
+ok 4 - the two pages are linked by vehicle number, package count and date
+ok 5 - a bill for a different vehicle is not linked to this GRN
+ok 6 - unit, number and date readers handle the forms these documents use
+ok 7 - the draft maps the document onto the purchase form and values it with the approved rules
+ok 8 - the review points a person has to decide are raised, with the document as evidence
+ok 9 - the party is matched on GSTIN, and a party draft is offered when there is no match
+ok 10 - a GRN, an invoice or a vehicle+date already entered is reported as a duplicate
+ok 11 - an unreadable page is reported rather than guessed
+ok 12 - a bill whose rate unit cannot be read blocks instead of assuming kilograms
+ok 13 - end to end: the real scanned PDF produces the same draft
+ok 14 - workflow: upload → draft → confirmed save → linked, with duplicates caught on re-upload
+# tests 14
+# pass 14
+# fail 0
+
+## npm run test:ui (Playwright Chromium)
+ok 1 - a response with no draft shows the failure instead of crashing
+ok 2 - a response that is not JSON at all is reported, not thrown
+ok 3 - a complete extraction lists the pages, the fields, the duplicates and the live total
+ok 4 - only the ticked fields are handed back, and a field already typed is not overwritten unless chosen
+ok 5 - editing a value updates the total, and the wizard never posts
+ok 6 - cancel and Escape close the wizard without handing anything back
+ok 7 - hub renders grouped cards, search and starring work
+ok 8 - balance sheet runs with Indian number formatting; drill-down opens the general ledger
+ok 9 - budget editor saves and Budget Overview reflects it; legacy MIS view still reachable
+ok 10 - bill templates panel: choose template, live preview loads in-frame, save persists
+ok 11 - the sidebar shows the four task groups and administration, and the removed entries are gone
+ok 12 - the removed screens still work when opened directly (no functionality was deleted)
+ok 13 - light, dark and accent themes apply and persist across a reload
+ok 14 - the profile module shows identity, organisation, permissions, session and a password form
+ok 15 - mobile: a drawer, touch-sized controls and no horizontal overflow
+ok 16 - no browser errors were raised during the interface tests
+# tests 16
+# pass 16
+# fail 0
+
+## npm run test:online (real PostgreSQL 16 - NOT Neon)
+# tests 56
+# pass 56
+# fail 0
+
+## guards
+PASS API surface: 72 routes, 117 exported methods; every baseline route and method is present
+
+## scripts/check-*.cjs
+PASS scripts/check-api-access.cjs
+PASS scripts/check-api-routes.cjs
+PASS scripts/check-clone-dashboard.cjs
+PASS scripts/check-dashboard-metrics.cjs
+PASS scripts/check-dynamic-module-access.cjs
+PASS scripts/check-finance-mis.cjs
+PASS scripts/check-financial-repair-tds.cjs
+PASS scripts/check-funding-transfer.cjs
+PASS scripts/check-grn.cjs
+PASS scripts/check-moisture-data-api.cjs
+PASS scripts/check-money-out.cjs
+PASS scripts/check-multicompany-sync.cjs
+PASS scripts/check-online-login-org.cjs
+PASS scripts/check-release-safety.cjs
+PASS scripts/check-security.cjs
+PASS scripts/check-source.cjs
+PASS scripts/check-sync-company-settings.cjs
+PASS scripts/check-user-org-conflicts.cjs

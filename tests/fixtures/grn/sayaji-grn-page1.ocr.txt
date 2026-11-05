@@ -1,0 +1,47 @@
+# Recognition output of page 1 of the sample GRN/party-bill PDF (GRN List Report), produced by
+# `pdftoppm -r 300 -png` + `tesseract --psm 4`. Kept verbatim, OCR noise included.
+GRN List Report
+SAYRJI SAYAJI INDUSTRIES LIMITED
+Unit - Maize Products
+P.O. Kathwada, Maize Products,
+Ahmedabad, Gujarat, 382430, India.
+Phone - +91 9898048868
+www.sayajigroup.in
+
+ea ENTERPRISE ESC TION
+AKSH
+
+.O. Kathwad Pi
+28-KHERWA NAGAR VALLBH PARK, awe See een Pas Aenean
+Seat nee Ph : +91 9898048868
+AHMEDABAD one:
+9898718356 GSTNO : 24AADCS0661R1ZZ
+AHMEDABAD, Gujarat, 380005, India Email : nhb@sayajigroup.in
+
+PartyCode 0011000820
+
+REG. : STATEMENT OF MAIZE RECEIPT
+WE HAVE RECEIVED YOUR FOLLOWING CONSIGNMENTS, THE DETAIL OF WHICH ARE AS UNDER
+
+Truck No. |PO Supplier} Recd. | Net.Recd. | Freight Load Deduction for
+Sample No. | GRN Date RR No. Name Bags Wt Amount — Rokdi Moist % Kg
+AKSH
+2627-22603 | 17.10.2026 |5630 ENTERPRIS| 375 21262 0 0 0 11.50 0.00
+E
+Total 375 21262 ) 0 i) 0.00
+
+PLEASE MENTION PARTY CODE IN EACH BILLS AND CORRESPONDENCE IN FUTURE AS SHOW BELOW.
+FREIGHT AMOUNT SHOWN AS ABOVE STATES THE POSITION OF THE DATE OF RECEIPT OF GOODS.
+THE VALUE OF LOSSES SUSTAINED BY US DUE TO MOISTURE CONTENT MORE THEN 14.00 %.
+
+IF SO , WILL BE DEDUCTED FROM YOUR BILL AS PER OUR CONTRACT.
+
+THANKING YOU
+YOURS FAITHFULLY
+FOR, Maize Products
+Nishat Brahmbhatt
+
+Vice President
+
+RM Purchase
+

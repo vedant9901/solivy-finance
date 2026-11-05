@@ -107,5 +107,67 @@ from the conflict so a retry applies once.
 - Each side keeps its own `sync_meta` identity across a clone; `realignAfterClone` settles the
   journal and sets the cursor to the snapshot's high-water mark so incremental sync continues.
 
+## GRN to draft purchase (v2.10.0, tool-independent since v2.10.2)
+- `lib/grn/pdf-native.ts` reads the PDF in plain JavaScript with Node's `zlib` alone — no tool, no
+  dependency, nothing executed or fetched. It gives the real page count from the page tree, the
+  text layer decoded from the content streams (`Tj`/`TJ`/`'`/`"`, `/ObjStm` objects included), and
+  the page images out of the file: a `/DCTDecode` page is already a JPEG, an 8-bit `/FlateDecode`
+  DeviceRGB/Gray page is re-wrapped as a PNG.
+- `lib/grn/ocr-wasm.ts` is the OCR engine that **ships with SOLIVY** (v2.11.0):
+  `vendor/tesseract-wasm/` holds a WebAssembly build of Tesseract and `eng.traineddata`
+  (Apache-2.0; provenance, checksums and notices in that folder's `NOTICE.md`). It is loaded by a
+  path resolved from the module's own location — never the working directory, never `PATH` — the
+  language data is written into the engine's in-memory filesystem, and the engine is created once
+  per process. Recognition is local: no network call of any kind, so it works offline and costs no
+  API calls or Neon transfer. `SOLIVY_GRN_OCR_WASM_DIR`, `SOLIVY_GRN_OCR_ENGINE`,
+  `SOLIVY_GRN_OCR_LANG`, `SOLIVY_GRN_OCR_PSM` and `SOLIVY_GRN_OCR_BUDGET_MS` override the defaults
+  for advanced use; nothing needs configuring.
+- The engine module is loaded by `loadFactory` (v2.11.2) through five guarded routes — static
+  `createRequire`, a run-time `import('node:module')`, the module's own `require`, `require` via
+  `eval`, and `import('file://…')` of the engine file — because a Next.js server bundle can leave
+  the named import from `node:module` undefined, which made every page fail with
+  `undefined is not a function`. Each route is tested on its own,
+  `SOLIVY_GRN_OCR_LOAD_ROUTES` can pin one, the engine's own methods are checked before use, and a
+  failure names every attempt. `GET /api/grn?selftest=1` loads the engine and reports the route,
+  version and language data, or the attempts and why each failed.
+- `lib/grn/multi.ts` (v2.12.0) reads a whole upload rather than its first GRN: it classifies every
+  page, takes **every** data row of a consignment list as its own GRN (stable id from page and
+  printed position, all eleven columns, the Total row excluded and used as a cross-check against
+  the summed rows), reads each bill's goods lines from the column order that bill prints, links
+  bills to rows on corroborating evidence with ties reported, and presents one row at a time to the
+  existing `buildDraft`/`purchaseCalc` through `asParsedDocument`. Nothing ambiguous is placed: a
+  row or line with more figures than columns leaves the uncertain cells empty, and a rate that was
+  not printed is never derived from the amount (`calculated_check` carries that figure instead).
+  `bestBill` runs both the column-driven and the layout-specific bill parser so a new layout cannot
+  degrade one that already worked.
+- `lib/grn/regions.ts` (v2.11.1) locates the parts of a scanned page worth reading a second time,
+  from the label words the first pass found — never from pixel coordinates — and rebuilds a table
+  row by column so a cell the document printed wrapped arrives whole. The rebuild is validated per
+  column and discarded entirely if a cell does not fit. `recognisePage` reads a region with
+  `SetRectangle` on the image already loaded. The pass is gated (it runs only when the first pass
+  left a required field unread, judged by the real parser) and guarded (kept only when coverage
+  strictly improves), so it can add a missing cell but never degrade a page.
+- `lib/grn/extract.ts` builds on it and treats external tools as optional accelerators:
+  `pdftotext -layout` is preferred for a text layer where installed, `pdftoppm` renders a
+  vector-only page, and `tesseract` alone recognises a scan (it is handed the page's own embedded
+  image, with the resolution computed from the page geometry). Tools are looked up by the
+  `SOLIVY_PDFTOTEXT` / `SOLIVY_PDFTOPPM` / `SOLIVY_TESSERACT` overrides, the PATH, and the usual
+  Windows install folders. With nothing installed, a text-layer PDF still imports exactly and a
+  scan is recognised by the bundled engine. Each page carries its own diagnostic (status, engine,
+  duration, characters, confidence) and recognition is bounded in time; a page it cannot read is
+  marked `failed` or `not-attempted`, never assumed read. Manual entry (`manual_entry` in the
+  response: a complete but empty draft, nothing proposed) remains the last resort for a machine
+  where no engine can be used at all. A page counts as recognised only when `lib/grn/parse.ts`
+  finds its fields — never because OCR returned characters.
+- `lib/grn/parse.ts` reads a GRN page and a party bill into fields with confidences; `lib/grn/draft.ts`
+  maps them onto the purchase form, matches the party, finds duplicates and prices the draft with
+  `lib/utils.ts purchaseCalc`.
+- `lib/grn/contract.ts` normalises every `/api/grn` response into one shape (always a draft, a numeric
+  purchase and a calculation) so a failed or partial extraction renders as a failure instead of
+  crashing; `app/components/GrnImportWizard.tsx` is the wizard the Add Purchase modal opens.
+- `/api/grn` stores the document and returns the proposal; the purchase itself is created by the
+  existing `/api/purchases` from the values confirmed on `/grn`. `grn_documents` carries the audit
+  record and synchronises; `grn_document_files` holds the optional original and does not.
+
 ## Tests
 `tests/` contains unit, integration (SQLite), online (real PostgreSQL), ui (Playwright) and bench suites. Commands are in `docs/OPERATIONS.md` §9.

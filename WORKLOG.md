@@ -224,3 +224,235 @@ multi-hundred-megabyte databases, and merging two databases that each hold recor
 
 **Next:** P2 — GRN PDF to a draft purchase.
 
+## 2026-11-01 — v2.10.0, GRN document to draft purchase (P2)
+**Inspected first:** the supplied PDF is a 2-page SCAN with no text layer. Page 1 is a Sayaji
+"GRN List Report" (sample 2627-22603, 17.10.2026, truck 5630, 375 bags, 21262 kg net, moist 11.50%,
+threshold 14%); page 2 is a Deepak Enterprises "Bill of Supply" (invoice 274, 13-Oct-26, vehicle
+GJ04X5630, 375 pkgs Maize HSN 10059000, 218.90 qtl @ 2,000/qtl = 4,37,800, tax NIL). Two findings:
+the rate is per QUINTAL, not per kg as the brief assumed, and the two pages differ on weight
+(21,890 dispatched vs 21,262 received).
+
+**Done:** local extraction (text layer, else poppler+tesseract at 300 dpi / psm 4, measured on this
+scan; no new dependency, nothing leaves the machine), a parser written against the real recognition
+output with per-field confidence, page linking on the vehicle-number tail, party matching
+(GSTIN/name/alias) with party and bank drafts, duplicate detection, a draft priced by the existing
+purchaseCalc, the /grn review screen, and `grn_documents` + local-only `grn_document_files`
+(schema 30). The purchase is created only by the existing /api/purchases after confirmation.
+
+**Tests:** 104 offline (2 reported NOT VERIFIED without the uncommitted sample), 14/14 with the real
+PDF, 56 online (PG16), 10 browser, 18 scripts, typecheck clean —
+`docs/verification/test-run-2026-11-01-v2.10.0.txt`.
+
+**Not verified:** Neon, production build and lint; recognition on layouts other than these two;
+multi-consignment GRNs and multi-line bills (first line only).
+
+**Next:** P3 — purchase-linked payment obligation and Mark Paid.
+
+## 2026-11-01 — v2.10.1, GRN import inside Add Purchase + crash fix
+**Found:** the reported crash was a data-contract assumption, not a missing `?.`: `/api/grn` answers
+a failed extraction with `{ok:false, error, extraction}` and NO draft, and the screen stored that
+response then read `result.draft.calculation`.
+
+**Done:** `lib/grn/contract.ts` normalises every response (always a draft, a numeric purchase, a
+calculation; `complete:false` plus `problems[]` when something is missing) and both consumers use
+it; `app/components/GrnImportWizard.tsx` runs the import inside the existing Add Purchase modal
+(page count, GRN/bill page numbers, unrecognised pages, page image, per-field tick boxes with the
+current form value beside the document value, live purchaseCalc, Use in Purchase Form); default
+ticks only where the form is empty; the wizard never posts. Encrypted PDFs are named; the
+text-layer threshold is 12 characters.
+
+**Tests:** 112 offline, 14/14 with the real sample PDF, 16 browser (6 new Chromium tests on the
+wizard: no-draft response, non-JSON response, full extraction, selective apply, live recalculation
+with no posting, Cancel/Escape), 56 online (PG16), 18 scripts, typecheck clean —
+`docs/verification/test-run-2026-11-01-v2.10.1.txt`.
+
+**Not verified:** `next build` (no npm registry), GRN upload against Neon, and a manual Add Purchase
+save driven through the modal in a browser (API and shell level only).
+
+**Next:** P3 — purchase-linked payment obligation and Mark Paid.
+
+## 2026-11-01 — v2.10.2, the GRN import with no tools installed
+
+**Reported:** on the user's machine the wizard said "No text could be read from this PDF on this
+machine", "0 pages", "20 page(s) carry no text layer", and named pdftotext, pdftoppm and tesseract
+as missing.
+
+**Found, by inspecting the supplied PDF rather than the error:** the file is a classic xref PDF with
+no object streams, and each page is a single embedded JPEG (`/DCTDecode`, 2558x3777 and 2669x3720).
+Nothing about reading it needed an external tool — v2.10.0 had simply delegated every step. Three
+defects: total dependence on poppler/tesseract; a page count that fell back to the scan limit (the
+"20"); and a 422 with no draft, leaving the screen nothing to show or type into.
+
+**Done:** `lib/grn/pdf-native.ts`, a zero-dependency PDF reader (object/xref scan, `/ObjStm`, page
+tree, content-stream text, `/DCTDecode` passthrough, `/FlateDecode` to PNG by hand) now primary in
+`lib/grn/extract.ts`; poppler and tesseract demoted to optional accelerators; tesseract alone is
+enough for a scan, with the resolution computed from the page geometry and passed as `--dpi`;
+Windows tool discovery broadened beyond the PATH; and a document that cannot be read becomes a
+manual entry (200, `manual_entry: true`, complete empty draft, pages served from a kept local copy)
+instead of a dead end.
+
+**Evidence:** `docs/verification/test-run-2026-11-01-v2.10.2.txt` — typecheck 0 errors; 129/129
+offline; 56/56 online on PostgreSQL 16.15; 17/17 browser; 24/24 source check scripts. The 13 new
+tests in `tests/integration/grn-native.test.ts` all run with the three tools forced absent. With
+poppler absent and tesseract present the sample still yields sample 2627-22603, 21 262 kg, 375 bags,
+moisture 11.5 %, invoice 274, total 437 800, vehicle GJ04X5630.
+
+**Not verified:** `next build` (no npm registry), GRN upload against Neon, the `/ObjStm` path (no
+producer here emits object streams). Recognising a scan still needs Tesseract; no OCR engine can be
+bundled from this environment.
+
+**Next:** P3 — purchase-linked payment obligation and Mark Paid.
+
+## 2026-11-02 — v2.11.0, scanned GRNs recognised with nothing installed
+
+**Asked for:** automatic OCR of scanned GRN/supplier-bill pages on a normal Windows installation —
+no separate Tesseract install, no PATH edit, no environment variable, no manual retyping.
+
+**Done:** bundled a WebAssembly build of Tesseract plus `eng.traineddata` in
+`vendor/tesseract-wasm/` (Apache-2.0; provenance commits, SHA-256 checksums and every statically
+linked component's licence recorded in that folder's NOTICE.md and licenses/).
+`lib/grn/ocr-wasm.ts` loads it by a path resolved from the module's own location — never the working
+directory, never PATH — and writes the language data into the engine's in-memory filesystem, so the
+install location is irrelevant. `lib/grn/extract.ts` chooses it by default, hands it the page image
+already embedded in the PDF (so Poppler is not involved), tells it the resolution computed from the
+MediaBox, keeps a 180 s budget, and records per-page status/engine/duration/chars/confidence. The
+wizard gained a "Show how this document was read" panel. Add Purchase → Save is still the only
+accounting write path.
+
+**Two defects found and fixed while testing:** the loader used
+`new Function('p','return require(p)')`, whose body sees only global scope, so it threw
+`require is not defined` under ESM and under the test runner — replaced with `createRequire`; and a
+text-layer PDF was being told the OCR engine was missing even though no page needed recognition —
+that note is now conditional on `needsOcr.length`. Two v2.10.2 tests whose premise ("no tools" means
+manual entry) the bundled engine supersedes were updated to disable the bundled engine too, so the
+manual-entry last resort is still covered.
+
+**Evidence:** `docs/verification/test-run-2026-11-02-v2.11.0.txt` — typecheck 0 errors; 141/141
+offline; 56/56 online on PostgreSQL 16.15; 20/20 browser; 24/24 source scripts; 12/12 bundled-OCR
+tests with the installed tools removed. Measured: page 1 5 703 ms / conf 89 / 1 034 chars, page 2
+7 981 ms / conf 70 / 1 461 chars, engine `bundled-wasm`, Tesseract 5.1.0-288-g2a9c1, tools found
+none. Every acceptance field of the supplied sample is asserted, including 21 890 kg dispatched kept
+separate from 21 262 kg received and no deduction at 11.50 % moisture.
+
+**Not verified:** Windows development and a packaged Windows build — no Windows machine here, and
+this repository has no Windows installer or packaging configuration to put the engine into (exact
+PowerShell steps are in GRN-AUTOMATIC-OCR-v2.11.0.md section 6); `next build` (no npm registry);
+Neon; an instrumented before/after byte measurement (recognition adds no request at all, which is
+asserted, but no byte comparison was run).
+
+**Next:** P3 — purchase-linked payment obligation and Mark Paid.
+
+## 2026-11-02 — v2.11.1, the second OCR pass and the wrapped supplier cell
+
+**Asked for:** fix GRN OCR on the supplied scan, on the grounds that whole-page OCR misses the
+truck number, received weight and moisture, and that only an enlarged table crop reads the row.
+
+**Checked first.** The attached file is byte-identical to the sample already in use (SHA-256
+7a14c520…d663a0). Through the shipped pipeline with the bundled WASM engine and nothing installed,
+the whole-page pass already returns the complete row —
+`2627-22603 | 17.10.2026 | 5630 ENTERPRIS 375 21262 0 0 0 11.50 0.00` — and the parser reads every
+one of those fields. The brief's measurement came from the system Tesseract on the extracted JPEGs;
+this pipeline hands the engine the embedded image with the DPI computed from the page geometry,
+which is why it differs. So the stated premise was not the defect, and I did not write a test
+asserting the opposite of what the engine does.
+
+**One real defect in that row:** `PO Supplier` is narrow, so `AKSH ENTERPRISE` is printed wrapped
+and OCR returns `AKSH` / `ENTERPRIS` / `E` on three lines. The parser took the row fragment only
+and reported `ENTERPRIS`. Now reassembled from the neighbouring lines, with a note that says so.
+
+**Implemented the targeted pass anyway, with guards.** `lib/grn/regions.ts` locates regions from
+the page's own label words (anchors, scale-invariant, none without the labels), `recognisePage`
+reads them with `SetRectangle` on the already-loaded image, capped at 4 a page. Two safeguards came
+out of measurement rather than design: the pass runs only when the first pass left a required field
+unread (coverage judged by the real parser), and its text is kept only when coverage strictly
+improves — because the band pass at PSM 6 read this document's table *worse* than the whole page.
+The column rebuild that joins a wrapped cell is validated per column and discarded entirely if any
+cell does not fit its column's shape.
+
+**Evidence:** `docs/verification/test-run-2026-11-02-v2.11.1.txt` — typecheck 0 errors; 155/155
+offline; 56/56 online on PostgreSQL 16.15; 20/20 browser; 24/24 source scripts; 76 GRN invariants.
+14 new region tests, including the engine's region pass driven on a real rendered image.
+
+**Not verified:** no document was found where the second pass changes the outcome — every page
+rendered as low as 100 dpi was still fully covered by the first pass, so the mechanism is proven to
+work (region read, words, confidence, validation) but not yet proven to rescue a real page; a
+rotated page has no fixture; Windows and packaged Windows (no installer in this repository);
+`next build` and `next lint` (no npm registry); Neon; an instrumented byte measurement. The real
+PDF is deliberately NOT committed as a fixture — it carries a vendor's GSTIN, bank account, phone
+and email, so it stays behind SOLIVY_GRN_SAMPLE_PDF with masked OCR text committed instead.
+
+**Next:** P3 — purchase-linked payment obligation and Mark Paid.
+
+## 2026-11-02 — v2.11.2, the OCR engine would not load on the user's installation
+
+**Reported:** the wizard fell through to manual entry with
+`Page 1 could not be recognised (undefined is not a function)` for both pages.
+
+**Diagnosed from that message.** It is not OCR failing — the engine never loaded, so every page
+threw the same type error. `createRequire`, imported from `node:module`, can come back undefined
+once `lib/grn/ocr-wasm.ts` has been through the Next.js server bundler; `undefined(…)` is precisely
+that error. Here, under the test runner, the import is intact, which is why every suite passed while
+the installation failed. A Next.js build cannot be reproduced in this environment (no npm registry),
+so the fix had to make the loader independent of which module system it lands in rather than chase
+one bundler's behaviour.
+
+**Done:** `loadFactory` tries five routes in order, each guarded by `typeof` — static
+`createRequire`, `createRequire` from a run-time `import('node:module')`, the module's own `require`,
+`require` via `eval`, and `import('file://…')` of the engine file. Each route is proven on its own
+in a test via `SOLIVY_GRN_OCR_LOAD_ROUTES` (all five load the engine here), which doubles as a way to
+pin an odd build to a working route. The engine's own methods are checked before use, a module of the
+wrong shape is reported rather than called, and a total failure names every attempt instead of
+surfacing a type error. Added `GET /api/grn?selftest=1` so a machine can be checked without a
+document. Two further faults fixed: a cached engine was reused after the configured folder changed
+(it is now tied to its folder, and the self-test reads disk), and the party warning printed the
+placeholder "the seller" as though it were a name.
+
+**Evidence:** `docs/verification/test-run-2026-11-02-v2.11.2.txt` — typecheck 0 errors; 164/164
+offline; 56/56 online on PostgreSQL 16.15; 20/20 browser; 24/24 source scripts; 86 GRN invariants;
+9 new loader tests.
+
+**Not verified:** that this fixes the user's installation — it cannot be reproduced here; the
+self-test output from their machine is what will confirm it. Also `next build` and `next lint` (no
+npm registry), Windows and packaged Windows, Neon, and an instrumented byte measurement.
+
+**Next:** the user's `?selftest=1` output, then either the Windows installer or P3 (purchase-linked
+payment obligation and Mark Paid).
+
+## 2026-11-02 — v2.12.0, the whole document: many GRNs, many pages
+
+**Asked for:** extract every GRN row and every supplier-bill line across the supplied 13-page
+S M CORPORATION PDF, not just the first of each.
+
+**Found by reading it first.** 13 scanned pages, one JPEG each, no text layer. Page 1 is a Sayaji
+consignment list with **twelve** rows before the Total; pages 2–13 are eleven supplier bills from
+three suppliers plus a Devanagari handwritten slip. The old pipeline read row 1 and bill 1.
+
+**Done:** `lib/grn/multi.ts` — page classification (fuzzy, because these scans read "Bill of Supply"
+as "Billof suenly"), multi-row list parsing with per-row identity and all eleven columns, a totals
+cross-check that sums the rows against the printed Total, goods-line reading driven by the column
+order printed on each bill, and evidence-based linking with ties reported. Each row becomes a draft
+through the existing `buildDraft`/`purchaseCalc`; nothing is recalculated here. The API returns
+`grns[]`, `documents[]`, `matches[]`, `page_classifications[]`, `totals` and `counts`, and the
+wizard lists every consignment and takes them one at a time.
+
+**Three judgement calls worth recording.** (1) Where a row or a goods line reads more figures than
+the page prints columns, nothing ambiguous is placed — a wrong number in a financial field is worse
+than an empty one; the figures read are listed instead. (2) A rate is never derived from
+amount ÷ quantity; that figure is offered as `calculated_check` only. (3) The new column-driven bill
+parser was *weaker* than the existing Tally-specific one on the old sample and broke a passing test,
+so `bestBill` runs both and the specific one fills what the generic leaves empty.
+
+**Evidence:** `docs/verification/test-run-2026-11-02-v2.12.0.txt` — typecheck 0 errors; 178/178
+offline; 56/56 online on PostgreSQL 16.15; 22/22 browser; 24/24 source scripts; 100 GRN invariants.
+Against the real document: 13 pages classified, 12 rows detected and 12 extracted, 11 bills, 10
+goods lines, totals disagreeing on four columns (reported, not corrected), and 0 purchases,
+0 payments and 0 parties after the upload.
+
+**Not verified:** rotated pages, several list pages in one upload, a GRN spanning pages,
+many-bills-to-one-row — no fixture has them. Six of the eleven bills on this document could not be
+linked (four print no readable vehicle number) and four gave no usable goods line; both are shown
+rather than guessed. Manual attach/detach controls are not built. `next build`, `next lint`,
+Windows, Neon and a byte measurement remain unverified. The 13-page PDF is deliberately not
+committed: three suppliers' GSTINs, bank accounts, PANs and contacts. Masked OCR fixtures are.
+
+**Next:** manual bill-to-row attach/detach, or P3 (purchase-linked payment obligation and Mark Paid).

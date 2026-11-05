@@ -1,0 +1,130 @@
+SOLIVY Finance v2.12.0 — verification run, 2026-11-02 11:12 UTC
+Environment: Linux 6.18.44-fc-v185, Node v22.23.4, PostgreSQL 16.15 at 127.0.0.1:54329, Playwright Chromium.
+Acceptance fixture: the supplied S M CORPORATION.pdf, 13 scanned pages, via SOLIVY_GRN_SAMPLE_PDF_MULTI
+  sha256 7ee38886f9d613371383c3c5c57709d51aa15e3680fbb5cb7025c7b427ac3f35
+Also: VRHUF-DEEPAKTRA-17.10.pdf via SOLIVY_GRN_SAMPLE_PDF (the single-GRN regression sample).
+NOTE: Linux host. No Windows or packaged-Windows evidence is in this file.
+
+## PASS  npx tsc --noEmit -p tsconfig.verify.json  — 0 errors
+
+## PASS  tests/integration/grn-multi.test.ts
+ok 1 - every data row of the list is a separate GRN, and the total row is not one
+ok 2 - the eleven columns of a row land in the right places
+ok 3 - a supplier name the column wrapped does not bleed into the next row
+ok 4 - a row whose figures are ambiguous leaves the money empty and says so
+ok 5 - a figure the scanner ran into a letter is flagged, not trusted
+ok 6 - the printed total is a cross-check, never a correction
+ok 7 - each kind of page is told apart, including through OCR noise
+ok 8 - a tax invoice yields its goods line with the rate separate from the amount
+ok 9 - a rate the bill does not print is reported as unread, and never derived from the amount
+ok 10 - figures are never placed in the wrong column to make a line fit
+ok 11 - a bill is linked to a row only on corroborating evidence, and a tie is reported
+ok 12 - the set counts what was found, and extracted plus unresolved equals the rows printed
+ok 13 - one row becomes a draft purchase through the existing calculation, with nothing invented
+ok 14 - the real 13-page document yields every page, every row and every bill — and posts nothing
+# tests 14
+# pass 14
+# fail 0
+
+## PASS  the real 13-page document, measured end to end through /api/grn
+EV HTTP 200 | {"pages":13,"list_pages":1,"rows_detected":12,"rows_extracted":12,"rows_unresolved":0,"documents":11,"goods_lines":10,"unmatched_documents":4,"unmatched_rows":6,"pages_unclassified":1}
+EV pages: 1=grn-list 2=tax-invoice 3=tax-invoice 4=tax-invoice 5=tax-invoice 6=bill-of-supply 7=tax-invoice 8=tax-invoice 9=bill-of-supply 10=tax-invoice 11=unknown 12=bill-of-supply 13=bill-of-supply
+EV totals disagree on: bags(rows 7531 vs printed 7601); net_weight_kg(rows 357399 vs printed 387399); rokdi(rows 5010 vs printed 5845); deduction_amount(rows 10507.33 vs printed 11127.6)
+EV p1r1 sample=2627-23766 date=2026-10-24 truck=0139 supplier="PITAMBARA TRADING" bags=590 net=30135 fr=0 lu=590 rk=455 moist=19.5 ded=2787.49 bill=2 rate=27.5 warn=[]
+EV p1r2 sample=2627-23720 date=2026-10-24 truck=3979 supplier="PITAMBAR TRADI" bags=720 net=36240 fr=0 lu=720 rk=545 moist=14.2 ded=72.48 bill=3 rate=27.5 warn=[]
+EV p1r3 sample=2627-23719 date=2026-10-24 truck=7894 supplier="PITAMBAR aoe een" bags=720 net=36260 fr=0 lu=720 rk=545 moist=12.3 ded=0 bill=none rate=0 warn=[]
+EV p1r4 sample=2627-24052 date=2026-10-26 truck=2472 supplier="PITAMBARA TRADING" bags=690 net=35035 fr=0 lu=690 rk=530 moist=13.7 ded=0 bill=5 rate=27.5 warn=[]
+EV p1r5 sample=2627-24277 date=2026-10-27 truck=9908 supplier="LAXMI" bags=600 net=30770 fr=0 lu=600 rk=465 moist=12.4 ded=0 bill=none rate=0 warn=[]
+EV p1r6 sample=2627-24232 date=2026-10-27 truck=0442 supplier="PITAMBARA TRADING" bags=780 net=35290 fr=0 lu=780 rk=530 moist=20.7 ded=4111.28 bill=7 rate=0 warn=[]
+EV p1r7 sample=2627-24234 date=2026-10-27 truck=5386 supplier="KUSHAL ENTERPRIS" bags=495 net=24472 fr=0 lu=495 rk=370 moist=20 ded=2508.38 bill=8 rate=0 warn=[]
+EV p1r8 sample=2627-24257 date=2026-10-27 truck=7747 supplier="DAXMI" bags=421 net=25050 fr=0 lu=421 rk=null moist=null ded=null bill=none rate=0 warn=[ROW_EXTRA_FIGURES,ROW_WRAPPED]
+EV p1r9 sample=2627-24269 date=2026-10-27 truck=6565 supplier="PITAMBARA TRADING" bags=625 net=40562 fr=0 lu=695 rk=610 moist=12.6 ded=0 bill=none rate=0 warn=[]
+EV p1r10 sample=2627-24267 date=2026-10-27 truck=5867 supplier="LAXMI" bags=640 net=80 fr=0 lu=640 rk=455 moist=15.5 ded=526.4 bill=none rate=0 warn=[ROW_WRAPPED,FIGURE_TOUCHING_LETTER,WEIGHT_PER_BAG_ODD]
+EV p1r11 sample=2627-24274 date=2026-10-27 truck=4454 supplier="LAXMI" bags=700 net=33420 fr=0 lu=700 rk=505 moist=15.3 ded=501.3 bill=none rate=0 warn=[ROW_WRAPPED]
+EV p1r12 sample=2627-24275 date=2026-10-27 truck=2276 supplier="LAXMI" bags=550 net=30085 fr=0 lu=550 rk=null moist=null ded=null bill=13 rate=0 warn=[ROW_EXTRA_FIGURES,ROW_WRAPPED]
+EV doc p2 tax-invoice seller="PITAMBARA TRADING" inv=42 date=2026-10-22 veh=MP09HH0139 total=837237.5 lines=1 line1: qty=304.45QTL rate=2750 per=QTL amount=837237.5 check=2750 hsn=100500
+EV doc p3 tax-invoice seller="PITAMBARA TRADING" inv=40 date=2026-10-21 veh=null total=1002237.5 lines=1 line1: qty=364.45QTL rate=2750 per=QTL amount=1002237.5 check=2750 hsn=100500
+EV doc p4 tax-invoice seller="PITAMBARA TRADING" inv=null date=2026-10-21 veh=null total=1014612.5 lines=1 line1: qty=368.95 rate=750 per=null amount=1014612.5 check=2750 hsn=100500
+EV doc p5 tax-invoice seller="TAMBARA TRADING" inv=45 date=2026-10-23 veh=MP12H2472 total=972812.5 lines=1 line1: qty=353.75QTL rate=2750 per=QTL amount=972812.5 check=2750 hsn=100500
+EV doc p6 bill-of-supply seller="LAXMI TRADERS" inv=Dated date=2026-10-24 veh=MH18BAS908 total=902190 lines=1 line1: qty=null rate=null per=null amount=null check=null hsn=10059000
+EV doc p7 tax-invoice seller="PITAMBARA TRADING" inv=43 date=2026-10-23 veh=MP12H0442 total=983537.5 lines=1 line1: qty=357.65 rate=2750 per=null amount=983537.5 check=2750 hsn=100500
+EV doc p8 tax-invoice seller="KUSHAL ENTERPRISES" inv=ohbict-38 date=null veh=MH18BG5386 total=713645 lines=1 line1: qty=null rate=null per=null amount=null check=null hsn=10059090
+EV doc p9 bill-of-supply seller="LAXMI TRADERS" inv=null date=null veh=null total=null lines=0
+EV doc p10 tax-invoice seller="PITAMBARA TRADING" inv=47 date=2026-10-24 veh=null total=1162942.5 lines=1 line1: qty=408.05QTL rate=2850 per=QTL amount=1162942.5 check=2850 hsn=100500
+EV doc p12 bill-of-supply seller="LAXMI TRADERS" inv=Dated date=2026-10-24 veh=MH32AJ4464 total=987305 lines=1 line1: qty=340.45 rate=null per=null amount=987305 check=2900 hsn=10059000
+EV doc p13 bill-of-supply seller="LAXMI TRADERS" inv=Dated date=2026-10-26 veh=GJ18BW2276 total=878700 lines=1 line1: qty=null rate=null per=null amount=null check=null hsn=10059000
+EV match p2 -> p1r1 high score=110 ev=[the vehicle number ends 0139, as the bill's MP09HH0139 does; 590 bags on both; the supplier's name shares "PITAMBARA TRADING"; the dates are 2 day(s) apart] conflicts=[]
+EV match p3 -> p1r2 low score=60 ev=[720 bags on both; the supplier's name shares "PITAMBAR TRADI"; the dates are 3 day(s) apart] conflicts=[1 other consignment row(s) fit this bill about as well; confirm which one it belongs to.]
+EV match p4 -> p1r2 low score=60 ev=[720 bags on both; the supplier's name shares "PITAMBAR TRADI"; the dates are 3 day(s) apart] conflicts=[1 other consignment row(s) fit this bill about as well; confirm which one it belongs to.]
+EV match p5 -> p1r4 high score=110 ev=[the vehicle number ends 2472, as the bill's MP12H2472 does; 690 bags on both; the supplier's name shares "TRADING"; the dates are 3 day(s) apart] conflicts=[]
+EV match p6 -> NONE low score=-5 ev=[the supplier's name shares "LAXMI"; the dates are 3 day(s) apart] conflicts=[the list's vehicle 9908 does not match the bill's MH18BAS908]
+EV match p7 -> p1r6 medium score=65 ev=[the vehicle number ends 0442, as the bill's MP12H0442 does; the supplier's name shares "PITAMBARA TRADING"; the dates are 4 day(s) apart] conflicts=[780 bags on the list against 690 on the bill]
+EV match p8 -> p1r7 medium score=70 ev=[the vehicle number ends 5386, as the bill's MH18BG5386 does; the supplier's name shares "KUSHAL ENTERPRIS"] conflicts=[]
+EV match p9 -> NONE low score=20 ev=[the supplier's name shares "LAXMI"] conflicts=[]
+EV match p10 -> NONE low score=15 ev=[the supplier's name shares "PITAMBARA TRADING"; the dates are 0 day(s) apart] conflicts=[590 bags on the list against 695 on the bill]
+EV match p12 -> NONE low score=-5 ev=[the supplier's name shares "LAXMI"; the dates are 3 day(s) apart] conflicts=[the list's vehicle 9908 does not match the bill's MH32AJ4464]
+EV match p13 -> p1r12 high score=80 ev=[the vehicle number ends 2276, as the bill's GJ18BW2276 does; the supplier's name shares "LAXMI"; the dates are 1 day(s) apart] conflicts=[]
+EV after upload: purchases=0 payments=0 parties=0
+
+## PASS  npm test  (offline, SQLite, both samples)
+# tests 178
+# pass 178
+# fail 0
+# skipped 0
+
+## PASS  npm run test:online  (real PostgreSQL 16.15 — NOT Neon)
+# tests 56
+# pass 56
+# fail 0
+
+## PASS  npm run test:ui  (Playwright Chromium)
+# tests 22
+# pass 22
+# fail 0
+
+## PASS  scripts/check-*  (100 GRN invariants)
+PASS  check-api-access.cjs
+PASS  check-api-routes.cjs
+PASS  check-clone-dashboard.cjs
+PASS  check-dashboard-metrics.cjs
+PASS  check-dynamic-module-access.cjs
+PASS  check-finance-mis.cjs
+PASS  check-financial-repair-tds.cjs
+PASS  check-funding-transfer.cjs
+PASS  check-grn.cjs
+PASS  check-moisture-data-api.cjs
+PASS  check-money-out.cjs
+PASS  check-multicompany-sync.cjs
+PASS  check-online-login-org.cjs
+PASS  check-release-safety.cjs
+PASS  check-security.cjs
+PASS  check-source.cjs
+PASS  check-sync-company-settings.cjs
+PASS  check-user-org-conflicts.cjs
+NOT APPLICABLE  check-api-live.mjs
+PASS  check-database-bridge.mjs
+NOT APPLICABLE  check-env.mjs
+PASS  check-import-schema.mjs
+NOT APPLICABLE  check-release-package.mjs
+PASS  check-sync-id-mapping.mjs
+PASS  check-sync.mjs
+PASS  check-test-to-live-purge-fix.mjs
+PASS  check-transfers.mjs
+
+## NOT VERIFIED — stated plainly
+- The exact 13-page PDF as a committed fixture: NOT DONE, deliberately. It carries three suppliers'
+  GSTINs, bank accounts, PANs, phone numbers and e-mail addresses. Tests read it from
+  SOLIVY_GRN_SAMPLE_PDF_MULTI; masked OCR fixtures of the list, a tax invoice and a bill of supply
+  are committed so the row and line parsing is covered on every run.
+- Rotated pages, several consignment-list pages in one upload, a GRN spanning pages, and
+  many-bills-to-one-row: NOT VERIFIED. No fixture has them.
+- 4 of the 11 bills on this document could not be linked to a row (they print no readable vehicle
+  number) and 4 gave no usable goods line (poor scans, one 56% confidence, largely Devanagari
+  handwriting). Both are shown with their warnings rather than guessed at. Manual attach/detach
+  controls are NOT built.
+- next build, next lint: NOT VERIFIED — the npm registry is unreachable here, so Next.js 15.5.27 is
+  not installed.
+- Windows development and packaged Windows build: NOT VERIFIED. No Windows machine; no installer in
+  this repository. A Linux run is not Windows evidence.
+- Neon, and an instrumented before/after byte measurement: NOT VERIFIED. Recognition adds no
+  endpoint and issues no request, which is asserted, but no byte comparison was run.

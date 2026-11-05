@@ -1,6 +1,6 @@
 {
   "name": "solivy-finance",
-  "version": "2.9.0",
+  "version": "2.12.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -42,7 +42,8 @@
     "check:api-routes": "node scripts/check-api-routes.cjs",
     "check:api-live": "node scripts/check-api-live.mjs",
     "check:release-package": "node scripts/check-release-package.mjs",
-    "check:clone": "node scripts/check-clone-dashboard.cjs"
+    "check:clone": "node scripts/check-clone-dashboard.cjs",
+    "check:grn": "node scripts/check-grn.cjs"
   },
   "dependencies": {
     "better-sqlite3": "12.4.1",

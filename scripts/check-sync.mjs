@@ -4,7 +4,10 @@ const root=process.cwd();
 const required=[
   ['lib/db.ts',['sync_meta','sync_changes','sync_applied_events','CREATE TRIGGER sync_']],
   ['app/api/sync/pair/route.ts',['randomBytes(32)','token_hash','company_id','mode','revokeHandler']],
-  ['app/api/sync/exchange/route.ts',['x-solivy-device-token','Conflict on','sync_applied_events','has_more']],
+  // The device token itself is read and verified in lib/sync-auth.ts, which the exchange route
+  // calls before any snapshot is downloaded; the marker follows it there.
+  ['lib/sync-auth.ts',['x-solivy-device-token','token_hash']],
+  ['app/api/sync/exchange/route.ts',['syncTokenContext','preAuthorize','Conflict on','sync_applied_events','has_more']],
   ['app/api/sync/run/route.ts',['reserveOfflineIdRanges','remote_cursor','remote_url','LIVE and TEST cannot sync across environments']],
   ['app/sync/page.tsx',['Sync Now','Automatic sync','/api/sync/run','Back to SOLIVY','Sync completed successfully']],
   ['middleware.ts',['/api/sync/exchange']],

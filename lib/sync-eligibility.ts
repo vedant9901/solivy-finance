@@ -32,7 +32,7 @@ export type Eligibility =
 export const LOCAL_ONLY_TABLES = new Set([
   'sync_meta', 'sync_changes', 'sync_applied_events', 'sync_id_mappings', 'sync_device_acks',
   'sync_resolution_log', 'sync_conflict_history', 'sync_rejects',
-  'users', 'login_attempts', 'idempotency_keys',
+  'users', 'login_attempts', 'idempotency_keys', 'grn_document_files',
   'sqlite_sequence', 'schema_migrations',
 ]);
 

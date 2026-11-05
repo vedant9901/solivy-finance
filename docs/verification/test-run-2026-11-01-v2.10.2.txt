@@ -1,0 +1,111 @@
+SOLIVY Finance v2.10.2 — verification run, 2026-11-01 09:49 UTC
+Environment: Linux, Node v22.23.4, better-sqlite3 12.4.1, PostgreSQL 16.15 at 127.0.0.1:54329.
+Sample document: the supplied scan (2 pages, each an embedded JPEG), via SOLIVY_GRN_SAMPLE_PDF.
+
+## npx tsc --noEmit -p tsconfig.verify.json
+0 errors
+
+## npm test  (offline, SQLite; SOLIVY_GRN_SAMPLE_PDF set)
+# tests 129
+# pass 129
+# fail 0
+# skipped 0
+
+## npm run test:online  (real PostgreSQL 16 at 127.0.0.1:54329 — NOT Neon)
+# tests 56
+# pass 56
+# fail 0
+# skipped 0
+
+## npm run test:ui  (Playwright Chromium, real bundles)
+# tests 17
+# pass 17
+# fail 0
+# skipped 0
+
+## scripts/check-*  (source invariants)
+PASS  check-api-access.cjs
+PASS  check-api-routes.cjs
+PASS  check-clone-dashboard.cjs
+PASS  check-dashboard-metrics.cjs
+PASS  check-dynamic-module-access.cjs
+PASS  check-finance-mis.cjs
+PASS  check-financial-repair-tds.cjs
+PASS  check-funding-transfer.cjs
+PASS  check-grn.cjs
+PASS  check-moisture-data-api.cjs
+PASS  check-money-out.cjs
+PASS  check-multicompany-sync.cjs
+PASS  check-online-login-org.cjs
+PASS  check-release-safety.cjs
+PASS  check-security.cjs
+PASS  check-source.cjs
+PASS  check-sync-company-settings.cjs
+PASS  check-user-org-conflicts.cjs
+NOT APPLICABLE HERE  check-api-live.mjs  (needs a running server, a built ZIP, or an installed .env.local)
+PASS  check-database-bridge.mjs
+NOT APPLICABLE HERE  check-env.mjs  (needs a running server, a built ZIP, or an installed .env.local)
+PASS  check-import-schema.mjs
+NOT APPLICABLE HERE  check-release-package.mjs  (needs a running server, a built ZIP, or an installed .env.local)
+PASS  check-sync-id-mapping.mjs
+PASS  check-sync.mjs
+PASS  check-test-to-live-purge-fix.mjs
+PASS  check-transfers.mjs
+
+## scripts/check-grn.cjs in full (32 invariants, 12 new in v2.10.2)
+PASS the GRN endpoint never inserts a purchase, a payment or a ledger row
+PASS the purchase is created by the existing purchase endpoint from the reviewed values
+PASS the entry cannot be saved until the blocking points are resolved
+PASS a party is never created without the user confirming it
+PASS the rate unit is read from the bill, not assumed to be per kilogram
+PASS an unrecognised rate unit blocks instead of guessing
+PASS the GRN moisture percentage is never written as a rupee deduction
+PASS the moisture threshold is taken from the document, not invented
+PASS GSTIN and IFSC are validated, and a value that fails is not written into a record
+PASS the two pages are linked on the vehicle number, and a contradiction counts against the link
+PASS duplicates are detected by document, sample number, invoice and vehicle+date
+PASS every proposed field carries a confidence and the evidence behind it
+PASS recognition runs locally; the document is never sent to an external service
+PASS a missing recognition tool is reported by name instead of failing silently
+PASS the original document is optional and kept out of synchronisation
+PASS a document linked to a purchase cannot be discarded
+PASS the route declares its database access
+PASS the import is offered inside the Add Purchase modal, not only as a separate page
+PASS the wizard is a dialog in the same style as the Add Purchase modal
+PASS the wizard hands values back and never posts a purchase itself
+PASS only accepted fields are returned, and a field already typed is not ticked by default
+PASS Escape, Cancel and a backdrop click close the wizard
+PASS the whole document is reported, including pages that were not recognised
+PASS each field cites the page it came from
+PASS the response is normalised at the boundary, with a safe default draft
+PASS the crash path is gone: no unguarded result.draft.calculation anywhere
+PASS a password-protected PDF is named rather than reported as empty
+PASS the PDF is read in plain JavaScript, with no external tool and no new dependency
+PASS the built-in reader is the primary path, and poppler/tesseract are optional accelerators
+PASS the page count is the document's real one, never the scan limit
+PASS a text-layer PDF is read with no tool at all
+PASS a scanned page is produced as an image from the file itself, so the pages can always be read
+PASS recognition needs tesseract alone: the page image no longer requires poppler
+PASS an installed tool that is not on the PATH is still found
+PASS a document that could not be read is offered for manual entry instead of refused
+PASS a document that must be read by eye keeps its pages so they can be shown
+PASS nothing is proposed in manual entry: no field is ticked until it is typed
+PASS a PDF with no pages at all is still refused with its own reason
+PASS the manual-entry path still posts nothing
+GRN pipeline checks passed
+
+## The tool-less path, measured directly
+With SOLIVY_PDFTOTEXT / SOLIVY_PDFTOPPM / SOLIVY_TESSERACT all pointed at a path that does not
+exist and PATH emptied (tests/integration/grn-native.test.ts, 13 tests, all run against the real
+sample):
+  - the supplied scan reports page_count 2 (the earlier build reported 20, its own scan limit);
+  - both pages are produced as images straight from the file (image/jpeg, ffd8…, 369 155 and
+    367 149 bytes — the scanner's own full-resolution pages);
+  - the upload answers HTTP 200, manual_entry true, with a complete empty draft and the blocking
+    points PARTY_REQUIRED / REQUIRED_FIELDS / TRUCK_REQUIRED;
+  - GET /api/grn?id=…&page=1 answers 200 image/jpeg from the stored copy;
+  - /api/data still shows 0 purchases and 0 payments.
+With tesseract present but poppler absent (SOLIVY_PDFTOPPM and SOLIVY_PDFTOTEXT unset to a missing
+path), the same scan is recognised in full from its embedded images: sample 2627-22603, net weight
+21 262 kg, 375 bags, moisture 11.5 %, invoice 274, total 437 800, vehicle GJ04X5630 — identical to
+the poppler path. v2.10.1 could not recognise anything without poppler.

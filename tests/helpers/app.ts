@@ -38,7 +38,12 @@ export async function call(p: string, opts: CallOpts = {}): Promise<CallResult> 
     const mod = await routeModule(routePath);
     const handler = mod[method];
     if (!handler) return { status: 405, json: null, text: '', headers: new Headers(), bytes: 0, buffer: Buffer.alloc(0) };
-    const forwarded = new Request(url, { method, headers: mw.__requestHeaders || headers, body: opts.body instanceof FormData ? opts.body : body });
+    // A FormData body is re-encoded with a fresh boundary when the forwarded Request is built, so
+    // any content-type carried over from the first request would name the wrong boundary and the
+    // route's formData() would fail. Let the runtime set it.
+    const forwardedHeaders = new Headers(mw.__requestHeaders || headers);
+    if (opts.body instanceof FormData) forwardedHeaders.delete('content-type');
+    const forwarded = new Request(url, { method, headers: forwardedHeaders, body: opts.body instanceof FormData ? opts.body : body });
     res = await handler(forwarded);
   }
   const buf = Buffer.from(await res.arrayBuffer());

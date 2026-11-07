@@ -40,6 +40,12 @@ export type LinkNeed = {
   detail: string;
   gst?: string;
   pan?: string;
+  /**
+   * For an account, the bank and type the source recorded. Carried so the destination can create
+   * the same account here without retyping it — with its own opening balance, never the source's.
+   */
+  bank_name?: string;
+  account_type?: string;
   /** The column on the record, or the bundle this came from. */
   field: string;
   /** The source record's reference (sample/payment/receipt number), for the message. */
@@ -170,7 +176,7 @@ export function needsOf(payload: any, links: string[], ref: string): LinkNeed[] 
       const v = item?.links?.[k];
       if (!v) continue;
       if (k.includes('party')) add({ kind: 'party', name: str(v.name), detail: [str(v.gst), str(v.pan)].filter(Boolean).join(' · ') || 'no GST/PAN recorded', gst: str(v.gst), pan: str(v.pan), field: k, reference });
-      else add({ kind: 'account', name: str(v.account_name), detail: [str(v.account_type) || 'BANK', str(v.bank_name)].filter(Boolean).join(' · '), field: k, reference });
+      else add({ kind: 'account', name: str(v.account_name), detail: [str(v.account_type) || 'BANK', str(v.bank_name)].filter(Boolean).join(' · '), bank_name: str(v.bank_name), account_type: str(v.account_type) || 'BANK', field: k, reference });
     }
   }
   for (const group of payload?.accountingRows || []) {
@@ -185,7 +191,7 @@ export function needsOf(payload: any, links: string[], ref: string): LinkNeed[] 
 export function needFromLink(kind: 'party' | 'account', v: any, field: string, reference: string): LinkNeed {
   return kind === 'party'
     ? { kind, name: str(v?.name), detail: [str(v?.gst), str(v?.pan)].filter(Boolean).join(' · ') || 'no GST/PAN recorded', gst: str(v?.gst), pan: str(v?.pan), field, reference }
-    : { kind, name: str(v?.account_name), detail: [str(v?.account_type) || 'BANK', str(v?.bank_name)].filter(Boolean).join(' · '), field, reference };
+    : { kind, name: str(v?.account_name), detail: [str(v?.account_type) || 'BANK', str(v?.bank_name)].filter(Boolean).join(' · '), bank_name: str(v?.bank_name), account_type: str(v?.account_type) || 'BANK', field, reference };
 }
 
 /** The message for a need that could not be resolved, with the destination's choices attached. */
@@ -205,6 +211,8 @@ function distinct(needs: LinkNeed[]) {
       if (!seen.fields.includes(n.field)) seen.fields.push(n.field);
       if (!seen.gst && n.gst) seen.gst = n.gst;
       if (!seen.pan && n.pan) seen.pan = n.pan;
+      if (!seen.bank_name && n.bank_name) seen.bank_name = n.bank_name;
+      if (!seen.account_type && n.account_type) seen.account_type = n.account_type;
     } else by.set(key, { ...n, references: [n.reference], fields: [n.field] });
   }
   return [...by.values()];

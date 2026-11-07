@@ -1,5 +1,21 @@
 # Worklog
 
+## 2026-11-07 (later) — v2.12.3 revision: creating the missing account from the chooser
+The reported follow-up (`money_in`, `links_required: 2`, one unresolved) confirmed the fix behaving
+correctly: the **party resolved**; only the bank/cash account `Aksh Ent` (Union Bank) was missing in
+a destination holding one Kotak account. The remaining friction was that the chooser offered no way
+to create it, so the receiver had to leave the screen.
+
+**Added:** *Create "<name>" here instead* in the chooser — creates the account in the destination
+with the source's name, bank and type and a **zero opening balance of its own** (never the source's
+balance), then re-preflights so it resolves by name. Parties are deliberately NOT created this way:
+a vendor master carries GST, PAN and TDS settings that must be entered deliberately under Parties,
+and a source check holds that.
+
+`LinkNeed` now carries `bank_name` and `account_type` so the account can be recreated faithfully.
+Tests 9 and 10 cover the reported shape exactly and the create-then-accept path. Offline 188, 32
+transfer invariants.
+
 ## 2026-11-07 — v2.12.3 (inter-company transfer: the destination's account could not be chosen)
 **Baseline:** v2.12.2. Reported as `{"error":"Destination organization is missing mapped bank/cash
 account: Aksh Ent."}` from `POST /api/transfers` during an inter-company transfer.

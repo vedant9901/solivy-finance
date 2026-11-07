@@ -32,6 +32,9 @@ const checks=[
  ['the ledger bundle keeps matching parties by name alone',/identity\?: 'full' \| 'name'/.test(map)&&/identity === 'name'/.test(map)&&/identity:'name' as const/.test(api)],
  ['map entries are bounded and must be positive integers',/function sanitiseMaps/.test(api)&&/slice\(0,500\)/.test(api)&&/Number\.isSafeInteger\(id\)&&id>0/.test(api)],
  ['UI lets the receiver choose the matching record',/MAPPING_REQUIRED/.test(ui)&&/Accept with these choices/.test(ui)&&/Destination \$\{u\.kind\} for \$\{u\.name\}/.test(ui)],
+ ['UI can create a missing bank/cash account here, with a zero opening balance',/function createMissingAccount/.test(ui)&&/opening_balance:0/.test(ui)&&/Create "\{u\.name\}" here instead/.test(ui)],
+ ['UI never creates a party automatically',!/createMissingParty/.test(ui)&&/must be added under Parties first/.test(ui)],
+ ['the source bank name and type are carried so an account can be recreated',/bank_name\?: string;/.test(map)&&/account_type\?: string;/.test(map)],
  ['UI requires every link to be chosen before accepting',/\.some\(\(u:any\)=>!Number\(choice\[`\$\{u\.kind\}:\$\{u\.name\}`\]\|\|0\)\)/.test(ui)],
 ];
 let failed=0;for(const [name,ok] of checks){console.log(`${ok?'PASS':'FAIL'} ${name}`);if(!ok)failed++;}

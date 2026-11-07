@@ -51,6 +51,12 @@ spent by the refusal.
 to create the missing account first — but the response now carries `unresolved_links` and names
 what the destination cannot yet match, instead of leaving it to be discovered at acceptance.
 
+**Or create it here.** Where the destination simply does not have the account — the common case
+when the source's account is named after the sending organization — the chooser offers *Create
+"<name>" here instead*, which adds it with the name, bank and type the source recorded and **a zero
+opening balance of its own**, then re-checks. Parties are deliberately not created this way: a
+vendor master carries GST, PAN and TDS settings that must be entered deliberately under Parties.
+
 **A read-only preflight.** `{action:'preflight',transfer_id}` reports what an incoming transfer
 needs and what it could be given, writing nothing, so a transfer can be inspected before it is
 accepted.
@@ -80,10 +86,10 @@ Evidence: `docs/verification/test-run-2026-11-07-v2.12.3.txt`.
 | | Result |
 |---|---|
 | Typecheck | **PASS** — 0 errors |
-| Offline suite (SQLite) | **PASS** — 186/186 run, 0 failures, 15 skipped (below) |
+| Offline suite (SQLite) | **PASS** — 188/188 run, 0 failures, 15 skipped (below) |
 | Online suite (real PostgreSQL 16.15, through the bridge) | **PASS** — 58/58 |
 | Browser suite (Chromium) | **PASS** — 22/22 |
-| Source invariants | **PASS** — 22 scripts; `check-transfers.mjs` now 29 invariants (was 17) |
+| Source invariants | **PASS** — 22 scripts; `check-transfers.mjs` now 32 invariants (was 17) |
 | An unmatched account is reported as a choice, naming the record, the field and the destination's own accounts | **PASS** — offline and online |
 | A near match is suggested, never applied | **PASS** — the import is refused and nothing is posted |
 | The choice imports the records against the chosen account | **PASS** — payment and bank posting both follow it |
@@ -95,11 +101,15 @@ Evidence: `docs/verification/test-run-2026-11-07-v2.12.3.txt`.
 | Preflight writes nothing, and honours the map whatever case it is given in | **PASS** |
 | A third organization can neither inspect nor accept the transfer, and is shown no account list | **PASS** |
 | The choice is on the audit entry and the receipt | **PASS** |
+| The reported case: a `money_in` whose party exists but whose account does not | **PASS** — `links_required` 2 with exactly one unresolved, the account; the party matched |
+| The source's bank name and type are carried, so the account can be recreated here | **PASS** |
+| Creating the missing account here, then accepting, imports the receipt into it | **PASS** — and the new account keeps a zero opening balance, not the source's |
+| A party is never created automatically | **PASS** — held by a source check |
 | 15 offline tests skipped | **NOT RUN** — `tests/integration/grn-*.test.ts` need `SOLIVY_GRN_SAMPLE_PDF` / `SOLIVY_GRN_SAMPLE_PDF_MULTI`; the two sample PDFs are not present in this session. The committed masked OCR-text fixtures still run. Unchanged by this release |
 | `next build`, `next lint` | **NOT VERIFIED** — the npm registry is unreachable here, so Next.js 15.5.27 is not installed |
 | Neon | **NOT VERIFIED** — the online suite runs on a local PostgreSQL 16.15 |
 | Windows | **NOT VERIFIED** — no Windows machine |
-| Transfer types other than `payments` | **NOT VERIFIED** — the mapping is type-independent (it reads `TYPES[type].links`), and `purchases`, `money_in`, `account_movements`, `interest_payments`, `sales` and `funding_loans` go through the same resolver, but only `payments` is covered by a test |
+| Transfer types other than `payments` and `money_in` | **NOT VERIFIED** — the mapping is type-independent (it reads `TYPES[type].links`), and `purchases`, `account_movements`, `interest_payments`, `sales` and `funding_loans` go through the same resolver, but no test covers them |
 | Offline package / receipt round-trip with a map | **NOT VERIFIED** — `import-package` and `confirm-receipt` are unchanged, and the receipt's added `appliedMap` field is not compared by `confirm-receipt`, so verification is unaffected; no test exercises the offline route with a mapped acceptance |
 
 ## 4. Changed files
@@ -113,14 +123,18 @@ Evidence: `docs/verification/test-run-2026-11-07-v2.12.3.txt`.
   `appliedMap` on the audit entry and the receipt.
 - `app/page.tsx` — the receiving screen's chooser, the 409 handling, and *Accept with these
   choices*; every link must be chosen before the button enables.
-- `tests/integration/transfer-mapping.test.ts` — **new**, 8 tests (there were none for transfers).
+- `tests/integration/transfer-mapping.test.ts` — **new**, 10 tests (there were none for transfers).
 - `tests/online/bridge.test.ts` — the same path through the PostgreSQL bridge, 1 test.
-- `scripts/check-transfers.mjs` — 12 new invariants, 29 total.
+- `scripts/check-transfers.mjs` — 15 new invariants, 32 total.
 - `package.json`, `CHANGELOG.md`, `WORKLOG.md`, `ARCHITECTURE.md`, `RELEASE-STATUS.md`, this file.
 
 ## 5. If you hit this again
 
 On the receiving organization, open Inter-Company Data Transfer, press **Accept** on the incoming
 transfer, and the chooser lists what cannot be matched and what you have. Either pick the matching
-account there, or create the account first (Accounts → add, with the name you use) and press Accept
-again. The sender needs to do nothing, and nothing is renamed.
+account there, or press *Create "<name>" here instead* to add the source's account to this
+organization with a zero opening balance and accept. The sender needs to do nothing, and nothing is
+renamed.
+
+If the message says `links_required: 2` but lists only one unresolved link, the other one — usually
+the party — **did** match; only the one listed is blocking.

@@ -9,12 +9,14 @@ screen renders a chooser. A near match is suggested but **never applied automati
 is all-or-nothing, the sender is warned at send time, and the choice is recorded on the audit entry
 and the acceptance receipt. Identity matching, the ledger bundle's name-only party match and every
 financial calculation are unchanged (`TRANSFER-ACCOUNT-MAPPING-v2.12.3.md`, evidence
-`docs/verification/test-run-2026-11-07-v2.12.3.txt`: typecheck clean, 186 offline with 15 GRN tests
+`docs/verification/test-run-2026-11-07-v2.12.3.txt`: typecheck clean, 188 offline with 15 GRN tests
 skipped for want of the sample PDFs, 58 online on PostgreSQL 16.15 including the whole mapping path
-through the bridge, 22 browser, 22 source-check scripts with `check-transfers.mjs` at 29
-invariants — transfers previously had no tests at all). `next build`, `next lint`, Neon and Windows
-remain **NOT VERIFIED**; transfer types other than `payments` and the offline package route with a
-mapped acceptance are **NOT VERIFIED**.
+through the bridge, 22 browser, 22 source-check scripts with `check-transfers.mjs` at 32
+invariants — transfers previously had no tests at all). Where the destination simply lacks the
+account, it can be created from the chooser with a zero opening balance of its own; parties are
+never created automatically. `next build`, `next lint`, Neon and Windows remain **NOT VERIFIED**;
+transfer types other than `payments` and `money_in`, and the offline package route with a mapped
+acceptance, are **NOT VERIFIED**.
 
 ---
 

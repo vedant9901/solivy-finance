@@ -213,3 +213,59 @@ test('a third organization cannot inspect or accept the transfer', async () => {
     assert.ok(!/candidates/.test(r.text), `${action} leaks no account list to it`);
   }
 });
+
+// ---- 9-10: the reported case — a money_in received into an account the destination lacks --------
+
+/** A posted money-in receipt in the source, received into an account with the given name. */
+async function postedMoneyIn(cookie: string, companyId: number, accountName: string, bankName: string) {
+  const partyName = `Payer ${Math.random().toString(36).slice(2, 7)}`;
+  const party = app.expectOk(await app.call('/api/parties', { cookie, body: { name: partyName, contact: '9100000000' } }), 'party');
+  app.expectOk(await app.call('/api/accounts', { cookie, body: { account_name: accountName, bank_name: bankName, account_type: 'BANK', opening_balance: 250000, opening_date: '2026-04-01' } }), 'account');
+  const accountId = Number((db('LIVE', companyId).prepare('SELECT id FROM company_accounts WHERE account_name=? ORDER BY id DESC LIMIT 1').get(accountName) as any).id);
+  const r = app.expectOk(await app.call('/api/money-in', { cookie, body: { party_id: Number(party.id ?? party.partyId), receipt_date: '2026-06-14', amount: 5000, mode: 'NEFT', account_id: accountId } }), 'money in');
+  return { partyName, accountId, moneyInId: Number(r.id ?? r.money_in_id ?? r.receipt_id) };
+}
+
+test('a money_in whose party exists but whose account does not: only the account is unresolved', async () => {
+  const o = await twoOrgs();
+  const made = await postedMoneyIn(o.sourceCookie, o.source, 'Aksh Ent', 'Union Bank');
+  // The destination already holds the party — the reported situation — but banks elsewhere.
+  await mirrorParty(o, made.partyName);
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'VISHVANATH RADHESHYAM RAJPUT KARTA', bank_name: 'KOTAK MAHENDRA BANK LTD', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const created = app.expectOk(await app.call('/api/transfers', { cookie: o.sourceCookie, body: { action: 'create', destination_company_id: o.destination, type: 'money_in', ids: [made.moneyInId] } }), 'create money_in');
+
+  const r = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: String(created.transfer_id) } });
+  assert.equal(r.status, 409, r.text.slice(0, 200));
+  assert.equal(r.json.links_required, 2, 'the party and the account are both links');
+  assert.equal(r.json.unresolved.length, 1, `only one is unresolved — the party matched: ${JSON.stringify(r.json.unresolved.map((u: any) => u.name))}`);
+  const u = r.json.unresolved[0];
+  assert.equal(u.kind, 'account');
+  assert.equal(u.name, 'Aksh Ent');
+  assert.equal(u.bank_name, 'Union Bank', 'the source bank is carried, so it can be created here');
+  assert.equal(u.account_type, 'BANK');
+});
+
+test('creating the missing account here, then accepting, imports the receipt', async () => {
+  const o = await twoOrgs();
+  const made = await postedMoneyIn(o.sourceCookie, o.source, 'Aksh Ent', 'Union Bank');
+  await mirrorParty(o, made.partyName);
+  const created = app.expectOk(await app.call('/api/transfers', { cookie: o.sourceCookie, body: { action: 'create', destination_company_id: o.destination, type: 'money_in', ids: [made.moneyInId] } }));
+  const transferId = String(created.transfer_id);
+  const need = (await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'preflight', transfer_id: transferId } })).json.unresolved.find((u: any) => u.kind === 'account');
+
+  // What the chooser's "Create … here instead" does: the source's name, bank and type, zero opening.
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: need.name, bank_name: need.bank_name, account_type: need.account_type, opening_balance: 0, opening_date: '2026-11-07' } }), 'create here');
+  const after = app.expectOk(await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'preflight', transfer_id: transferId } }));
+  assert.equal(after.unresolved.length, 0, `it now resolves by name: ${JSON.stringify(after.unresolved)}`);
+  assert.equal(after.can_accept, true);
+
+  const accepted = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: transferId } });
+  assert.equal(accepted.status, 200, accepted.text.slice(0, 300));
+  const d = db('LIVE', o.destination);
+  const account = d.prepare('SELECT * FROM company_accounts WHERE account_name=?').get('Aksh Ent') as any;
+  assert.equal(String(account.bank_name), 'Union Bank', 'the account carries the source bank name');
+  assert.equal(Number(account.opening_balance), 0, "and its own zero opening balance, not the source's 250000");
+  const receipt = d.prepare('SELECT * FROM money_in ORDER BY id DESC LIMIT 1').get() as any;
+  assert.equal(Number(receipt.amount), 5000, 'the receipt was imported for the amount recorded');
+  assert.equal(Number(receipt.account_id), Number(account.id), 'into the account just created');
+});

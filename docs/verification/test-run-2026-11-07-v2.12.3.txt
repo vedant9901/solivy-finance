@@ -1,17 +1,16 @@
-SOLIVY Finance v2.12.3 — verification run
-UTC 2026-11-07T09:26:03Z
+SOLIVY Finance v2.12.3 — verification run (revised: create-here path added)
+UTC 2026-11-07T10:05:55Z
 
 ## typecheck
 exit 0 (0 errors)
 
 ## offline suite (SQLite)
-# tests 201
-# pass 186
+# tests 203
+# pass 188
 # fail 0
 # skipped 15
 NOTE: 15 skipped — tests/integration/grn-*.test.ts require SOLIVY_GRN_SAMPLE_PDF and
 SOLIVY_GRN_SAMPLE_PDF_MULTI; the two sample PDFs are not present in this session.
-The committed masked OCR-text fixtures still exercise row and line parsing on every run.
 
 ## online suite (real PostgreSQL)
 psql (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
@@ -26,9 +25,9 @@ psql (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
 # fail 0
 
 ## transfer source invariants
-Transfer source checks: 29/29 passed
+Transfer source checks: 32/32 passed
 
-## the new transfer tests, named
+## the transfer tests, named
 ok 1 - an account the destination does not have is reported as a choice, with its own accounts listed
 ok 2 - a near match is suggested but never applied on its own
 ok 3 - supplying the choice imports the records against the chosen account
@@ -37,3 +36,5 @@ ok 5 - a destination holding the same account name still accepts with no map, as
 ok 6 - creating a transfer reports what the destination cannot yet match
 ok 7 - preflight reports the choices without writing anything
 ok 8 - a third organization cannot inspect or accept the transfer
+ok 9 - a money_in whose party exists but whose account does not: only the account is unresolved
+ok 10 - creating the missing account here, then accepting, imports the receipt

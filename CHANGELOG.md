@@ -12,6 +12,9 @@ to any financial calculation. Details in `TRANSFER-ACCOUNT-MAPPING-v2.12.3.md`.
   unresolved link with the record and field that need it and every account (or candidate party) the
   organization actually has; the receiving screen renders a chooser, and *Accept with these choices*
   imports the transfer. Nothing is renamed in either organization.
+- Where the destination simply lacks the account, the chooser offers *Create "<name>" here instead*,
+  adding it with the source's name, bank and type and a **zero opening balance of its own**. Parties
+  are not created this way — a vendor master's GST, PAN and TDS settings must be entered deliberately.
 - **Nothing is guessed.** A near match ("AKSH ENTERPRISES" for "Aksh Ent.") is offered as a
   suggestion to confirm and is never applied on its own; a source check holds that in the code.
 - The import is **all or nothing**: every link is checked before the transaction opens, so a refusal
@@ -22,8 +25,8 @@ to any financial calculation. Details in `TRANSFER-ACCOUNT-MAPPING-v2.12.3.md`.
 - What was mapped is recorded on the `INTERCOMPANY_TRANSFER_ACCEPTED` audit entry and the acceptance
   receipt. Identity matching itself is unchanged, the ledger bundle still matches parties by name
   alone, and a map may not point outside the destination organization.
-- Transfers had **no tests**; there are now 8 offline and 1 online through the PostgreSQL bridge, and
-  `check-transfers.mjs` grew from 17 invariants to 29.
+- Transfers had **no tests**; there are now 10 offline and 1 online through the PostgreSQL bridge,
+  including the reported `money_in` case, and `check-transfers.mjs` grew from 17 invariants to 32.
 
 ## 2.12.2 — 2026-11-05 (advice: the commercial bill's treatment only; bags on the bills)
 Built on v2.12.1. No schema change, no new API route, no new network call, no sync change, no change

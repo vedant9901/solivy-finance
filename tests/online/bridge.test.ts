@@ -305,3 +305,61 @@ test('payment advice: moisture, deductions and the GRN threshold behave identica
   assert.equal(Number(after.total_deduction), Number(row.total_deduction));
   assert.equal(Number(after.net_payable), Number(row.net_payable));
 });
+
+/**
+ * v2.12.3: an inter-company transfer whose bank/cash account the destination holds under another
+ * name. The whole path — the read-only preflight, the refusal, and acceptance with the receiver's
+ * choice — runs through the PostgreSQL bridge here, because that is where it has to work.
+ */
+test('inter-company transfer: an unmatched account is a choice, and the choice imports online', { skip: SKIP }, async () => {
+  // Created through the API, because a direct admin-database write from a test is outside the
+  // bridge and would never reach PostgreSQL. Administration writes revoke sessions, so renew.
+  const destOrg = app.expectOk(await app.call('/api/companies', { cookie, body: { name: 'Online Destination', code: `XFER${Math.random().toString(36).slice(2, 6).toUpperCase()}` } }));
+  const destination = Number(destOrg.id);
+  cookie = await app.login('owner', 1, 'LIVE', 'Correct-Horse-Battery-9');
+  const username = `onlinexfer${Math.random().toString(36).slice(2, 7)}`;
+  app.expectOk(await app.call('/api/users', { cookie, body: { username, name: 'Xfer User', password: 'Correct-Horse-9', role: 'ADMIN', email: `${username}@example.test`, menu_access: [], assignments: [{ company_id: 1, can_live: true, can_test: false }, { company_id: destination, can_live: true, can_test: false }] } }));
+  cookie = await app.login('owner', 1, 'LIVE', 'Correct-Horse-Battery-9');
+  const sourceCookie = await app.login(username, 1, 'LIVE');
+  const destCookie = await app.login(username, destination, 'LIVE');
+
+  // Source: a party and a bank account named as the source organization names it.
+  const partyName = `Online Xfer Vendor ${Math.random().toString(36).slice(2, 6)}`;
+  const party = app.expectOk(await app.call('/api/parties', { cookie: sourceCookie, body: { name: partyName, contact: '9100000000' } }));
+  const partyId = Number(party.id ?? party.partyId);
+  app.expectOk(await app.call('/api/accounts', { cookie: sourceCookie, body: { account_name: 'Aksh Ent.', bank_name: 'HDFC', account_type: 'BANK', opening_balance: 500000, opening_date: '2026-04-01' } }));
+  const sourceAccounts = app.expectOk(await app.call('/api/accounts', { cookie: sourceCookie, method: 'GET' })).accounts;
+  const accountId = Number(sourceAccounts.find((a: any) => a.account_name === 'Aksh Ent.').id);
+  const pay = app.expectOk(await app.call('/api/payments', { cookie: sourceCookie, body: { party_id: partyId, payment_date: '2026-06-12', amount: 1000, mode: 'BANK', company_account_id: accountId } }));
+
+  // Destination: the same party, but its bank is recorded under a different name.
+  app.expectOk(await app.call('/api/parties', { cookie: destCookie, body: { name: partyName, contact: '9100000000' } }));
+  app.expectOk(await app.call('/api/accounts', { cookie: destCookie, body: { account_name: 'AKSH ENTERPRISES', bank_name: 'ICICI', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+
+  const sent = app.expectOk(await app.call('/api/transfers', { cookie: sourceCookie, body: { action: 'create', destination_company_id: destination, type: 'payments', ids: [Number(pay.id ?? pay.payment_id)] } }));
+  const transferId = String(sent.transfer_id);
+  assert.ok(sent.unresolved_links >= 1, `the sender is warned online too: ${JSON.stringify(sent)}`);
+
+  // Preflight: read-only, and it names the destination's own accounts.
+  const pre = app.expectOk(await app.call('/api/transfers', { cookie: destCookie, body: { action: 'preflight', transfer_id: transferId } }));
+  assert.equal(pre.can_accept, false);
+  const need = pre.unresolved.find((u: any) => u.kind === 'account');
+  assert.equal(need.name, 'Aksh Ent.');
+  assert.ok(need.candidates.some((c: any) => c.name === 'AKSH ENTERPRISES'), JSON.stringify(need.candidates));
+
+  // Accepting without a choice is refused, and nothing is imported.
+  const refused = await app.call('/api/transfers', { cookie: destCookie, body: { action: 'accept', transfer_id: transferId } });
+  assert.equal(refused.status, 409, refused.text.slice(0, 200));
+  assert.equal(app.expectOk(await app.call('/api/data', { cookie: destCookie })).payments.length, 0, 'no partial import');
+
+  // With the choice, it imports against the chosen account.
+  const chosen = Number(need.candidates.find((c: any) => c.name === 'AKSH ENTERPRISES').id);
+  const accepted = await app.call('/api/transfers', { cookie: destCookie, body: { action: 'accept', transfer_id: transferId, account_map: { 'Aksh Ent.': chosen } } });
+  assert.equal(accepted.status, 200, accepted.text.slice(0, 300));
+  const destPayments = app.expectOk(await app.call('/api/data', { cookie: destCookie })).payments;
+  assert.equal(destPayments.length, 1, 'exactly one payment was imported');
+  const imported = destPayments[0];
+  assert.equal(Number(imported.company_account_id), chosen, 'posted to the account the receiver chose');
+  assert.equal(Number(imported.amount), 1000);
+  assert.deepEqual(accepted.json.receipt.appliedMap?.accounts, { 'aksh ent.': chosen }, 'and the receipt records it');
+});

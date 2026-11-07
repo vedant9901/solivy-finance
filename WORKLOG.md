@@ -1,5 +1,49 @@
 # Worklog
 
+## 2026-11-07 — v2.12.3 (inter-company transfer: the destination's account could not be chosen)
+**Baseline:** v2.12.2. Reported as `{"error":"Destination organization is missing mapped bank/cash
+account: Aksh Ent."}` from `POST /api/transfers` during an inter-company transfer.
+
+**Root cause.** `remap()` in `app/api/transfers/route.ts` resolved a transfer's links by name:
+`SELECT id FROM company_accounts WHERE LOWER(TRIM(account_name))=LOWER(TRIM(?))`. The destination
+had no account literally named `Aksh Ent.`, so the import threw. Three things made it worse than a
+missing row: it threw at **accept**, after the transfer was created and PENDING; the message named
+neither the record, the field nor any account the destination holds; and no control existed to map
+a source account to a differently-named destination account, so the only remedy was renaming master
+data — and that account is named after the organization itself. The same name-only lookup appeared
+in four places (record links, the `account_transactions` bundle, the `ledger` bundle, the party
+identity match), each with its own message.
+
+**Facts established while inspecting:**
+- Matching was by name only; `bank_name` and `account_type` were captured by `linked()` and then
+  ignored by `remap()`.
+- The ledger bundle matched parties by **name alone**, unlike the record links, which require a GST
+  or PAN to agree as well. That difference is load-bearing and is preserved.
+- There were **no tests for transfers at all** (`tests/integration`, `tests/online`: none).
+- `scripts/check-transfers.mjs` existed with 17 source invariants, none about link resolution.
+- `app/api/funding/transfer/route.ts` already opens the destination database in the same request,
+  so preflighting the destination at create time follows an established pattern.
+
+**Done:** one resolver (`lib/transfers/mapping.ts`) for all four sites; an explicit
+`account_map`/`party_map` on accept, verified against the destination's own tables; a preflight
+before the import transaction so a refusal imports nothing and leaves the transfer PENDING; an
+error that names the record, the field, what is missing and what the organization has; a chooser on
+the receiving screen; `unresolved_links` on create; a read-only `preflight` action; the applied map
+on the audit entry and the receipt.
+
+**Deliberately not done:** no looser identity matching, no automatic selection of a near match (it
+is offered for confirmation only, and a source check keeps it that way), no change to the ledger
+bundle's name-only party match, no change to any financial figure.
+
+**Evidence:** `docs/verification/test-run-2026-11-07-v2.12.3.txt` — typecheck 0 errors; offline
+186/186 run with 0 failures (15 GRN tests skipped for want of the sample PDFs, which are not in
+this session); online 58/58 on real PostgreSQL 16.15 through the bridge, including the whole
+mapping path; browser 22/22; 22 source-check scripts, `check-transfers.mjs` 29/29.
+
+**Still not verified:** `next build` / `next lint` (npm registry unreachable), Neon, Windows,
+transfer types other than `payments` (the resolver is type-independent but only payments is
+tested), and the offline package / receipt route with a mapped acceptance.
+
 ## 2026-10-30 — v2.8.0 (SaaS redesign + sync fix)
 **Baseline:** v2.7.3. The request named v2.7.5, which does not exist in this repository.
 

@@ -1,0 +1,215 @@
+/**
+ * v2.12.3 — inter-company transfer: resolving parties and bank/cash accounts in the destination.
+ *
+ * The defect these tests lock down: a transfer carried its links **by name**, and the destination
+ * had to hold an account named character-for-character the same. Where it did not, the import
+ * failed at **accept** — after the transfer had been created and was sitting PENDING — with
+ *
+ *     Destination organization is missing mapped bank/cash account: Aksh Ent.
+ *
+ * which named no record, no field, and no account the destination actually has, and left the
+ * transfer stuck: the only way out was to rename master data in one of the two organizations.
+ *
+ * What is asserted here, and what deliberately is not:
+ *  - an unmatched link is reported as a choice to make, with the destination's own accounts listed,
+ *    and the transfer stays PENDING rather than failing permanently;
+ *  - supplying the choice imports the records, posting them to the chosen account;
+ *  - a near match ("AKSH ENTERPRISES" for "Aksh Ent.") is offered as a suggestion but is **never
+ *    applied on its own** — posting a payment to the wrong bank account silently is worse than
+ *    refusing to post it;
+ *  - a map may not point at a row outside the destination organization;
+ *  - nothing is imported when any link is unresolved — no partial import;
+ *  - the choice is recorded in the audit log and on the acceptance receipt.
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as app from '../helpers/app';
+import { db } from '../../lib/db';
+
+/** Two organizations, one user mapped to both, logged in at each. */
+async function twoOrgs() {
+  const source = await app.seedOrg({ companyName: 'Source Org' });
+  const destination = await app.seedOrg({ companyName: 'Destination Org' });
+  const username = `xfer_${Math.random().toString(36).slice(2, 8)}`;
+  await app.seedUser({ username, role: 'ADMIN', companies: [{ id: source, live: true, test: true }, { id: destination, live: true, test: true }] });
+  return {
+    source, destination, username,
+    sourceCookie: await app.login(username, source, 'LIVE'),
+    destCookie: await app.login(username, destination, 'LIVE'),
+  };
+}
+
+/** A posted payment in the source organization, paid from an account with the given name. */
+async function postedPayment(cookie: string, companyId: number, accountName: string) {
+  const partyName = `Vendor ${Math.random().toString(36).slice(2, 7)}`;
+  const party = app.expectOk(await app.call('/api/parties', { cookie, body: { name: partyName, contact: '9100000000', gst: '', pan: '' } }), 'party');
+  const partyId = Number(party.id ?? party.partyId);
+  app.expectOk(await app.call('/api/accounts', { cookie, body: { account_name: accountName, bank_name: 'HDFC', account_type: 'BANK', opening_balance: 500000, opening_date: '2026-04-01' } }), 'account');
+  const accountId = Number((db('LIVE', companyId).prepare('SELECT id FROM company_accounts WHERE account_name=? ORDER BY id DESC LIMIT 1').get(accountName) as any).id);
+  const pay = app.expectOk(await app.call('/api/payments', { cookie, body: { party_id: partyId, payment_date: '2026-06-12', amount: 1000, mode: 'BANK', company_account_id: accountId } }), 'payment');
+  return { partyId, accountId, paymentId: Number(pay.id ?? pay.payment_id), partyName };
+}
+
+/** Send the payment to the destination and return the transfer id plus the create response. */
+async function send(o: any, paymentId: number) {
+  const j = app.expectOk(await app.call('/api/transfers', { cookie: o.sourceCookie, body: { action: 'create', destination_company_id: o.destination, type: 'payments', ids: [paymentId] } }), 'create');
+  return { id: String(j.transfer_id), created: j };
+}
+
+/** Mirror the source's party in the destination, so only the account is left unresolved. */
+async function mirrorParty(o: any, name: string) {
+  app.expectOk(await app.call('/api/parties', { cookie: o.destCookie, body: { name, contact: '9100000000', gst: '', pan: '' } }), 'mirror party');
+}
+
+// ---- 1-2: the failure is a choice to make, and it names what is missing ------------------------
+
+test('an account the destination does not have is reported as a choice, with its own accounts listed', async () => {
+  const o = await twoOrgs();
+  const made = await postedPayment(o.sourceCookie, o.source, 'Aksh Ent.');
+  await mirrorParty(o, made.partyName);
+  // The destination keeps its bank under a different name, as a separate organization would.
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'AKSH ENTERPRISES', bank_name: 'ICICI', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const { id } = await send(o, made.paymentId);
+
+  const r = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: id } });
+  assert.equal(r.status, 409, `expected a mapping request, got ${r.status}: ${r.text.slice(0, 300)}`);
+  assert.equal(r.json.reason, 'MAPPING_REQUIRED');
+  const u = (r.json.unresolved || []).find((x: any) => x.kind === 'account');
+  assert.ok(u, `the unmatched account is reported: ${JSON.stringify(r.json.unresolved)}`);
+  assert.equal(u.name, 'Aksh Ent.', 'named as the source holds it');
+  assert.equal(u.field, 'company_account_id', 'and the field it fills is named');
+  assert.ok(u.references?.length, 'with the record that needs it');
+  assert.ok(u.candidates.some((c: any) => c.name === 'AKSH ENTERPRISES'), `the destination's own accounts are offered: ${JSON.stringify(u.candidates)}`);
+  // The message a person reads says what is missing and what is available.
+  assert.match(r.json.error, /Aksh Ent\./);
+  assert.match(r.json.error, /AKSH ENTERPRISES/);
+
+  // Nothing was imported, and the transfer is still acceptable once the choice is made.
+  const d = db('LIVE', o.destination);
+  assert.equal(Number((d.prepare('SELECT COUNT(*) n FROM payments').get() as any).n), 0, 'no payment was imported');
+  assert.equal(Number((d.prepare('SELECT COUNT(*) n FROM account_transactions').get() as any).n), 0, 'and no bank posting');
+  const list = app.expectOk(await app.call('/api/transfers', { cookie: o.destCookie, method: 'GET' }));
+  assert.equal(list.transfers.find((t: any) => t.id === id)?.status, 'PENDING', 'the transfer is not spent');
+});
+
+test('a near match is suggested but never applied on its own', async () => {
+  const o = await twoOrgs();
+  const made = await postedPayment(o.sourceCookie, o.source, 'Aksh Ent.');
+  await mirrorParty(o, made.partyName);
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'AKSH ENTERPRISES', bank_name: 'ICICI', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const { id } = await send(o, made.paymentId);
+
+  const r = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: id } });
+  assert.equal(r.status, 409, 'the near match did not silently import');
+  const u = (r.json.unresolved || []).find((x: any) => x.kind === 'account');
+  assert.equal(u.suggestion?.name, 'AKSH ENTERPRISES', 'it is offered as a suggestion');
+  assert.equal(Number((db('LIVE', o.destination).prepare('SELECT COUNT(*) n FROM payments').get() as any).n), 0, 'and nothing was posted to it');
+});
+
+// ---- 3: the choice resolves it, and the money lands on the chosen account ----------------------
+
+test('supplying the choice imports the records against the chosen account', async () => {
+  const o = await twoOrgs();
+  const made = await postedPayment(o.sourceCookie, o.source, 'Aksh Ent.');
+  await mirrorParty(o, made.partyName);
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'AKSH ENTERPRISES', bank_name: 'ICICI', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const { id } = await send(o, made.paymentId);
+  const d = db('LIVE', o.destination);
+  const chosen = Number((d.prepare("SELECT id FROM company_accounts WHERE account_name='AKSH ENTERPRISES'").get() as any).id);
+
+  const r = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: id, account_map: { 'Aksh Ent.': chosen } } });
+  assert.equal(r.status, 200, `accept with a map: ${r.text.slice(0, 300)}`);
+  assert.equal(r.json.status, 'ACCEPTED');
+
+  const imported = d.prepare('SELECT * FROM payments ORDER BY id DESC LIMIT 1').get() as any;
+  assert.ok(imported, 'the payment was imported');
+  assert.equal(Number(imported.company_account_id), chosen, 'against the account the receiver chose');
+  assert.equal(Number(imported.amount), 1000, 'for the amount the source recorded');
+  const posting = d.prepare('SELECT * FROM account_transactions ORDER BY id DESC LIMIT 1').get() as any;
+  if (posting) assert.equal(Number(posting.account_id), chosen, 'and the bank posting follows the same choice');
+
+  // The choice is auditable.
+  assert.deepEqual(r.json.receipt.appliedMap?.accounts, { 'aksh ent.': chosen }, 'the receipt records what was mapped');
+  const audit = d.prepare("SELECT details FROM audit_logs WHERE action='INTERCOMPANY_TRANSFER_ACCEPTED' ORDER BY id DESC LIMIT 1").get() as any;
+  assert.match(String(audit?.details || ''), /appliedMap/, 'and so does the audit log');
+});
+
+// ---- 4: a map cannot reach outside the destination organization --------------------------------
+
+test('a map pointing at an account this organization does not hold is refused', async () => {
+  const o = await twoOrgs();
+  const made = await postedPayment(o.sourceCookie, o.source, 'Aksh Ent.');
+  await mirrorParty(o, made.partyName);
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'ICICI Current', bank_name: 'ICICI', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const { id } = await send(o, made.paymentId);
+
+  // The source's own account id is meaningless in the destination; it must not be accepted blindly.
+  const r = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: id, account_map: { 'Aksh Ent.': 99999 } } });
+  assert.ok(r.status >= 400, `a map to a missing row is refused, got ${r.status}`);
+  assert.equal(Number((db('LIVE', o.destination).prepare('SELECT COUNT(*) n FROM payments').get() as any).n), 0, 'and nothing was imported');
+});
+
+// ---- 5: an exact name still resolves with no map at all (behaviour preserved) -------------------
+
+test('a destination holding the same account name still accepts with no map, as before', async () => {
+  const o = await twoOrgs();
+  const made = await postedPayment(o.sourceCookie, o.source, 'Shared Bank');
+  await mirrorParty(o, made.partyName);
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'Shared Bank', bank_name: 'HDFC', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const { id, created } = await send(o, made.paymentId);
+  assert.equal(created.unresolved_links, 0, 'and the sender was told there was nothing outstanding');
+
+  const r = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: id } });
+  assert.equal(r.status, 200, `an exact match needs no map: ${r.text.slice(0, 300)}`);
+  const imported = db('LIVE', o.destination).prepare('SELECT * FROM payments ORDER BY id DESC LIMIT 1').get() as any;
+  assert.equal(Number(imported.amount), 1000);
+});
+
+// ---- 6: the sender is told at send time, not left to discover it at acceptance -----------------
+
+test('creating a transfer reports what the destination cannot yet match', async () => {
+  const o = await twoOrgs();
+  const made = await postedPayment(o.sourceCookie, o.source, 'Aksh Ent.');
+  const { created } = await send(o, made.paymentId);
+  assert.equal(created.ok, true, 'the transfer is still created — the receiver may create the record first');
+  assert.ok(created.unresolved_links >= 1, `the gap is reported at send time: ${JSON.stringify(created)}`);
+  assert.match(created.message, /Aksh Ent\./, 'naming what is missing');
+});
+
+// ---- 7: preflight is read-only and answers before acceptance -----------------------------------
+
+test('preflight reports the choices without writing anything', async () => {
+  const o = await twoOrgs();
+  const made = await postedPayment(o.sourceCookie, o.source, 'Aksh Ent.');
+  await mirrorParty(o, made.partyName);
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'ICICI Current', bank_name: 'ICICI', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const { id } = await send(o, made.paymentId);
+  const d = db('LIVE', o.destination);
+  const before = Number((d.prepare('SELECT COUNT(*) n FROM payments').get() as any).n);
+
+  const r = app.expectOk(await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'preflight', transfer_id: id } }), 'preflight');
+  assert.equal(r.can_accept, false, 'it cannot be accepted as it stands');
+  assert.ok(r.links_required >= 1);
+  assert.ok(r.unresolved.some((u: any) => u.name === 'Aksh Ent.'));
+  assert.equal(Number((d.prepare('SELECT COUNT(*) n FROM payments').get() as any).n), before, 'and preflight wrote nothing');
+
+  // With the choice supplied, preflight says it can be accepted — before anything is imported.
+  const chosen = Number((d.prepare("SELECT id FROM company_accounts WHERE account_name='ICICI Current'").get() as any).id);
+  const ok = app.expectOk(await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'preflight', transfer_id: id, account_map: { 'aksh ent.': chosen } } }));
+  assert.equal(ok.can_accept, true, 'the map is honoured regardless of the case it is given in');
+  assert.equal(Number((d.prepare('SELECT COUNT(*) n FROM payments').get() as any).n), before, 'still nothing written');
+});
+
+// ---- 8: an organization may not preflight or accept another organization's transfer ------------
+
+test('a third organization cannot inspect or accept the transfer', async () => {
+  const o = await twoOrgs();
+  const made = await postedPayment(o.sourceCookie, o.source, 'Aksh Ent.');
+  const { id } = await send(o, made.paymentId);
+  const other = await app.adminSession('LIVE');
+  for (const action of ['preflight', 'accept']) {
+    const r = await app.call('/api/transfers', { cookie: other.cookie, body: { action, transfer_id: id } });
+    assert.ok(r.status >= 400, `${action} by an unrelated organization is refused, got ${r.status}`);
+    assert.ok(!/candidates/.test(r.text), `${action} leaks no account list to it`);
+  }
+});

@@ -93,6 +93,24 @@ from the conflict so a retry applies once.
   deletion is a no-op, a never-received record is restored, and an edit against a record deliberately
   deleted here is kept in the quarantine rather than resurrecting it.
 
+## Inter-company transfer link resolution (v2.12.3)
+- A transfer's payload carries its parties and bank/cash accounts **by name**, because ids are local
+  to an organisation. `lib/transfers/mapping.ts` is the single place those names are resolved in the
+  destination, used by `remap()` and by the `account_transactions` and `ledger` bundles alike.
+- `resolve` tries an explicit `account_map` / `party_map` the receiver supplied (each id verified to
+  exist in the destination's own tables, so a map cannot reach another organisation's rows), then
+  the application's existing identity match — an account by exact name, a record's party by name
+  plus an agreeing GST or PAN, a ledger row's party by name alone — and otherwise returns `null`. A
+  near match is offered as a **suggestion only**; nothing is ever selected automatically, because a
+  posting against the wrong bank account is worse than a refused import.
+- `preflight` runs the same resolution read-only and reports each unresolved link with the records
+  and fields that need it and the destination's own candidates. `accept` preflights before opening
+  its transaction, so an unresolved link imports nothing and leaves the transfer PENDING; `create`
+  preflights the destination and returns `unresolved_links` so the sender learns at send time.
+- What the receiver chose is recorded on the `INTERCOMPANY_TRANSFER_ACCEPTED` audit entry and on the
+  acceptance receipt (`appliedMap`). `scripts/check-transfers.mjs` holds the no-guessing rule, the
+  single-resolver rule and the ledger name-only distinction in the source.
+
 ## Clone engine (v2.9.0)
 - The online side stores the whole organisation SQLite file in PostgreSQL (page-aligned chunks), so a
   full clone is a verified snapshot transfer while incremental sync stays event-based: a hybrid.

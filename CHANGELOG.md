@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.12.3 — 2026-11-07 (inter-company transfer: choosing the destination's account)
+Built on v2.12.2. No schema change, no new API route, no new network call, no sync change, no change
+to any financial calculation. Details in `TRANSFER-ACCOUNT-MAPPING-v2.12.3.md`.
+- **Fixed: accepting a transfer failed with `Destination organization is missing mapped bank/cash
+  account: Aksh Ent.`** A transfer carried its parties and accounts by name and the destination had
+  to hold one named identically. It failed at acceptance — after the transfer was already PENDING —
+  naming no record, no field and no account the destination has, with no way out but renaming
+  master data.
+- The receiver now **chooses**. Acceptance returns HTTP 409 `MAPPING_REQUIRED` listing each
+  unresolved link with the record and field that need it and every account (or candidate party) the
+  organization actually has; the receiving screen renders a chooser, and *Accept with these choices*
+  imports the transfer. Nothing is renamed in either organization.
+- **Nothing is guessed.** A near match ("AKSH ENTERPRISES" for "Aksh Ent.") is offered as a
+  suggestion to confirm and is never applied on its own; a source check holds that in the code.
+- The import is **all or nothing**: every link is checked before the transaction opens, so a refusal
+  imports nothing and leaves the transfer PENDING and still acceptable.
+- `create` now reports `unresolved_links` and names what the destination cannot match, so the sender
+  learns at send time instead of at acceptance. A read-only `preflight` action reports the same
+  without writing anything.
+- What was mapped is recorded on the `INTERCOMPANY_TRANSFER_ACCEPTED` audit entry and the acceptance
+  receipt. Identity matching itself is unchanged, the ledger bundle still matches parties by name
+  alone, and a map may not point outside the destination organization.
+- Transfers had **no tests**; there are now 8 offline and 1 online through the PostgreSQL bridge, and
+  `check-transfers.mjs` grew from 17 invariants to 29.
+
 ## 2.12.2 — 2026-11-05 (advice: the commercial bill's treatment only; bags on the bills)
 Built on v2.12.1. No schema change, no new API route, no new network call, no sync change, no change
 to `purchaseCalc`. Details in `PAYMENT-ADVICE-MOISTURE-v2.12.2.md`.

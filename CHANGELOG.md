@@ -8,7 +8,18 @@ to any financial calculation. Details in `TRANSFER-ACCOUNT-MAPPING-v2.12.3.md`.
   to hold one named identically. It failed at acceptance — after the transfer was already PENDING —
   naming no record, no field and no account the destination has, with no way out but renaming
   master data.
-- The receiver now **chooses**. Acceptance returns HTTP 409 `MAPPING_REQUIRED` listing each
+- **The sender now nominates the destination's receiving account.** *Receive into (destination
+  account)* on the send screen lists the destination organization's own bank/cash accounts, and the
+  records are imported into the one chosen — **neither organization needs an account of the same
+  name**, the way a bank transfer names the receiving account. Preselected when the destination has
+  exactly one active account, so a money-in transfer goes through with no prompt on acceptance. It
+  applies to the record's account and its bank posting alike, outranks a coincidental name match,
+  and the receiving organization may still override it. Offered only for types linking one account;
+  `account_movements` (a from and a to) keeps the receiver's chooser. Recorded on the transfer, the
+  audit entry and the receipt.
+- `GET /api/transfers/destinations?accounts_for=<id>` serves one mapped destination's active
+  accounts, declared to the bridge with `extraFiles` so only that organization's file is loaded.
+- The receiver still **chooses** where no account was nominated. Acceptance returns HTTP 409 `MAPPING_REQUIRED` listing each
   unresolved link with the record and field that need it and every account (or candidate party) the
   organization actually has; the receiving screen renders a chooser, and *Accept with these choices*
   imports the transfer. Nothing is renamed in either organization.
@@ -25,8 +36,8 @@ to any financial calculation. Details in `TRANSFER-ACCOUNT-MAPPING-v2.12.3.md`.
 - What was mapped is recorded on the `INTERCOMPANY_TRANSFER_ACCEPTED` audit entry and the acceptance
   receipt. Identity matching itself is unchanged, the ledger bundle still matches parties by name
   alone, and a map may not point outside the destination organization.
-- Transfers had **no tests**; there are now 10 offline and 1 online through the PostgreSQL bridge,
-  including the reported `money_in` case, and `check-transfers.mjs` grew from 17 invariants to 32.
+- Transfers had **no tests**; there are now 16 offline and 2 online through the PostgreSQL bridge,
+  including the reported `money_in` case, and `check-transfers.mjs` grew from 17 invariants to 40.
 
 ## 2.12.2 — 2026-11-05 (advice: the commercial bill's treatment only; bags on the bills)
 Built on v2.12.1. No schema change, no new API route, no new network call, no sync change, no change

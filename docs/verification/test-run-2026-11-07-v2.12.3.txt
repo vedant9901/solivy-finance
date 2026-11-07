@@ -1,21 +1,21 @@
-SOLIVY Finance v2.12.3 — verification run (revised: create-here path added)
-UTC 2026-11-07T10:05:55Z
+SOLIVY Finance v2.12.3 — verification run (final: nominated receiving account)
+UTC 2026-11-07T10:38:24Z
 
 ## typecheck
 exit 0 (0 errors)
 
 ## offline suite (SQLite)
-# tests 203
-# pass 188
+# tests 209
+# pass 194
 # fail 0
 # skipped 15
-NOTE: 15 skipped — tests/integration/grn-*.test.ts require SOLIVY_GRN_SAMPLE_PDF and
-SOLIVY_GRN_SAMPLE_PDF_MULTI; the two sample PDFs are not present in this session.
+NOTE: 15 skipped — tests/integration/grn-*.test.ts need SOLIVY_GRN_SAMPLE_PDF and
+SOLIVY_GRN_SAMPLE_PDF_MULTI; those sample PDFs are not present in this session.
 
-## online suite (real PostgreSQL)
+## online suite (real PostgreSQL, through the bridge)
 psql (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
-# tests 58
-# pass 58
+# tests 59
+# pass 59
 # fail 0
 # skipped 0
 
@@ -25,7 +25,7 @@ psql (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
 # fail 0
 
 ## transfer source invariants
-Transfer source checks: 32/32 passed
+Transfer source checks: 40/40 passed
 
 ## the transfer tests, named
 ok 1 - an account the destination does not have is reported as a choice, with its own accounts listed
@@ -38,3 +38,9 @@ ok 7 - preflight reports the choices without writing anything
 ok 8 - a third organization cannot inspect or accept the transfer
 ok 9 - a money_in whose party exists but whose account does not: only the account is unresolved
 ok 10 - creating the missing account here, then accepting, imports the receipt
+ok 11 - a money_in sent with a nominated receiving account imports with no prompt at all
+ok 12 - the nomination outranks a same-named account in the destination
+ok 13 - the receiver may still override the nomination when accepting
+ok 14 - a nominated account must exist, be active, and belong to the destination
+ok 15 - account_movements links two accounts, so a single nomination is refused
+ok 16 - the destination account list is only served for a mapped destination

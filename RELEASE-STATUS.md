@@ -1,17 +1,18 @@
 # SOLIVY Finance v2.12.3 — Release verification report
 
 **Status: RELEASE CANDIDATE — NOT PRODUCTION-READY.** v2.12.3 fixes the inter-company transfer
-failure `Destination organization is missing mapped bank/cash account: Aksh Ent.` The destination's
-party or bank/cash account is now **chosen by the receiver** when its name does not match the
-source's: acceptance returns HTTP 409 `MAPPING_REQUIRED` listing each unresolved link with the
+failure `Destination organization is missing mapped bank/cash account: Aksh Ent.` The **sender now nominates the destination's receiving
+account** on the send screen, so a money-in or payment lands in the destination organization's own
+bank with neither side holding an account of the same name, and acceptance asks nothing; where no
+account was nominated the destination's party or account is **chosen by the receiver**: acceptance returns HTTP 409 `MAPPING_REQUIRED` listing each unresolved link with the
 record and field needing it and every account the organisation actually has, and the receiving
 screen renders a chooser. A near match is suggested but **never applied automatically**, the import
 is all-or-nothing, the sender is warned at send time, and the choice is recorded on the audit entry
 and the acceptance receipt. Identity matching, the ledger bundle's name-only party match and every
 financial calculation are unchanged (`TRANSFER-ACCOUNT-MAPPING-v2.12.3.md`, evidence
-`docs/verification/test-run-2026-11-07-v2.12.3.txt`: typecheck clean, 188 offline with 15 GRN tests
-skipped for want of the sample PDFs, 58 online on PostgreSQL 16.15 including the whole mapping path
-through the bridge, 22 browser, 22 source-check scripts with `check-transfers.mjs` at 32
+`docs/verification/test-run-2026-11-07-v2.12.3.txt`: typecheck clean, 194 offline with 15 GRN tests
+skipped for want of the sample PDFs, 59 online on PostgreSQL 16.15 including the whole mapping path
+through the bridge, 22 browser, 22 source-check scripts with `check-transfers.mjs` at 40
 invariants — transfers previously had no tests at all). Where the destination simply lacks the
 account, it can be created from the chooser with a zero opening balance of its own; parties are
 never created automatically. `next build`, `next lint`, Neon and Windows remain **NOT VERIFIED**;

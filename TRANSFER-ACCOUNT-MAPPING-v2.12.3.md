@@ -51,6 +51,22 @@ spent by the refusal.
 to create the missing account first — but the response now carries `unresolved_links` and names
 what the destination cannot yet match, instead of leaving it to be discovered at acceptance.
 
+**The sender nominates the receiving account.** This is the part that removes the question
+altogether, and it is what you asked for: on the send screen, *Receive into (destination account)*
+lists the destination organization's own bank/cash accounts, and the records are imported into the
+one chosen — **neither organization needs an account of the same name**. It works the way a bank
+transfer does: the sender says where the money is received. Where the destination has exactly one
+active account it is preselected (visibly, so it is confirmed rather than hunted for), so the
+reported case now goes through with one click and no prompt on acceptance at all.
+
+The nomination applies to the record's account **and** to its bank posting, so a money-in and its
+`account_transactions` row always point at the same account. It outranks a coincidental name match,
+because it was chosen deliberately for this transfer, and the receiving organization can still
+override it when accepting — the last word on its own books stays with it. It is offered only for
+record types that link **one** account (money-in, payments, interest payments, sales);
+`account_movements` has a from and a to, so which is which cannot be inferred and those keep the
+receiver's chooser. It is recorded on the transfer, the audit entry and the acceptance receipt.
+
 **Or create it here.** Where the destination simply does not have the account — the common case
 when the source's account is named after the sending organization — the chooser offers *Create
 "<name>" here instead*, which adds it with the name, bank and type the source recorded and **a zero
@@ -86,10 +102,10 @@ Evidence: `docs/verification/test-run-2026-11-07-v2.12.3.txt`.
 | | Result |
 |---|---|
 | Typecheck | **PASS** — 0 errors |
-| Offline suite (SQLite) | **PASS** — 188/188 run, 0 failures, 15 skipped (below) |
-| Online suite (real PostgreSQL 16.15, through the bridge) | **PASS** — 58/58 |
+| Offline suite (SQLite) | **PASS** — 194/194 run, 0 failures, 15 skipped (below) |
+| Online suite (real PostgreSQL 16.15, through the bridge) | **PASS** — 59/59 |
 | Browser suite (Chromium) | **PASS** — 22/22 |
-| Source invariants | **PASS** — 22 scripts; `check-transfers.mjs` now 32 invariants (was 17) |
+| Source invariants | **PASS** — 22 scripts; `check-transfers.mjs` now 40 invariants (was 17) |
 | An unmatched account is reported as a choice, naming the record, the field and the destination's own accounts | **PASS** — offline and online |
 | A near match is suggested, never applied | **PASS** — the import is refused and nothing is posted |
 | The choice imports the records against the chosen account | **PASS** — payment and bank posting both follow it |
@@ -105,6 +121,13 @@ Evidence: `docs/verification/test-run-2026-11-07-v2.12.3.txt`.
 | The source's bank name and type are carried, so the account can be recreated here | **PASS** |
 | Creating the missing account here, then accepting, imports the receipt into it | **PASS** — and the new account keeps a zero opening balance, not the source's |
 | A party is never created automatically | **PASS** — held by a source check |
+| A nominated receiving account imports a `money_in` with **no prompt at all** | **PASS** — offline and online through the bridge; the receipt and its bank posting both land on that account |
+| The nomination outranks a same-named account in the destination | **PASS** |
+| The receiver may override the nomination when accepting | **PASS** |
+| A nominated account must exist, be active and belong to the destination | **PASS** — a missing or negative id is refused and no transfer is created |
+| `account_movements` (two account links) refuses a single nomination | **PASS** |
+| The destination's account list is served only for a mapped destination | **PASS** — a user mapped only to the source is refused and shown no names |
+| Only the one destination organization's file is loaded, never every organization | **PASS** — declared with `extraFiles`; the online suite exercises it |
 | 15 offline tests skipped | **NOT RUN** — `tests/integration/grn-*.test.ts` need `SOLIVY_GRN_SAMPLE_PDF` / `SOLIVY_GRN_SAMPLE_PDF_MULTI`; the two sample PDFs are not present in this session. The committed masked OCR-text fixtures still run. Unchanged by this release |
 | `next build`, `next lint` | **NOT VERIFIED** — the npm registry is unreachable here, so Next.js 15.5.27 is not installed |
 | Neon | **NOT VERIFIED** — the online suite runs on a local PostgreSQL 16.15 |
@@ -121,14 +144,25 @@ Evidence: `docs/verification/test-run-2026-11-07-v2.12.3.txt`.
   all resolve through that module; `accept` preflights and accepts `account_map` / `party_map`;
   `create` reports `unresolved_links`; a read-only `preflight` action; `sanitiseMaps`;
   `appliedMap` on the audit entry and the receipt.
-- `app/page.tsx` — the receiving screen's chooser, the 409 handling, and *Accept with these
-  choices*; every link must be chosen before the button enables.
-- `tests/integration/transfer-mapping.test.ts` — **new**, 10 tests (there were none for transfers).
-- `tests/online/bridge.test.ts` — the same path through the PostgreSQL bridge, 1 test.
-- `scripts/check-transfers.mjs` — 15 new invariants, 32 total.
+- `app/api/transfers/destinations/route.ts` — `?accounts_for=<id>` returns one mapped destination's
+  active accounts, declared to the bridge with `extraFiles` so only that file is loaded.
+- `app/page.tsx` — *Receive into (destination account)* on the send screen (single-account types
+  only, preselected when the destination has exactly one); the receiving screen's chooser, the 409
+  handling, *Accept with these choices*, and *Create "<name>" here instead*.
+- `tests/integration/transfer-mapping.test.ts` — **new**, 16 tests (there were none for transfers).
+- `tests/online/bridge.test.ts` — the same paths through the PostgreSQL bridge, 2 tests.
+- `scripts/check-transfers.mjs` — 23 new invariants, 40 total.
 - `package.json`, `CHANGELOG.md`, `WORKLOG.md`, `ARCHITECTURE.md`, `RELEASE-STATUS.md`, this file.
 
-## 5. If you hit this again
+## 5. How to transfer a money-in now
+
+On the **sending** organization, open Inter-Company Data Transfer, choose *Money In / Receipts*, the
+destination organization, and the account in *Receive into (destination account)* — the destination
+organization's own bank. Select the receipts and send. The receiving organization presses **Accept**
+and nothing is asked: the receipts land in that account.
+
+If you leave *Receive into* unset, the old behaviour applies — the source account is matched by
+name, and the receiver chooses if it cannot be matched.
 
 On the receiving organization, open Inter-Company Data Transfer, press **Accept** on the incoming
 transfer, and the chooser lists what cannot be matched and what you have. Either pick the matching

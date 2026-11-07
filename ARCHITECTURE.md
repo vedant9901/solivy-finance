@@ -99,10 +99,18 @@ from the conflict so a retry applies once.
   destination, used by `remap()` and by the `account_transactions` and `ledger` bundles alike.
 - `resolve` tries an explicit `account_map` / `party_map` the receiver supplied (each id verified to
   exist in the destination's own tables, so a map cannot reach another organisation's rows), then
+  the **receiving account the sender nominated** on `create` (`destination_account_id`, stored on
+  the transfer as `accountNomination` keyed `*` so the record's account and its bank posting always
+  agree; it outranks the name match because it was chosen deliberately, and only types linking a
+  single account may use it — `account_movements` links a from and a to), then
   the application's existing identity match — an account by exact name, a record's party by name
   plus an agreeing GST or PAN, a ledger row's party by name alone — and otherwise returns `null`. A
   near match is offered as a **suggestion only**; nothing is ever selected automatically, because a
   posting against the wrong bank account is worse than a refused import.
+- `GET /api/transfers/destinations?accounts_for=<id>` serves one mapped destination's active
+  accounts so the sender can nominate one. Both transfer routes declare that single organisation's
+  file to the bridge with `extraFiles` rather than `scope:'all-mode'`, so one file is hydrated per
+  request instead of every organisation's.
 - `preflight` runs the same resolution read-only and reports each unresolved link with the records
   and fields that need it and the destination's own candidates. `accept` preflights before opening
   its transaction, so an unresolved link imports nothing and leaves the transfer PENDING; `create`

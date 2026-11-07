@@ -2,6 +2,7 @@ import fs from 'node:fs';
 const api=fs.readFileSync('app/api/transfers/route.ts','utf8');
 const ui=fs.readFileSync('app/page.tsx','utf8');
 const map=fs.readFileSync('lib/transfers/mapping.ts','utf8');
+const dest=fs.readFileSync('app/api/transfers/destinations/route.ts','utf8');
 const checks=[
  ['transfer API uses authenticated session company header',/const cid=\(r:Request\)=>Number\(r\.headers\.get\('x-aksh-company-id'\)/.test(api)],
  ['transfer API enforces source organization mapping',/authorized\(a,who,company,isAdmin,mode\(req\)\)/.test(api)],
@@ -35,6 +36,16 @@ const checks=[
  ['UI can create a missing bank/cash account here, with a zero opening balance',/function createMissingAccount/.test(ui)&&/opening_balance:0/.test(ui)&&/Create "\{u\.name\}" here instead/.test(ui)],
  ['UI never creates a party automatically',!/createMissingParty/.test(ui)&&/must be added under Parties first/.test(ui)],
  ['the source bank name and type are carried so an account can be recreated',/bank_name\?: string;/.test(map)&&/account_type\?: string;/.test(map)],
+ // v2.12.3: the sender nominates the destination's receiving account, so neither organization
+ // needs an account of the same name. One account per record type only, and never guessed.
+ ['the sender may nominate the destination receiving account',/destination_account_id/.test(api)&&/account_fields\?: Record<string, any>;/.test(map)],
+ ['a nomination is verified to exist and be active in the destination',/The chosen receiving account does not exist in the destination organization/.test(api)&&/is inactive in the destination organization/.test(api)],
+ ['a nomination is refused for a type linking more than one account',/accountLinks\(type\)\.length!==1/.test(api)],
+ ['a nomination outranks the name match but the receiver can override it',/f\[need\.field\] \?\? f\['\*'\]/.test(map)&&/\.\.\.fields,\.\.\.\(maps\.account_fields\|\|\{\}\)/.test(api)],
+ ['the nomination is recorded on the audit entry and the receipt',/receivingAccount:f/.test(api)],
+ ['destination accounts are served only for a mapped destination',/not mapped to that destination organization/.test(dest)&&/WHERE active=1 ORDER BY account_name/.test(dest)],
+ ['only the one destination file is declared, never every organization',/extraFiles:destinationFile/.test(api)&&!/scope:'all/.test(api)&&/extraFiles:\(req\)=>/.test(dest)],
+ ['UI lets the sender choose the receiving account, for single-account types only',/Receiving account at the destination organization/.test(ui)&&/accountLinkCount/.test(ui)&&/links two accounts \(from and to\)/.test(ui)],
  ['UI requires every link to be chosen before accepting',/\.some\(\(u:any\)=>!Number\(choice\[`\$\{u\.kind\}:\$\{u\.name\}`\]\|\|0\)\)/.test(ui)],
 ];
 let failed=0;for(const [name,ok] of checks){console.log(`${ok?'PASS':'FAIL'} ${name}`);if(!ok)failed++;}

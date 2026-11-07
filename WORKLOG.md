@@ -1,5 +1,30 @@
 # Worklog
 
+## 2026-11-07 (final) — v2.12.3: the sender nominates the destination's receiving account
+The brief, restated by the user: a money-in transferred to another organization must not require an
+identically named account — it should land in the **destination's** account, as the loan transfer
+does. Inspected `app/api/funding/transfer/route.ts`: the loan transfer never carries a bank posting
+at all (it inserts a fresh `funding_loans` row and lets `lender_party_id` be null), which is why it
+never hits this. A money-in does carry `account_id` plus its `account_transactions` posting, so a
+destination account is genuinely required — the fix is to let it be **chosen deliberately** rather
+than matched by name.
+
+**Added:** `destination_account_id` on `create`, verified to exist and be active in the destination,
+stored on the transfer as `accountNomination` keyed `*` so it covers the record's account and its
+bank posting alike. `resolve` consults it after an explicit receiver map and **before** the name
+match, so a deliberate choice beats a coincidental same-named account; the receiver can still
+override with `account_fields` on accept. Refused for `account_movements`, which links a from and a
+to that cannot be told apart from one id. `GET /api/transfers/destinations?accounts_for=<id>` serves
+one mapped destination's accounts, and *Receive into (destination account)* on the send screen
+preselects it when the destination has exactly one.
+
+**Bridge:** reading the destination's file online needs it declared. Used `extraFiles` (the v2.7.1
+narrow form) on both routes rather than `scope:'all-mode'` as the loan transfer does, so one
+organization's file is loaded, not every one — found by the online suite failing with
+`BRIDGE_SCOPE: 3/live.db is not loaded for this request`, which is exactly what that guard is for.
+
+Offline 194 (16 transfer tests), online 59 (2 transfer tests), 40 transfer invariants.
+
 ## 2026-11-07 (later) — v2.12.3 revision: creating the missing account from the chooser
 The reported follow-up (`money_in`, `links_required: 2`, one unresolved) confirmed the fix behaving
 correctly: the **party resolved**; only the bank/cash account `Aksh Ent` (Union Bank) was missing in

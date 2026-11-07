@@ -269,3 +269,103 @@ test('creating the missing account here, then accepting, imports the receipt', a
   assert.equal(Number(receipt.amount), 5000, 'the receipt was imported for the amount recorded');
   assert.equal(Number(receipt.account_id), Number(account.id), 'into the account just created');
 });
+
+// ---- 11-15: the sender nominates the receiving account at the destination ----------------------
+
+test('a money_in sent with a nominated receiving account imports with no prompt at all', async () => {
+  const o = await twoOrgs();
+  const made = await postedMoneyIn(o.sourceCookie, o.source, 'Aksh Ent', 'Union Bank');
+  await mirrorParty(o, made.partyName);
+  // The destination banks elsewhere and has no account of that name — the reported situation.
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'VISHVANATH RADHESHYAM RAJPUT KARTA', bank_name: 'KOTAK MAHENDRA BANK LTD', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const d = db('LIVE', o.destination);
+  const receiving = Number((d.prepare("SELECT id FROM company_accounts WHERE account_name='VISHVANATH RADHESHYAM RAJPUT KARTA'").get() as any).id);
+
+  // The sender says where it is received, as a bank transfer names the receiving account.
+  const created = app.expectOk(await app.call('/api/transfers', { cookie: o.sourceCookie, body: { action: 'create', destination_company_id: o.destination, type: 'money_in', ids: [made.moneyInId], destination_account_id: receiving } }), 'create');
+  assert.equal(created.unresolved_links, 0, `nothing left to choose: ${JSON.stringify(created)}`);
+  assert.equal(created.receiving_account, 'VISHVANATH RADHESHYAM RAJPUT KARTA', 'and the sender is told where');
+
+  const accepted = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: String(created.transfer_id) } });
+  assert.equal(accepted.status, 200, `accepted with no chooser: ${accepted.text.slice(0, 300)}`);
+  const receipt = d.prepare('SELECT * FROM money_in ORDER BY id DESC LIMIT 1') .get() as any;
+  assert.equal(Number(receipt.amount), 5000, 'the receipt was imported');
+  assert.equal(Number(receipt.account_id), receiving, "into the destination's own account");
+  const posting = d.prepare('SELECT * FROM account_transactions ORDER BY id DESC LIMIT 1').get() as any;
+  if (posting) assert.equal(Number(posting.account_id), receiving, 'and so was its bank posting — the same account, not two');
+  assert.deepEqual(accepted.json.receipt.appliedMap?.receivingAccount, { '*': receiving }, 'the nomination is on the receipt');
+  const audit = d.prepare("SELECT details FROM audit_logs WHERE action='INTERCOMPANY_TRANSFER_ACCEPTED' ORDER BY id DESC LIMIT 1").get() as any;
+  assert.match(String(audit?.details || ''), /receivingAccount/, 'and in the audit log');
+});
+
+test('the nomination outranks a same-named account in the destination', async () => {
+  const o = await twoOrgs();
+  const made = await postedMoneyIn(o.sourceCookie, o.source, 'Aksh Ent', 'Union Bank');
+  await mirrorParty(o, made.partyName);
+  // The destination has BOTH an identically-named account and the one the sender nominates.
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'Aksh Ent', bank_name: 'Union Bank', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'Kotak Current', bank_name: 'KOTAK', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const d = db('LIVE', o.destination);
+  const kotak = Number((d.prepare("SELECT id FROM company_accounts WHERE account_name='Kotak Current'").get() as any).id);
+
+  const created = app.expectOk(await app.call('/api/transfers', { cookie: o.sourceCookie, body: { action: 'create', destination_company_id: o.destination, type: 'money_in', ids: [made.moneyInId], destination_account_id: kotak } }));
+  assert.equal((await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: String(created.transfer_id) } })).status, 200);
+  const receipt = d.prepare('SELECT * FROM money_in ORDER BY id DESC LIMIT 1').get() as any;
+  assert.equal(Number(receipt.account_id), kotak, 'a deliberate choice beats a coincidental name match');
+});
+
+test('the receiver may still override the nomination when accepting', async () => {
+  const o = await twoOrgs();
+  const made = await postedMoneyIn(o.sourceCookie, o.source, 'Aksh Ent', 'Union Bank');
+  await mirrorParty(o, made.partyName);
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'First', bank_name: 'A', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'Second', bank_name: 'B', account_type: 'CASH', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const d = db('LIVE', o.destination);
+  const first = Number((d.prepare("SELECT id FROM company_accounts WHERE account_name='First'").get() as any).id);
+  const second = Number((d.prepare("SELECT id FROM company_accounts WHERE account_name='Second'").get() as any).id);
+
+  const created = app.expectOk(await app.call('/api/transfers', { cookie: o.sourceCookie, body: { action: 'create', destination_company_id: o.destination, type: 'money_in', ids: [made.moneyInId], destination_account_id: first } }));
+  const accepted = await app.call('/api/transfers', { cookie: o.destCookie, body: { action: 'accept', transfer_id: String(created.transfer_id), account_fields: { '*': second } } });
+  assert.equal(accepted.status, 200, accepted.text.slice(0, 200));
+  const receipt = d.prepare('SELECT * FROM money_in ORDER BY id DESC LIMIT 1').get() as any;
+  assert.equal(Number(receipt.account_id), second, "the receiving organization has the last word on its own books");
+});
+
+test('a nominated account must exist, be active, and belong to the destination', async () => {
+  const o = await twoOrgs();
+  const made = await postedMoneyIn(o.sourceCookie, o.source, 'Aksh Ent', 'Union Bank');
+  const body = (destination_account_id: any) => ({ action: 'create', destination_company_id: o.destination, type: 'money_in', ids: [made.moneyInId], destination_account_id });
+  // The source's own account id means nothing in the destination.
+  assert.ok((await app.call('/api/transfers', { cookie: o.sourceCookie, body: body(99999) })).status >= 400, 'a missing account is refused');
+  assert.ok((await app.call('/api/transfers', { cookie: o.sourceCookie, body: body(-1) })).status >= 400, 'a negative id is refused');
+  // Nothing was created by either refusal.
+  assert.equal(app.expectOk(await app.call('/api/transfers', { cookie: o.sourceCookie, method: 'GET' })).transfers.length, 0, 'no transfer was created');
+});
+
+test('account_movements links two accounts, so a single nomination is refused', async () => {
+  const o = await twoOrgs();
+  const made = await postedMoneyIn(o.sourceCookie, o.source, 'Aksh Ent', 'Union Bank');
+  app.expectOk(await app.call('/api/accounts', { cookie: o.destCookie, body: { account_name: 'Dest Bank', bank_name: 'A', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const target = Number((db('LIVE', o.destination).prepare("SELECT id FROM company_accounts WHERE account_name='Dest Bank'").get() as any).id);
+  const r = await app.call('/api/transfers', { cookie: o.sourceCookie, body: { action: 'create', destination_company_id: o.destination, type: 'account_movements', ids: [made.moneyInId], destination_account_id: target } });
+  assert.ok(r.status >= 400, 'refused rather than applying one account to both from and to');
+  assert.match(r.json.error, /two accounts|links 2/i, r.json.error);
+});
+
+// ---- 16: the sender may only see accounts of a destination it is mapped to ----------------------
+
+test('the destination account list is only served for a mapped destination', async () => {
+  const o = await twoOrgs();
+  const mine = await app.call('/api/transfers/destinations', { cookie: o.sourceCookie, method: 'GET', query: { accounts_for: String(o.destination) } });
+  assert.equal(mine.status, 200, mine.text.slice(0, 200));
+  assert.ok(Array.isArray(mine.json.accounts), 'a mapped destination returns its accounts');
+
+  // A user mapped only to the source may not read the destination's accounts. (An ADMIN may: that
+  // is the application's existing cross-organization rule, not something this change relaxes.)
+  const clerkName = `clerk_${Math.random().toString(36).slice(2, 8)}`;
+  await app.seedUser({ username: clerkName, role: 'DATA_ENTRY', companies: [{ id: o.source, live: true }], menu: ['dashboard'] });
+  const clerk = await app.login(clerkName, o.source, 'LIVE');
+  const theirs = await app.call('/api/transfers/destinations', { cookie: clerk, method: 'GET', query: { accounts_for: String(o.destination) } });
+  assert.ok(theirs.status >= 400, `an unmapped destination is refused, got ${theirs.status}: ${theirs.text.slice(0, 200)}`);
+  assert.ok(!/account_name/.test(theirs.text), 'and no account names are shown');
+});

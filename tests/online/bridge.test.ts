@@ -363,3 +363,43 @@ test('inter-company transfer: an unmatched account is a choice, and the choice i
   assert.equal(Number(imported.amount), 1000);
   assert.deepEqual(accepted.json.receipt.appliedMap?.accounts, { 'aksh ent.': chosen }, 'and the receipt records it');
 });
+
+/**
+ * v2.12.3: the sender nominates the destination's receiving account, so a money-in lands in the
+ * destination's own bank with neither organization holding an account of the same name — and the
+ * receiver is asked nothing. Through the PostgreSQL bridge, because that is where it has to work.
+ */
+test('inter-company money_in: the nominated destination account receives it, online', { skip: SKIP }, async () => {
+  const org = app.expectOk(await app.call('/api/companies', { cookie, body: { name: 'Online Receiver', code: `RCV${Math.random().toString(36).slice(2, 6).toUpperCase()}` } }));
+  const destination = Number(org.id);
+  cookie = await app.login('owner', 1, 'LIVE', 'Correct-Horse-Battery-9');
+  const who = `onlinercv${Math.random().toString(36).slice(2, 7)}`;
+  app.expectOk(await app.call('/api/users', { cookie, body: { username: who, name: 'Receiver User', password: 'Correct-Horse-9', role: 'ADMIN', email: `${who}@example.test`, menu_access: [], assignments: [{ company_id: 1, can_live: true, can_test: false }, { company_id: destination, can_live: true, can_test: false }] } }));
+  cookie = await app.login('owner', 1, 'LIVE', 'Correct-Horse-Battery-9');
+  const sourceCookie = await app.login(who, 1, 'LIVE');
+  const destCookie = await app.login(who, destination, 'LIVE');
+
+  const partyName = `Online Payer ${Math.random().toString(36).slice(2, 6)}`;
+  const party = app.expectOk(await app.call('/api/parties', { cookie: sourceCookie, body: { name: partyName, contact: '9100000000' } }));
+  app.expectOk(await app.call('/api/accounts', { cookie: sourceCookie, body: { account_name: 'Aksh Ent', bank_name: 'Union Bank', account_type: 'BANK', opening_balance: 250000, opening_date: '2026-04-01' } }));
+  const srcAccount = Number(app.expectOk(await app.call('/api/accounts', { cookie: sourceCookie, method: 'GET' })).accounts.find((a: any) => a.account_name === 'Aksh Ent').id);
+  const receipt = app.expectOk(await app.call('/api/money-in', { cookie: sourceCookie, body: { party_id: Number(party.id ?? party.partyId), receipt_date: '2026-06-14', amount: 5000, mode: 'NEFT', account_id: srcAccount } }));
+
+  // The destination holds the party but banks elsewhere entirely.
+  app.expectOk(await app.call('/api/parties', { cookie: destCookie, body: { name: partyName, contact: '9100000000' } }));
+  app.expectOk(await app.call('/api/accounts', { cookie: destCookie, body: { account_name: 'VISHVANATH RADHESHYAM RAJPUT KARTA', bank_name: 'KOTAK MAHENDRA BANK LTD', account_type: 'BANK', opening_balance: 0, opening_date: '2026-04-01' } }));
+  const receiving = Number(app.expectOk(await app.call('/api/accounts', { cookie: destCookie, method: 'GET' })).accounts.find((a: any) => a.account_name === 'VISHVANATH RADHESHYAM RAJPUT KARTA').id);
+
+  // The sender can see that account, and nominates it.
+  const listed = app.expectOk(await app.call('/api/transfers/destinations', { cookie: sourceCookie, method: 'GET', query: { accounts_for: String(destination) } }));
+  assert.ok(listed.accounts.some((a: any) => Number(a.id) === receiving), 'the destination account is offered to the sender');
+  const sent = app.expectOk(await app.call('/api/transfers', { cookie: sourceCookie, body: { action: 'create', destination_company_id: destination, type: 'money_in', ids: [Number(receipt.id ?? receipt.money_in_id ?? receipt.receipt_id)], destination_account_id: receiving } }));
+  assert.equal(sent.unresolved_links, 0, `nothing left to choose: ${JSON.stringify(sent)}`);
+
+  const accepted = await app.call('/api/transfers', { cookie: destCookie, body: { action: 'accept', transfer_id: String(sent.transfer_id) } });
+  assert.equal(accepted.status, 200, `no prompt was needed: ${accepted.text.slice(0, 300)}`);
+  const imported = app.expectOk(await app.call('/api/data', { cookie: destCookie })).moneyIn;
+  assert.equal(imported.length, 1, 'exactly one receipt imported');
+  assert.equal(Number(imported[0].amount), 5000);
+  assert.equal(Number(imported[0].account_id), receiving, "received into the destination's own account");
+});

@@ -67,8 +67,26 @@ export type Unresolved = LinkNeed & {
   suggestion: Candidate | null;
 };
 
-/** The explicit maps a destination user may supply: source name → destination row id. */
-export type TransferMaps = { account_map?: Record<string, any>; party_map?: Record<string, any> };
+/**
+ * The explicit choices available when importing.
+ *
+ *  - `account_map` / `party_map`: source **name** → destination row id, chosen by the receiver when
+ *    a name cannot be matched.
+ *  - `account_fields`: the **receiving account** the sender nominated when creating the transfer,
+ *    keyed by the record's link field, or by `*` for every account link of the record. This is what
+ *    makes a money-in or a payment land in the destination's own bank account without either
+ *    organization having to hold an account of the same name: the sender says where it is received,
+ *    exactly as a bank transfer names the receiving account. It is only offered for record types
+ *    with a single account link — `account_movements` has a from and a to, so which is which cannot
+ *    be inferred, and those fall back to the receiver's chooser.
+ *
+ * A nomination outranks the name match, because it was chosen deliberately for this transfer.
+ */
+export type TransferMaps = {
+  account_map?: Record<string, any>;
+  party_map?: Record<string, any>;
+  account_fields?: Record<string, any>;
+};
 
 const str = (v: any) => String(v ?? '').trim();
 
@@ -154,6 +172,17 @@ export function resolve(d: any, need: LinkNeed, maps?: TransferMaps): number | n
     const ok = verify(d, need.kind, explicit);
     if (ok === null) throw Error(`The ${need.kind === 'account' ? 'bank/cash account' : 'party'} chosen for "${need.name}" (#${explicit}) does not exist in this organization. Choose again; nothing was imported.`);
     return ok;
+  }
+  // The receiving account the sender nominated: by this exact field, else for every account link.
+  if (need.kind === 'account') {
+    const f = maps?.account_fields;
+    const raw = f && typeof f === 'object' ? (f[need.field] ?? f['*']) : undefined;
+    const id = Number(raw);
+    if (Number.isSafeInteger(id) && id > 0) {
+      const ok = verify(d, 'account', id);
+      if (ok === null) throw Error(`The receiving bank/cash account chosen for this transfer (#${id}) does not exist in this organization. Choose again; nothing was imported.`);
+      return ok;
+    }
   }
   if (!str(need.name)) return null;
   const found = need.kind === 'account'
